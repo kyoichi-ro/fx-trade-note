@@ -48,6 +48,25 @@ export const PAIR_MASTER = Object.freeze([
  */
 export const DEFAULT_FAVORITE_PAIRS = Object.freeze(PAIR_MASTER.slice(0, 6).map((p) => p.pair));
 
+/* ---------------------------------------------------------
+   選択肢の保存値 → 画面に出す日本語名（T-20 で詳細画面のために追加。design 14.1.5・14.2.6・14.4.4）
+   保存値（M15・newyork など）は変えず、表示だけここで日本語にする。T-16・T-18 の入力画面も同じ表を使う予定。
+   詳細画面ではセッションを略さない（入力画面のセグメントでは幅の都合で「NY」と略す：design 14.1.5）。
+   --------------------------------------------------------- */
+
+export const SESSION_LABELS = Object.freeze({ tokyo: '東京', london: 'ロンドン', newyork: 'ニューヨーク', other: 'その他' });
+
+export const TIMEFRAME_LABELS = Object.freeze({
+  M1: '1分', M5: '5分', M15: '15分', M30: '30分', H1: '1時間', H4: '4時間', D1: '日足', W1: '週足',
+});
+
+export const EXIT_REASON_LABELS = Object.freeze({
+  tp: 'TP到達', sl: 'SL到達', manual: '裁量決済', breakeven: '建値決済', other: 'その他',
+});
+
+/** 損益の算出方法（profitSource）。手入力は「業者の確定値で上書きした」ことが分かる言い方にする（design 14.4.4） */
+export const PROFIT_SOURCE_LABELS = Object.freeze({ auto: '自動計算', manual: '手入力（業者の確定値）' });
+
 /**
  * 判定ルールと異なる pip単位を使うペアの例外表（現時点では空。fx-rules 10.4・10.7）。
  * 例：{ 'USD/XXX': { pipSize: 0.01, priceDecimals: 3, maxInputDecimals: 3, pointScale: 1000 } }

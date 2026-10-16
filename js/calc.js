@@ -77,6 +77,19 @@ export function calcPips(t) {
 }
 
 /**
+ * 取引数量（通貨数）= lots × lotUnitSize（fx-rules 4.1）。詳細画面の「数量」に使う。
+ * 0.07 × 10000 を直接掛けると 700.0000000000001 になるため、ロットを100倍した整数（toLotsX100）で掛けてから100で割る。
+ * lotUnitSize は「記録時の1lot」（requirements 6.1）。どちらかが空・数値でないときは null。
+ * @param {number|null|undefined} lots
+ * @param {number|null|undefined} lotUnitSize
+ * @returns {number|null}
+ */
+export function calcQuantity(lots, lotUnitSize) {
+  if (isBlank(lots) || isBlank(lotUnitSize) || !Number.isFinite(lots) || !Number.isFinite(lotUnitSize)) return null;
+  return (toLotsX100(lots) * lotUnitSize) / 100;
+}
+
+/**
  * BigInt の割り算を「0から遠い方へ四捨五入」する（fx-rules 6.2・6.4）。
  * 例：15 / 10 → 2、-15 / 10 → -2、14 / 10 → 1。
  * @param {bigint} num 割られる数

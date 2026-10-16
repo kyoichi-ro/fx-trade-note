@@ -3,6 +3,7 @@
    画面表示用の整形（docs/architecture.md 4.2）。
 
    【T-13】通貨ペアの表示桁で価格を表示する formatPrice()（fx-rules 10.7 の参照実装）。
+   【T-20 で追加】formatPipsDistance・formatQuantity・formatLotUnit・formatDuration（保有時間）・formatShortDateTime（詳細画面と確認シート）。
    【T-19 で追加】円（＋2,500円 / −1,885円 / ±0円）・pips（＋25.0 pips）・ロット・日時（10/15(木) 21:30）の整形。
      記号の決まりは design.md 6.3 が正：プラスは全角の「＋」、マイナスは「−」（U+2212）、ゼロは「±0」。
      この記号は表示だけに使う。入力値・CSV・保存データには使わない（数値として読めなくなるため）。
@@ -96,6 +97,18 @@ export function formatPips(pips) {
 }
 
 /**
+ * 値幅としての pips（符号なし）。例：20 → '20.0 pips'、-40.04 → '40.0 pips'。値がなければ '—'。
+ * 詳細画面の「損切り 20.0 pips・利確 40.0 pips」のように、利益・損失ではなく「エントリーからの距離」を示すときに使う。
+ * @param {number|null|undefined} pips
+ * @returns {string}
+ */
+export function formatPipsDistance(pips) {
+  if (pips == null || !Number.isFinite(pips)) return '—';
+  const abs = Math.abs(toTenths(pips));
+  return `${withCommas(Math.floor(abs / 10))}.${abs % 10} pips`;
+}
+
+/**
  * ロットの表示（余計な0を付けない）。例：0.5 → '0.5lot'、1 → '1lot'、0.07 → '0.07lot'。値がなければ '—'。
  * 0.1+0.2 のような誤差（0.30000000000000004）が見えないよう、小数第6位で丸めてから末尾の0を取る。
  * @param {number|null|undefined} lots
@@ -105,6 +118,46 @@ export function formatLots(lots) {
   if (lots == null || !Number.isFinite(lots)) return '—';
   const text = lots.toFixed(6).replace(/\.?0+$/, '');
   return `${text}lot`;
+}
+
+/**
+ * 取引数量（通貨数）の表示。例：5000 → '5,000通貨'。値がなければ '—'。
+ * 小数が残るのは「1lotが1通貨」のような特殊な設定のときだけなので、その場合は小数第2位まで見せる（切り捨てて嘘にしない）。
+ * @param {number|null|undefined} quantity
+ */
+export function formatQuantity(quantity) {
+  if (quantity == null || !Number.isFinite(quantity)) return '—';
+  const rounded = Math.round(quantity * 100) / 100;
+  const [int, frac] = String(Math.abs(rounded)).split('.');
+  return `${rounded < 0 ? MINUS : ''}${withCommas(int)}${frac ? `.${frac}` : ''}通貨`;
+}
+
+/**
+ * 1lot の通貨数の表示（カンマ区切り）。例：10000 → '10,000'。値がなければ '—'。
+ * @param {number|null|undefined} unit
+ */
+export function formatLotUnit(unit) {
+  if (unit == null || !Number.isFinite(unit)) return '—';
+  return withCommas(Math.round(unit));
+}
+
+/**
+ * 保有時間の表示（design 6.3・14.4.4）。分の差を渡す。秒は切り捨てる。
+ *   1分未満 → '1分未満'、60分未満 → '25分'、1日未満 → '1時間35分'（ちょうどなら '2時間'）、
+ *   1日以上 → '3日4時間'（ちょうどなら '3日'）。1日以上では分は出さない。
+ * 値がない・マイナス（決済日時がエントリーより前という壊れた記録）は '—'。
+ * @param {number|null|undefined} minutes diffMinutes() の結果
+ */
+export function formatDuration(minutes) {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return '—';
+  const total = Math.floor(minutes);
+  if (total < 1) return '1分未満';
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const mins = total % 60;
+  if (days > 0) return hours > 0 ? `${days}日${hours}時間` : `${days}日`;
+  if (hours > 0) return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
+  return `${mins}分`;
 }
 
 /* ---------------------------------------------------------
@@ -139,6 +192,20 @@ export function formatDateTime(value, now = new Date()) {
   const today = jstParts(now);
   const date = today && today.year === p.year ? `${p.month}/${p.day}` : `${p.year}/${p.month}/${p.day}`;
   return `${date}(${WEEKDAYS[p.weekday]}) ${pad2(p.hour)}:${pad2(p.minute)}`;
+}
+
+/**
+ * 月/日 時:分（曜日なし）。例：'10/15 21:30'。今年以外は年も付ける：'2025/12/30 09:00'。
+ * 確認シートの「本番 USD/JPY ▲買い 10/15 21:30 の記録」に使う（design 14.7.4）。読めない日時は '—'。
+ * @param {Date|string} value
+ * @param {Date} [now]
+ */
+export function formatShortDateTime(value, now = new Date()) {
+  const p = jstParts(value);
+  if (!p) return '—';
+  const today = jstParts(now);
+  const date = today && today.year === p.year ? `${p.month}/${p.day}` : `${p.year}/${p.month}/${p.day}`;
+  return `${date} ${pad2(p.hour)}:${pad2(p.minute)}`;
 }
 
 /**

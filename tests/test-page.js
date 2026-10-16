@@ -26,6 +26,8 @@ const CATEGORY_INFO = {
   '表示の整形': 'design 6.3・14.3.4・14.3.8（FM＝format.js）。円（＋2,500円・−1,885円・±0円）・pips・ロット・日時・下書きの時刻の表示',
   '一覧': 'analytics 4.6・4.7・4.11、design 14.3.4〜14.3.6（LV＝filter.js）。並び順・決済日の見出し・本番/デモ別のサマリー・日計・'
     + '「最初の約50件→続き」の切り出し。絞り込み条件つきの L-02〜L-27 は T-23 で足す',
+  '詳細画面': 'design 14.4（DV＝detail-view.js・calc.js の calcQuantity）。見出し・全項目の表示・未入力の「—」・保有時間・数量・'
+    + 'リスクリワードの 2 行目・円換算レート・手入力のときの参考損益・保有中/決済済みの出し分け・メモ・壊れたデータ',
 };
 
 function renderSummary(el, { total, passed, failed }) {

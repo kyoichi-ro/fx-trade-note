@@ -4,6 +4,7 @@
    ・円：＋2,500円 / −1,885円 / ±0円（プラスは全角の＋、マイナスは U+2212、ゼロは ±）
    ・pips：＋25.0 pips / −37.7 pips / ±0.0 pips。-0.0 と出さない
    ・ロット：余計な0を付けない
+   ・保有時間・数量・値幅の pips・確認シート用の日時（T-20：FM-16〜FM-18）
    ・日時：10/15(木) 21:30、今年以外は 2025/12/30(火) 09:00、見出し 10月15日（木）、下書きの時刻
    IndexedDB・localStorage を使わないので、Node.js でもブラウザでも実行する。
 
@@ -12,6 +13,7 @@
 import {
   formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime, formatDateHeading, formatDraftTime,
   toneOf, toTenths, speakYen, speakPips, speakDateTime,
+  formatDuration, formatQuantity, formatLotUnit, formatPipsDistance, formatShortDateTime,
 } from '../js/format.js';
 import { show } from './helpers.js';
 
@@ -130,6 +132,31 @@ export function collectFormatTests() {
         ['円', [speakYen(2500), speakYen(-1885), speakYen(0), speakYen(null)].join('・') === 'プラス2,500円・マイナス1,885円・0円・未確定', speakYen(-1885)],
         ['pips', [speakPips(25), speakPips(-37.7), speakPips(0)].join('・') === 'プラス25.0 pips・マイナス37.7 pips・0.0 pips', speakPips(-37.7)],
         ['日時', speakDateTime('2026-10-15T10:30:00+09:00', NOW) === '10月15日 10時30分', speakDateTime('2026-10-15T10:30:00+09:00', NOW)],
+      ])),
+
+    t('FM-16', '保有時間：分 → 「25分」「1時間35分」「3日4時間」。ちょうどなら単位を省く。1分未満・マイナス・空', '95・25・120・1440・3日4時間10分・0.5・-5・null',
+      "'1時間35分'・'25分'・'2時間'・'1日'・'3日4時間'・'1分未満'・'—'・'—'",
+      () => table(formatDuration, [
+        [95, '1時間35分'], [25, '25分'], [120, '2時間'], [1440, '1日'], [3 * 1440 + 4 * 60 + 10, '3日4時間'],
+        [60, '1時間'], [59.9, '59分'], [0.5, '1分未満'], [-5, '—'], [null, '—'], [NaN, '—'],
+      ])),
+
+    t('FM-17', '数量とカンマ区切り：「5,000通貨」「1lot＝10,000」', '5000・1250000・0.07・null／10000・100000',
+      "'5,000通貨'・'1,250,000通貨'・'0.07通貨'・'—'／'10,000'・'100,000'",
+      () => verdict([
+        ...[[5000, '5,000通貨'], [1250000, '1,250,000通貨'], [0.07, '0.07通貨'], [700.0000000000001, '700通貨'], [null, '—']]
+          .map(([v, want]) => [`${show(v)} → ${want}`, formatQuantity(v) === want, formatQuantity(v)]),
+        ...[[10000, '10,000'], [100000, '100,000'], [1, '1'], [null, '—']]
+          .map(([v, want]) => [`1lot ${show(v)} → ${want}`, formatLotUnit(v) === want, formatLotUnit(v)]),
+      ])),
+
+    t('FM-18', '値幅の pips（符号なし）と確認シート用の日時', '20・-40.04・null／10/15 21:30・2025/12/30 09:00',
+      "'20.0 pips'・'40.0 pips'・'—'／'10/15 21:30'・'2025/12/30 09:00'",
+      () => verdict([
+        ...[[20, '20.0 pips'], [-40.04, '40.0 pips'], [0, '0.0 pips'], [null, '—']]
+          .map(([v, want]) => [`${show(v)} → ${want}`, formatPipsDistance(v) === want, formatPipsDistance(v)]),
+        ...[['2026-10-15T21:30:00+09:00', '10/15 21:30'], ['2025-12-30T09:00:00+09:00', '2025/12/30 09:00'], ['x', '—']]
+          .map(([v, want]) => [`${show(v)} → ${want}`, formatShortDateTime(v, NOW) === want, formatShortDateTime(v, NOW)]),
       ])),
   ];
 }
