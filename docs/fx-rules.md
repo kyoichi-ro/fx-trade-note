@@ -150,6 +150,7 @@
 - **再計算のタイミング**：`pair`・`side`・`entryPrice`・`exitPrice`・`lots`・`quoteToJpyRate`・`slPrice`・`tpPrice`・`accountType`（下記の `lotUnitSize` の取り直しを伴う）のいずれかが変わったとき、pips・損益（`auto` のときのみ）・RR を再計算する。
 - **`lotUnitSize`**：記録時点の値を使う。設定画面で1lotの通貨数を変えても、既存の記録は再計算しない。
 - **編集で口座区分（`accountType`）を変えたとき**（2026-10-15 決定）：口座区分の変更は入力ミスの修正と考えられるため、`lotUnitSize` を**変更先の口座区分の現在の設定値でコピーし直し**、`profitSource = auto` の記録は損益（円）を再計算する。**`profitSource = manual`（業者の確定値で上書き）の記録は `profitJpy` を書き換えない**（4.4 の「manual は自動で書き換えない」と同じ扱い）。値が変わるときは画面で「1lotの通貨数を 10,000 → 100,000 に変更しました」のように知らせる（architecture 8章）。保存前に**元の口座区分に戻した場合は、`lotUnitSize` も記録時の値に戻す**（押し間違いを元どおりにするため。design 14.5.3）。
+- **編集で通貨ペアを変え、決済通貨が変わるとき**（2026-10-16 T-22 確認で追加した**提案・未決定**。オーナー判断待ち）：`quoteToJpyRate` は「決済通貨/JPY」のレートなので、EUR/USD（USD/JPY）→ EUR/GBP（GBP/JPY）のように `quoteToJpyPair` が変わると、古いレートは別の通貨のレートになる。そのまま自動計算に使うと損益（円）が誤る。推奨：`quoteToJpyPair` が変わったら円換算レート欄を空にして（`profitSource = auto` なら E-11 で入力を促す）、手入力の損益は書き換えない。JPY ⇔ 非JPY の変更は、JPYペアのとき保存値を `null` にする（4.3）ので現状のままでよい。
 - **保有中（`open`）の記録**：`pips`・`profitJpy`・`profitSource` は空（`null`）。RR はエントリー時点で計算できる。
 - **計算に必要な値が空のとき（2026-10-16 オーナー決定・14.2 #5）**：`calcPips`・`calcProfitJpy` は、必要な値が空（`null`・`undefined`＝未入力）なら意味のない値を返さず**空（`null`）を返す**。保有中の記録や、入力途中の画面（決済価格をまだ入れていない等）で呼んでも安全にするため。
   - 「必要な値」：`calcPips` は `pair`・`side`・`entryPrice`・`exitPrice`。`calcProfitJpy` はそれに加えて `lots`・`lotUnitSize`（非JPYペアは `quoteToJpyRate` も。これは従来どおり空なら `null`）。
