@@ -10,7 +10,7 @@
      設定に余計なキーを増やさずに済む。
    ・【注意】一度公開した判定ルール・pip単位は変えない（fx-rules 10.4）。
      変えると、編集時の再計算で過去の記録の pips が変わってしまうため。
-   ・時間足・決済理由などの選択肢と表示名、根拠・感情・タグの初期値は T-16 でこのファイルに追加する。
+   ・選択肢の表示名（時間足・決済理由など）と、根拠・感情・タグの初期値（T-16 で settings-store.js から移した）もここに置く。
    ========================================================= */
 
 /**
@@ -47,6 +47,33 @@ export const PAIR_MASTER = Object.freeze([
  * 高金利通貨（ZAR/JPY・MXN/JPY・TRY/JPY）は、オーナーが取引しないため含めない（fx-rules 14章 #7）。
  */
 export const DEFAULT_FAVORITE_PAIRS = Object.freeze(PAIR_MASTER.slice(0, 6).map((p) => p.pair));
+
+/* ---------------------------------------------------------
+   選択肢の編集（T-16。design 14.6.3・14.6.4）
+   --------------------------------------------------------- */
+
+/** 選択肢の編集画面の種類（URL #/settings/choices/{kind}：architecture 5.1。router.js もここを見る） */
+export const CHOICE_KINDS = Object.freeze(['pairs', 'entryReasons', 'emotions', 'tags']);
+
+/** 種類ごとの画面名（設定画面の行の名前と同じ：design 14.6.3） */
+export const CHOICE_KIND_LABELS = Object.freeze({
+  pairs: 'よく使う通貨ペア',
+  entryReasons: 'エントリー根拠',
+  emotions: '感情',
+  tags: 'タグ',
+});
+
+/**
+ * 根拠・感情・タグの選択肢の初期値（requirements 6.3・10章 Q-10・Q-11、6.1 の例。architecture 7.1：初期値は master.js に置く）。
+ * T-15 では settings-store.js に仮置きしていたものを、T-16 でここへ移した（settings-store.js はここから読む）。
+ * タグの初期値は requirements 6.1 の例（ルール違反・指標前・様子見すべきだった）の3つ（design 14.6.1 の図の「タグ 3」と同じ数）。
+ * Object.freeze：初期値を、どこかのコードがうっかり書き換えてしまう事故を防ぐため（使うときは必ずコピーを作る）。
+ */
+export const DEFAULT_CHOICES = Object.freeze({
+  entryReasons: Object.freeze(['トレンドフォロー', '押し目買い・戻り売り', 'ブレイクアウト', 'レンジ逆張り', '経済指標・ニュース', 'その他']),
+  emotions: Object.freeze(['冷静', '自信', '不安', '焦り', '興奮', '取り返したい', '退屈']),
+  tags: Object.freeze(['ルール違反', '指標前', '様子見すべきだった']),
+});
 
 /* ---------------------------------------------------------
    選択肢の保存値 → 画面に出す日本語名（T-20 で詳細画面のために追加。design 14.1.5・14.2.6・14.4.4）

@@ -8,8 +8,9 @@
    ・テーマ：端末に合わせる／ライト／ダーク（チェックの行）。タップした瞬間に切り替えて保存（トーストなし）。
      ブラウザのバーの色（theme-color）も一緒に切り替える（ui/theme.js）
    ・このアプリについて：バージョン
+   【T-16 で足した範囲】
+   ・選択肢（よく使う通貨ペア・エントリー根拠・感情・タグ）の各行の右に登録数を表示（編集画面の中身は screens/choices.js）
    【まだ作らないもの（担当タスク）】
-   ・選択肢の各行の登録数の表示と、選択肢の編集画面の中身 … T-16（行と移動先は T-10 で作成済み）
    ・データ（CSVを書き出す・削除済みの記録も含める・記録の件数・最終書き出し）… T-25
    ・このアプリについての「データの保護」「使用量」と説明文、ホーム画面への追加方法の画面の中身 … T-29
    ・スプレッドシート同期 … Phase 2（T-40）
@@ -19,9 +20,10 @@ import { largeTitle } from '../ui/bars.js';
 import { listGroup, listRow } from '../ui/parts.js';
 import { numberRow, checkRows, setGroupMessages } from '../ui/fields.js';
 import { showToast } from '../ui/toast.js';
-import { showAlert } from '../ui/dialog.js';
+import { alertSettingsWriteFailed } from '../ui/dialog.js';
 import { applyTheme } from '../ui/theme.js';
 import { APP_VERSION } from '../config.js';
+import { CHOICE_KINDS, CHOICE_KIND_LABELS } from '../master.js';
 import { parseLotUnitSize } from '../validate.js';
 import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
@@ -35,11 +37,6 @@ const E07_TEXT = '1以上の整数をカンマなしで入力してください�
 
 /** 1lotの通貨数の欄の下の説明文（design 14.6.1） */
 const LOT_UNIT_NOTE = '業者の取引画面で1lotが何通貨か確認して入力します。変えても、保存済みの記録の損益は変わりません。';
-
-/** 設定を保存できなかったときのアラート（design 14.7.3「設定の保存」。自動で消えない） */
-function alertSettingsWriteFailed() {
-  return showAlert({ title: '設定を保存できませんでした', message: '端末の空き容量が不足している可能性があります。' });
-}
 
 /** 3桁区切りの表示（例 10000 → '10,000'）。欄から離れているときだけこの形で見せる（design 14.6.2） */
 function withCommas(n) {
@@ -172,6 +169,15 @@ function themeGroup() {
 }
 
 /* ---------------------------------------------------------
+   選択肢の登録数（design 14.6.1：「よく使う通貨ペア 6 ›」）
+   --------------------------------------------------------- */
+
+/** その種類の登録数。通貨ペアは favoritePairs、根拠・感情・タグは choices の各配列 */
+function choiceCount(kind) {
+  return kind === 'pairs' ? getSetting('favoritePairs').length : getSetting('choices')[kind].length;
+}
+
+/* ---------------------------------------------------------
    画面
    --------------------------------------------------------- */
 
@@ -190,16 +196,16 @@ export default {
         // ① 取引
         lotUnit.group,
 
-        // ② 選択肢（design 3.2 S-06）。URL の kind は architecture 5.1 の4種類。
-        //    右側の登録数の表示と、編集画面の中身は T-16 で作る
+        // ② 選択肢（design 3.2 S-06）。URL の kind は architecture 5.1 の4種類。右に登録数（灰）と ›（design 14.6.1）。
+        //    画面を開くたびに作り直す（mount）ので、編集画面から戻ると最新の数になる
         listGroup({
           header: '選択肢',
-          rows: [
-            listRow({ label: 'よく使う通貨ペア', href: '#/settings/choices/pairs' }),
-            listRow({ label: 'エントリー根拠', href: '#/settings/choices/entryReasons' }),
-            listRow({ label: '感情', href: '#/settings/choices/emotions' }),
-            listRow({ label: 'タグ', href: '#/settings/choices/tags' }),
-          ],
+          rows: CHOICE_KINDS.map((kind) => listRow({
+            label: CHOICE_KIND_LABELS[kind],
+            value: String(choiceCount(kind)),
+            numeric: true,
+            href: `#/settings/choices/${kind}`,
+          })),
         }),
 
         // ③ テーマ

@@ -30,6 +30,9 @@ const CATEGORY_INFO = {
     + 'リスクリワードの 2 行目・円換算レート・手入力のときの参考損益・保有中/決済済みの出し分け・メモ・壊れたデータ',
   '決済画面': 'design 14.2、fx-rules 4.4・4.5・8章（CL＝close-form.js・trades.js の決済の組み立て、FL＝row-flash.js）。入力欄の初期値・下書きの読み込み・'
     + '損益の即時計算・入力チェック（E-08〜E-11・W-02・W-05・W-06）・符号付きの貼り付け・決済と決済の取り消しの組み立て・戻った直後のハイライトの受け渡し',
+  '選択肢の編集': 'design 14.6.3・14.6.4、fx-rules 10.4、architecture 7.1（CH＝choice-list.js・master.js の初期値・settings-store.js）。'
+    + '名前のチェック（空白だけ・20文字以内・同じ名前）・追加/削除/並び替え・通貨ペアの追加（E-12〜E-16・W-07）・最後の1つは削除できない・'
+    + '「通貨ペアを追加」シートの絞り込み・初期値が master.js にあること・壊れた値の補い方・保存の読み直し・削除した選択肢を持つ記録の表示',
 };
 
 function renderSummary(el, { total, passed, failed }) {

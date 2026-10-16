@@ -47,4 +47,10 @@ export const LIST_FILTER_RESTORE_MINUTES = 30;
 /** 一覧で最初に描く行数と、下までスクロールするたびに足す行数（analytics 4.9 #5。重ければ T-31 の計測で調整する） */
 export const LIST_PAGE_SIZE = 50;
 
+/** 「よく使う通貨ペア」のうち、エントリー画面の格子に並べる数（3列×2段。design 14.1.2・14.6.4：設定の上から6つ） */
+export const FAVORITE_GRID_COUNT = 6;
+
+/** 選択肢（根拠・感情・タグ）の名前の上限文字数（design 14.6.3：20文字以内）。追加時のチェックと、保存値を読むときの確認の両方で使う */
+export const CHOICE_NAME_MAX_LENGTH = 20;
+
 // Chart.js の URL（バージョン完全固定）は Phase 3 の T-55 着手時に決めてここに書く（architecture.md 16.1）。

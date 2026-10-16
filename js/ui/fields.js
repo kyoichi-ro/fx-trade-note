@@ -5,7 +5,7 @@
      ・チェックの行（1つだけ選ぶ・iOS「設定」と同じ） checkRows（T-15 で追加：設定のテーマ）
      ・セグメント切替（買い/売り・デモ/本番） segment
      ・チップ選択（根拠・感情・タグなど）     chips
-     ・エラー①・注意②の文（グループの直下） setGroupMessages
+     ・エラー①・注意②の文（グループの直下） setGroupMessages（1行だけ作る messageLine も T-16 で出した）
    見た目は css/components.css。文字はすべて ui/dom.js の h() を通す（XSS 対策）。
 
    部品は「値の読み書き」だけを受け持ち、入力チェックの中身（E-xx・W-xx）は validate.js、
@@ -290,6 +290,21 @@ function markTarget(target, on, messageId) {
 }
 
 /**
+ * ⚠＋文の1行（赤＝エラー／琥珀＝注意）。グループの直下（setGroupMessages）のほか、ボトムシートの検索欄の下など
+ * グループがない場所にも同じ見た目で出せるよう、1行を作る部分だけ切り出した（T-16 で追加）。
+ * @param {'error'|'warning'} type
+ * @param {string} text
+ * @param {string} [id] aria-describedby で結ぶための id
+ */
+export function messageLine(type, text, id = uniqueId('msg')) {
+  return h('p', { class: `field-message field-message--${type}`, id },
+    icon('warning', { size: 'xs', className: 'field-message__icon' }),
+    // 読み上げでは ⚠ の代わりに「エラー」「注意」と読ませる（アイコンは飾り）
+    h('span', { class: 'visually-hidden' }, type === 'error' ? 'エラー：' : '注意：'),
+    h('span', {}, text));
+}
+
+/**
  * グループの直下のエラー文・注意文を入れ替える（同じグループに複数あれば上から順に1行ずつ）。
  * 前に出していた文と印はいったん全部消してから付け直すので、「直したら消える」も同じ関数で済む。
  * グループに説明文（listGroup の footer）があるときは、エラー文・注意文をその説明文より上（グループのすぐ下）に出す
@@ -310,11 +325,7 @@ export function setGroupMessages(group, messages) {
   const anchor = footer.firstChild;
   for (const m of messages) {
     const id = uniqueId('msg');
-    const line = h('p', { class: `field-message field-message--${m.type}`, id },
-      icon('warning', { size: 'xs', className: 'field-message__icon' }),
-      // 読み上げでは ⚠ の代わりに「エラー」「注意」と読ませる（アイコンは飾り）
-      h('span', { class: 'visually-hidden' }, m.type === 'error' ? 'エラー：' : '注意：'),
-      h('span', {}, m.text));
+    const line = messageLine(m.type, m.text, id);
     line._targets = m.type === 'error' ? [...(m.targets || []), ...(m.target ? [m.target] : [])] : [];
     footer.insertBefore(line, anchor);
     for (const t of line._targets) markTarget(t, true, id);

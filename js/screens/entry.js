@@ -32,6 +32,7 @@ import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } 
 import { nowInputValue, fromInputValue } from '../datetime.js';
 import { formatDraftTime } from '../format.js';
 import { newId, isAppError } from '../util.js';
+import { FAVORITE_GRID_COUNT } from '../config.js';
 
 /** 新規エントリーの下書きキー（drafts.js の約束：'new'） */
 const DRAFT_KEY = draftKeyOf(DRAFT_KIND.NEW);
@@ -39,8 +40,8 @@ const DRAFT_KEY = draftKeyOf(DRAFT_KIND.NEW);
 /** 必須グループの欄の並び（画面の上から＝エラーを探す順・フォーカスを移す順） */
 const FIELD_ORDER = ['accountType', 'pair', 'side', 'entryPrice', 'lots', 'entryAt'];
 
-/** よく使う通貨ペアのうち、格子に並べる数（3列×2段：design 14.1.2） */
-const GRID_PAIRS = 6;
+/** よく使う通貨ペアのうち、格子に並べる数（3列×2段：design 14.1.2。設定の編集画面の「上から6つ」と同じ値を config.js から読む） */
+const GRID_PAIRS = FAVORITE_GRID_COUNT;
 
 /** 価格の欄の名前（E-01〜E-04・W-06 の文の先頭に付ける：design 14.1.8） */
 const PRICE_LABEL = 'エントリー価格';

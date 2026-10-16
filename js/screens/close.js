@@ -37,6 +37,7 @@ import { formatPrice, formatLots, formatDateTime, formatDraftTime } from '../for
 import { isClosedTrade } from '../filter.js';
 import { isAppError } from '../util.js';
 import { requestRowFlash } from '../row-flash.js';
+import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す（T-16 で choice-list.js へ移した）
 import {
   EXIT_REASONS, defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
   initialManualSign, splitSignedAmount, formatAmountText, tidyAmount, evaluateClose, describeProfit, speakProfit,
@@ -64,12 +65,6 @@ const SIGN_TAP_GUARD_MS = 600;
 function draftTimeText(updatedAt) {
   const time = formatDraftTime(updatedAt);
   return time ? `${time} の下書き` : '';
-}
-
-/** 選択肢に、いま選んでいる値（設定から消された値など）が無ければ末尾に足す（選択済みのチップが消えないように） */
-function withSelected(options, selected) {
-  const extra = selected.filter((v) => !options.includes(v));
-  return [...options, ...extra];
 }
 
 /**

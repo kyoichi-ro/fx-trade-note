@@ -219,6 +219,10 @@ button.list-row:active {
 .list-row--link .list-row__value {
   margin-left: auto;
 }
+/* 値（登録数など）と「›」が両方あるときは、値を「›」のすぐ左に寄せる（どちらにも margin-left: auto が付くと、空きを半分ずつ分け合って値が真ん中に浮く） */
+.list-row--link .list-row__value + .list-row__chevron {
+  margin-left: 0;
+}
 
 /* まとまりの中の部品に付くフォーカス枠は、角丸の外にはみ出すと切れるので内側に引く */
 .list-group__body :focus-visible {

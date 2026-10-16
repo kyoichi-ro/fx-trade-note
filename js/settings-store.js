@@ -20,32 +20,17 @@
      「古い版には読めない形」の値を、古い版が壊れた値とみなして消してしまう事故を防ぐため。
 
    【使い始めるタスク】全キーの窓口（初期値・確認・読み書き）はここで用意し、各キーは使うタスクで使い始める
-   （T-15：lotUnitSize.*・theme、T-16：favoritePairs・choices、T-17：lastInput、T-23：listFilter、
+   （T-15：lotUnitSize.*・theme、T-16：favoritePairs・choices（根拠・感情・タグの初期値は T-16 で master.js へ移した）、T-17：lastInput、T-23：listFilter、
      T-25：lastExportAt、T-40：gasUrl・syncToken）。
 
    ・層は「保存の窓口」（architecture 4.3）。画面の部品は import しない。
    ========================================================= */
-import { LS_PREFIX } from './config.js';
-import { DEFAULT_FAVORITE_PAIRS } from './master.js';
-import { AppError } from './util.js';
-
-/**
- * 根拠・感情・タグの選択肢の初期値（requirements 10章 Q-10・Q-11、6.1 の例）。
- * 【仮置き】architecture 7.1 では初期値は master.js に置く約束だが、master.js は T-15 の時点で fx-expert が確認中で
- * 変更できないため、ここに置いた。T-16（選択肢の編集）で master.js へ移し、ここはそれを import する形にする。
- * タグの初期値は requirements 6.1 の例（ルール違反・指標前・様子見すべきだった）の3つ（design 14.6.1 の図の「タグ 3」と同じ数）。
- */
-const DEFAULT_CHOICES = Object.freeze({
-  entryReasons: Object.freeze(['トレンドフォロー', '押し目買い・戻り売り', 'ブレイクアウト', 'レンジ逆張り', '経済指標・ニュース', 'その他']),
-  emotions: Object.freeze(['冷静', '自信', '不安', '焦り', '興奮', '取り返したい', '退屈']),
-  tags: Object.freeze(['ルール違反', '指標前', '様子見すべきだった']),
-});
+import { LS_PREFIX, CHOICE_NAME_MAX_LENGTH } from './config.js';
+import { DEFAULT_FAVORITE_PAIRS, DEFAULT_CHOICES } from './master.js';
+import { AppError, countChars } from './util.js';
 
 /** テーマの選択肢（requirements 6.3：auto＝端末に合わせる / light / dark） */
 export const THEMES = Object.freeze(['auto', 'light', 'dark']);
-
-/** 選択肢の名前の上限（design 14.6.3：20文字以内）。読むときもこれを超えるものは壊れた値として捨てる */
-const CHOICE_MAX_LENGTH = 20;
 
 /* ---------------------------------------------------------
    値の確かめ方（壊れた値を見分ける）
@@ -65,13 +50,16 @@ function checkLotUnitSize(v) {
   return Number.isSafeInteger(v) && v >= 1 ? v : undefined;
 }
 
-/** 文字の配列：文字でないもの・空白だけのもの・長すぎるもの・重複を取り除く（壊れた1つのために全部を捨てない） */
+/**
+ * 文字の配列：文字でないもの・空白だけのもの・長すぎるもの（文字数は countChars＝人が数えるとおり）・重複を取り除く
+ * （壊れた1つのために全部を捨てない）
+ */
 function cleanStringList(v, { maxLength = Infinity, pattern = null } = {}) {
   if (!Array.isArray(v)) return undefined;
   const seen = new Set();
   const out = [];
   for (const x of v) {
-    if (!isNonEmptyString(x) || x.length > maxLength || (pattern && !pattern.test(x)) || seen.has(x)) continue;
+    if (!isNonEmptyString(x) || countChars(x) > maxLength || (pattern && !pattern.test(x)) || seen.has(x)) continue;
     seen.add(x);
     out.push(x);
   }
@@ -89,7 +77,7 @@ function checkChoices(v) {
   if (!isPlainObject(v)) return undefined;
   const out = {};
   for (const kind of Object.keys(DEFAULT_CHOICES)) {
-    out[kind] = cleanStringList(v[kind], { maxLength: CHOICE_MAX_LENGTH }) ?? [...DEFAULT_CHOICES[kind]];
+    out[kind] = cleanStringList(v[kind], { maxLength: CHOICE_NAME_MAX_LENGTH }) ?? [...DEFAULT_CHOICES[kind]];
   }
   return out;
 }

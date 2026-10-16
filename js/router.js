@@ -31,12 +31,7 @@
 import { h } from './ui/dom.js';
 import { syncToastWithRoute } from './ui/toast.js';
 import { actionSheet } from './ui/dialog.js';
-
-/**
- * 選択肢の編集画面で使える種類（architecture.md 5.1）。これ以外の kind は「一覧にない URL」として扱う。
- * ※ 選択肢の種類は T-16 で master.js に移し、そこから読み込む形にする予定
- */
-const CHOICE_KINDS = ['pairs', 'entryReasons', 'emotions', 'tags'];
+import { CHOICE_KINDS } from './master.js'; // 選択肢の編集画面で使える種類（architecture 5.1。これ以外の kind は「一覧にない URL」として扱う）
 
 /** 一覧にない URL のときに置き換える先（S-01 一覧） */
 const HOME = '#/';

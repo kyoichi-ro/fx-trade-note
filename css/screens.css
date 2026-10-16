@@ -402,3 +402,158 @@
 .detail-notices {
   margin: 0 var(--sp-4);
 }
+
+/* =========================================================
+   S-06 選択肢の編集（design 14.6.3・14.6.4。T-16）
+   行の中身は左から ⊖（削除）・名前・≡（並べ替え）。⊖ を押すと ≡ の代わりに赤い「削除」ボタンが出る（iOS と同じ）
+   ========================================================= */
+
+/* 「削除」ボタンの幅 72px（design 14.6.3）。design 12章の変数にはない、この行だけの寸法なので行の中で名前を付ける */
+.choice-row {
+  --choice-delete-w: 72px;
+  display: flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding-left: var(--sp-1);
+  background: var(--color-surface);
+  color: var(--color-text);
+  /* 文字を選択しない（つまみをドラッグするとき、行の文字が選ばれてしまわないように） */
+  user-select: none;
+  -webkit-user-select: none;
+  /* 並べ替え中にほかの行がずれるときの動き（design 10章：動きは控えめに） */
+  transition: transform var(--dur-fast) var(--ease-ios), background-color var(--dur-normal) var(--ease-ios);
+}
+
+/* 追加した行を約1秒目立たせる（一覧の戻った直後のハイライトと同じ色。付けるときは即座に、はずすときだけ戻る動き） */
+.choice-row.is-flash {
+  background: var(--color-accent-tint);
+  transition: none;
+}
+
+/* ⊖：赤の線画。押せる範囲は 44×44px。最後の通貨ペアは無効表示（design 14.6.3） */
+.choice-row__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  color: var(--color-danger);
+}
+.choice-row__remove[aria-disabled="true"] {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+
+/* 名前（17px）。通貨ペアは右に日本語名（15px・灰）。長い名前は折り返す */
+.choice-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-1) var(--sp-2) 0;
+  overflow-wrap: anywhere;
+}
+.choice-row__sub {
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
+/* ≡：灰色の線画。touch-action: none は、つまみを触っている間だけ画面のスクロールを止める（ドラッグを受け取るため） */
+.choice-row__grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  color: var(--color-text-sub);
+  touch-action: none;
+  cursor: grab;
+}
+
+/* 赤い「削除」ボタン：--color-danger の塗り＋--color-on-sell の文字（危険と売りは同じ値：design 14.6.3）。行の右端いっぱい */
+.choice-row__delete {
+  display: none;
+  flex-shrink: 0;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  width: var(--choice-delete-w);
+  background: var(--color-danger);
+  color: var(--color-on-sell);
+  font-size: var(--fs-body);
+}
+.choice-row__delete:active {
+  opacity: var(--opacity-pressed);
+}
+.choice-row.is-armed .choice-row__delete {
+  display: flex;
+}
+.choice-row.is-armed .choice-row__grip {
+  display: none;
+}
+
+/* 並べ替え中（ui/sortable.js）：動かしている行は画面に固定したコピー（ゴースト）が指に付いてくる。
+   背景は --color-fill、影は付けない（design 14.6.3）。元の行は場所だけ空けておく */
+.choice-row.is-drag-origin {
+  visibility: hidden;
+}
+.choice-row.is-ghost {
+  position: fixed;
+  z-index: var(--z-dialog);
+  margin: 0;
+  background: var(--color-fill);
+  pointer-events: none;
+  transition: none;
+}
+.choice-edit.is-sorting {
+  cursor: grabbing;
+}
+/* 並べ替え中だけ、グループの「はみ出しを隠す」を外す。外さないと、よく使う通貨ペアで2つのグループをまたいで動かすとき、
+   押し出された行がグループの外で切れて消えて見える（離せば正しい位置に描き直される） */
+.choice-edit.is-sorting .list-group__body {
+  overflow: visible;
+}
+
+/* グループの下の説明文が2つ以上あるときは、段落の間を少し空ける */
+.choice-edit .list-group__footer p + p {
+  margin-top: var(--sp-1);
+}
+
+/* 「＋ 追加」「＋ 通貨ペアを追加」の行：アクセント色の文字（design 14.6.3） */
+.choice-add {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  color: var(--color-accent);
+  text-align: left;
+}
+
+/* 名前の入力欄の行：左揃え（フォーム行の入力欄は右揃えだが、ここは名前を打つ欄なので左から） */
+.choice-add-row {
+  gap: var(--sp-2);
+}
+.choice-add-row__icon {
+  color: var(--color-text-sub);
+}
+.choice-add__input {
+  text-align: left;
+}
+
+/* 「通貨ペアを追加」シート：検索欄の下のエラー文・注意文（グループがない場所なので左右の余白をここで付ける） */
+.sheet-messages {
+  margin: calc(var(--sp-2) * -1) var(--sp-4) var(--sp-3);
+  padding: 0 var(--sp-4);
+}
+.sheet-messages:empty {
+  display: none;
+}
+/* 「SGD/JPY を追加」の行：アクセント色の文字（マスタの行と区別する） */
+.pair-option--custom {
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  color: var(--color-accent);
+}

@@ -144,6 +144,15 @@ export function showAlert({ title, message = '', buttons = [{ label: '閉じる'
 }
 
 /**
+ * 設定を保存できなかったときのアラート（design 14.7.3「設定の保存」。自動で消えない）。
+ * 設定画面（1lotの通貨数・テーマ）と選択肢の編集画面（T-16）で同じ文言を使うため、ここに1つだけ置く。
+ * @returns {Promise<*>}
+ */
+export function alertSettingsWriteFailed() {
+  return showAlert({ title: '設定を保存できませんでした', message: '端末の空き容量が不足している可能性があります。' });
+}
+
+/**
  * ボトムシート（ui/sheet.js）も、アクションシート・アラートと同じ「同時に1つだけ・閉じたらフォーカスを戻す・背後を止める」
  * 仕組みで開くため、共通部分 open() を部品の中だけで使える名前で出す（T-17 で追加）。画面からは直接使わない。
  */
