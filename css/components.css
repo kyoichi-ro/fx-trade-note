@@ -892,6 +892,17 @@ body:has(.fab) #toast-area {
   align-items: center;
 }
 
+/* 戻った直後の 1 秒ハイライト（design 14.3.4）：行の背景を --color-accent-tint にして、はずすときは短く元に戻す。
+   付けるときは即座に（transition なし）、はずすときだけ transition が効く。グラデーション・影は使わない。
+   「視差効果を減らす」設定の人には base.css が transition を止めるので、色の切り替えだけになる */
+.trade-row {
+  transition: background-color var(--dur-normal) var(--ease-ios);
+}
+.trade-row.is-flash {
+  background: var(--color-accent-tint);
+  transition: none;
+}
+
 /* 行全体が詳細へのリンク。上下 12px の余白で、2行で約 60px の高さになる */
 .trade-row__link {
   flex: 1 1 auto;

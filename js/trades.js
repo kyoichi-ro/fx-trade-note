@@ -12,7 +12,12 @@
    ・recompute()：自動で決まる値（status・riskReward・session）を1か所で計算し直す（architecture 8章「再計算の場所は1か所」）。
      status は渡された値を使わず、決済情報の有無から決める（requirements 6.1。2026-10-16 オーナー決定：6.12 #4）。
    ・新規保存では lotUnitSize を「その口座区分の今の設定値」からコピーする（requirements 6.1。画面から渡された値は使わない）。
-   T-21 / T-22 で、pips・損益の再計算（決済）・決済の取り消し・編集時の lotUnitSize のコピーし直しを足す。
+   【T-21：決済と決済の取り消し】
+   ・computeClose()：決済価格から pips・損益（円）を求める（calc.js を呼ぶだけ。独自の式は書かない）。画面の即時表示と保存で同じ関数を使う。
+   ・buildClosedTrade() / buildReopenedTrade()：決済した記録・決済を取り消した記録を組み立てる純粋な関数（DB に触れない。テストあり）。
+   ・closeTrade() / reopenTrade()：保存されている記録を読み直してから上の関数で組み立て、saveTrade で保存する。
+     画面が持っている古い写しではなく、保存されている最新の記録に決済を重ねるため（lotUnitSize も記録時の値のまま使う）。
+   T-22 で、編集時の lotUnitSize のコピーし直しを足す。
 
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
@@ -23,7 +28,8 @@ import { appDb, STORE, TRADE_KEYS } from './db.js';
 import { nowJst } from './datetime.js';
 import { newId, AppError, assertKnownKeys } from './util.js';
 import { emit } from './events.js';
-import { calcRiskReward, judgeSession } from './calc.js';
+import { calcRiskReward, calcPips, calcProfitJpy, judgeSession } from './calc.js';
+import { getPairSpec } from './master.js';
 import { settingsStore } from './settings-store.js';
 
 /** 未入力のとき null ではなく空の配列にする項目（architecture 6.7） */
@@ -74,7 +80,7 @@ export function judgeStatus(trade) {
  *   そろっていなければ null（requirements 6.1。T-18 で calcRiskReward 自体も空の値に null を返す形に直す予定だが、
  *   ここでも先に確かめておくと、入力途中の値で計算してしまう事故を二重に防げる）
  * ・session：空（null）のときだけ entryAt から判定（judgeSession）。画面で手で選んだ値は書き換えない（design 14.1.5 ⑩）
- * pips・損益（円）の再計算は決済画面の T-21 で足す。
+ * pips・損益（円）は決済の組み立て（buildClosedTrade）が求めて渡す。ここでは決済情報の有無で status を決めるだけ。
  * @param {object} trade
  * @returns {object}
  */
@@ -85,6 +91,78 @@ export function recompute(trade) {
   out.riskReward = canRr ? calcRiskReward(trade).rr : null;
   if (out.session == null) out.session = judgeSession(out.entryAt);
   return out;
+}
+
+/* ---------------------------------------------------------
+   決済・決済の取り消し（T-21。fx-rules 4.4・4.5、architecture 8章）
+   --------------------------------------------------------- */
+
+/**
+ * 決済価格から pips と損益（円）を求める（fx-rules 3・4章。計算は calc.js に任せ、ここでは式を書かない）。
+ * ・損益は手入力（manualProfitJpy）があればそれを使い（profitSource＝manual）、なければ自動計算（auto）。
+ *   自動計算できないとき（非JPYペアで円換算レートなし）は損益 null・profitSource null。
+ * ・lotUnitSize は記録に入っている「記録時の値」を使う（設定画面で変えても過去の記録は再計算しない：fx-rules 4.5）。
+ * ・autoProfitJpy は手入力があっても自動計算値を返す（画面の「自動計算（参考）」と W-05 のため）。
+ * @param {object} trade 保有中の記録（pair・side・entryPrice・lots・lotUnitSize を使う）
+ * @param {{ exitPrice: (number|null), quoteToJpyRate?: (number|null), manualProfitJpy?: (number|null) }} input
+ * @returns {{ pips: (number|null), autoProfitJpy: (number|null), profitJpy: (number|null), profitSource: ('auto'|'manual'|null) }}
+ */
+export function computeClose(trade, { exitPrice, quoteToJpyRate = null, manualProfitJpy = null }) {
+  const calcInput = {
+    pair: trade.pair, side: trade.side, entryPrice: trade.entryPrice, exitPrice,
+    lots: trade.lots, lotUnitSize: trade.lotUnitSize, quoteToJpyRate,
+  };
+  const { pips } = calcPips(calcInput);
+  const autoProfitJpy = calcProfitJpy(calcInput);
+  if (manualProfitJpy != null) return { pips, autoProfitJpy, profitJpy: manualProfitJpy, profitSource: 'manual' };
+  return { pips, autoProfitJpy, profitJpy: autoProfitJpy, profitSource: autoProfitJpy == null ? null : 'auto' };
+}
+
+/**
+ * 保有中の記録に決済を重ねた記録を作る（DB に触れない）。status は渡さない（saveTrade の recompute() が決済情報の有無から決める）。
+ * ・pips・損益・profitSource は computeClose() で求める。画面から渡された計算結果は受け取らない
+ * ・円換算レートは非JPYペアのときだけ残す（手入力の損益があっても「記録として残す」：design 14.2.4）。JPYペアは null
+ * ・決済理由・決済時の感情・メモ・タグは渡されたものに置き換える（未指定なら記録にあるものをそのまま）。空の文字は null
+ * @param {object} stored 保存されている記録
+ * @param {{ exitPrice: number, exitAt: string, quoteToJpyRate?: (number|null), manualProfitJpy?: (number|null),
+ *   exitReason?: (string|null), exitEmotion?: (string|null), tags?: string[], memo?: (string|null) }} input
+ * @returns {object} 32項目の記録
+ */
+export function buildClosedTrade(stored, input) {
+  if (typeof input.exitPrice !== 'number' || !Number.isFinite(input.exitPrice) || typeof input.exitAt !== 'string' || input.exitAt === '') {
+    // 決済価格と決済日時は決済画面が必ず検査してから渡す。ここに来るのはプログラムの誤り
+    throw new TypeError('trades：決済には exitPrice（数値）と exitAt（日時の文字）が必要です');
+  }
+  const r = computeClose(stored, input);
+  const orNull = (v) => (v === undefined || v === '' ? null : v);
+  return {
+    ...stored,
+    exitPrice: input.exitPrice,
+    exitAt: input.exitAt,
+    quoteToJpyRate: getPairSpec(stored.pair).isJpyPair ? null : orNull(input.quoteToJpyRate),
+    pips: r.pips,
+    profitJpy: r.profitJpy,
+    profitSource: r.profitSource,
+    exitReason: input.exitReason === undefined ? stored.exitReason : orNull(input.exitReason),
+    exitEmotion: input.exitEmotion === undefined ? stored.exitEmotion : orNull(input.exitEmotion),
+    tags: input.tags === undefined ? stored.tags : [...input.tags],
+    memo: input.memo === undefined ? stored.memo : orNull(input.memo),
+  };
+}
+
+/**
+ * 決済を取り消した（保有中に戻した）記録を作る（DB に触れない。fx-rules 4.5・architecture 8章）。
+ * 空に戻すのは、計算に関わる exitPrice・exitAt・pips・profitJpy・profitSource・quoteToJpyRate だけ。
+ * 決済理由・決済時の感情・メモ・タグ・画像（imageIds）は残す（roadmap 7.2 #19、requirements F-02）。
+ * status は saveTrade の recompute() が決済情報の有無から open に戻す。
+ * @param {object} stored
+ * @returns {object}
+ */
+export function buildReopenedTrade(stored) {
+  return {
+    ...stored,
+    exitPrice: null, exitAt: null, pips: null, profitJpy: null, profitSource: null, quoteToJpyRate: null,
+  };
 }
 
 /** 口座区分が正しいか（lotUnitSize を設定から読むキーに使うため、打ち間違いは保存前に止める） */
@@ -116,6 +194,51 @@ export function createTradeService({
   db = appDb, now = nowJst, makeId = newId,
   getLotUnitSize = (accountType) => settingsStore.get(`lotUnitSize.${accountType}`),
 } = {}) {
+  /**
+   * 既存の記録を更新する（決済・編集・決済取消の保存に使う：architecture 8章）。
+   * ・updatedAt ＝今、syncStatus ＝ 'pending'（保存のたびに未送信へ戻す：requirements 6.1）
+   * ・status・riskReward・session は recompute() で決め直す（T-17。決済・決済取消で status が自動で切り替わる）
+   * ・createdAt・deletedAt・syncedAt は保存されている値を使う（画面から渡された値で上書きしない）。
+   *   削除状態を変えられるのは deleteTrade / undoDeleteTrade だけにして、うっかり削除が戻る事故を防ぐ
+   * ・記録がない・削除済みなら AppError NOT_FOUND（消えた記録を put で作り直さない）
+   * ・draftKey を渡すと下書きの削除も同じトランザクションで行う
+   * 下の closeTrade / reopenTrade からも呼ぶため、メソッドではなくこの関数の中の部品として定義している
+   * （tradeService の分割代入 { saveTrade, ... } で取り出しても this に頼らず動くようにするため）。
+   * @param {object} trade 32項目（id 必須）
+   * @param {{draftKey?: string}} [opts]
+   * @returns {Promise<object>} 保存した記録
+   */
+  async function saveTrade(trade, { draftKey } = {}) {
+    assertId(trade && trade.id);
+    normalizeTrade(trade); // 6.1 にない項目が混ざっていないかを、DB を開く前に確かめる
+    const t = now();
+    let saved;
+    await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
+      const stored = await ops.get(STORE.TRADES, trade.id);
+      if (!stored || stored.deletedAt != null) throw notFound();
+      saved = normalizeTrade(recompute({
+        ...trade,
+        createdAt: stored.createdAt,
+        deletedAt: stored.deletedAt,
+        syncedAt: stored.syncedAt,
+        syncStatus: 'pending',
+        updatedAt: t,
+      }));
+      await ops.put(STORE.TRADES, saved);
+      if (draftKey) await ops.delete(STORE.DRAFTS, draftKey);
+    });
+    emit(TRADES_CHANGED, { type: 'update', id: saved.id, trade: saved });
+    return saved;
+  }
+
+  /** 保存されている記録を読む。ない・削除済みなら NOT_FOUND（決済・決済の取り消しの前に最新の記録を確かめる） */
+  async function readLiveTrade(id) {
+    assertId(id);
+    const stored = await db.getTrade(id);
+    if (!stored || stored.deletedAt != null) throw notFound();
+    return stored;
+  }
+
   return {
     /**
      * 新規の記録を保存する（エントリー：architecture 8章）。
@@ -150,39 +273,36 @@ export function createTradeService({
       return trade;
     },
 
+    saveTrade,
+
     /**
-     * 既存の記録を更新する（決済・編集・決済取消の保存に使う：architecture 8章）。
-     * ・updatedAt ＝今、syncStatus ＝ 'pending'（保存のたびに未送信へ戻す：requirements 6.1）
-     * ・status・riskReward・session は recompute() で決め直す（T-17。決済・決済取消で status が自動で切り替わる）
-     * ・createdAt・deletedAt・syncedAt は保存されている値を使う（画面から渡された値で上書きしない）。
-     *   削除状態を変えられるのは deleteTrade / undoDeleteTrade だけにして、うっかり削除が戻る事故を防ぐ
-     * ・記録がない・削除済みなら AppError NOT_FOUND（消えた記録を put で作り直さない）
+     * 保有中の記録を決済する（S-03 の保存：architecture 8章）。
+     * 保存されている最新の記録を読み直し、buildClosedTrade で決済を重ねて saveTrade で保存する
+     * （pips・損益・status は渡された値ではなく、ここで求める）。
+     * ・記録がない・削除済みなら NOT_FOUND（saveTrade と同じ）
+     * ・すでに決済済みなら AppError ALREADY_CLOSED（別の画面で先に決済された記録を、開いたままの決済画面から上書きしないため）
      * ・draftKey を渡すと下書きの削除も同じトランザクションで行う
-     * @param {object} trade 32項目（id 必須）
+     * @param {string} id
+     * @param {object} input buildClosedTrade の input（exitPrice・exitAt など）
      * @param {{draftKey?: string}} [opts]
      * @returns {Promise<object>} 保存した記録
      */
-    async saveTrade(trade, { draftKey } = {}) {
-      assertId(trade && trade.id);
-      normalizeTrade(trade); // 6.1 にない項目が混ざっていないかを、DB を開く前に確かめる
-      const t = now();
-      let saved;
-      await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
-        const stored = await ops.get(STORE.TRADES, trade.id);
-        if (!stored || stored.deletedAt != null) throw notFound();
-        saved = normalizeTrade(recompute({
-          ...trade,
-          createdAt: stored.createdAt,
-          deletedAt: stored.deletedAt,
-          syncedAt: stored.syncedAt,
-          syncStatus: 'pending',
-          updatedAt: t,
-        }));
-        await ops.put(STORE.TRADES, saved);
-        if (draftKey) await ops.delete(STORE.DRAFTS, draftKey);
-      });
-      emit(TRADES_CHANGED, { type: 'update', id: saved.id, trade: saved });
-      return saved;
+    async closeTrade(id, input, { draftKey } = {}) {
+      const stored = await readLiveTrade(id);
+      if (judgeStatus(stored) === 'closed') throw new AppError('ALREADY_CLOSED', 'この記録はすでに決済されています。');
+      return saveTrade(buildClosedTrade(stored, input), { draftKey });
+    },
+
+    /**
+     * 決済を取り消して保有中に戻す（S-04：architecture 8章）。buildReopenedTrade で組み立てて saveTrade で保存する。
+     * すでに保有中なら何も変えずにその記録を返す（2回押しても updatedAt が動かない・通知も出さない）。
+     * @param {string} id
+     * @returns {Promise<object>} 取り消し後の記録
+     */
+    async reopenTrade(id) {
+      const stored = await readLiveTrade(id);
+      if (judgeStatus(stored) !== 'closed') return stored;
+      return saveTrade(buildReopenedTrade(stored));
     },
 
     /** 1件取得。見つからなければ null（削除済みもそのまま返す。表示するかは呼び出し側が deletedAt で判断） */
@@ -247,5 +367,5 @@ export function createTradeService({
 export const tradeService = createTradeService();
 
 export const {
-  saveNewTrade, saveTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade,
+  saveNewTrade, saveTrade, closeTrade, reopenTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade,
 } = tradeService;

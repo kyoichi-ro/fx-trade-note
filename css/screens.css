@@ -181,6 +181,115 @@
 }
 
 /* =========================================================
+   S-03 決済記録（design 14.2。T-21）
+   口座色の線・お知らせ行・詳細（任意）の折りたたみは、S-02 と同じ見た目なので上の .account-line・.entry-notices・.entry-details__* を使う
+   ========================================================= */
+
+/* 対象トレードの要約（表示のみ・押せない）：1行目＝［口座］通貨ペア ▲買い、2行目以降＝15px・灰・等幅 */
+.close-summary__row {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: var(--sp-1);
+}
+.close-summary__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--sp-2);
+  font-size: var(--fs-headline);
+  line-height: 1.3; /* design 6.2：headline の行の高さ */
+}
+.close-summary__pair {
+  font-weight: var(--fw-semibold);
+}
+/* 売買方向は 15px の文字だけ（一覧の行と同じ。色の塗りは付けない：design 9.5） */
+.close-summary .badge--buy,
+.close-summary .badge--sell {
+  height: auto;
+  font-size: var(--fs-subhead);
+}
+.close-summary__meta {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--sp-3);
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+.close-summary__meta > span {
+  white-space: nowrap;
+}
+
+/* グループの下の説明文（13px・灰。グループ共通の footer の文字をそのまま使う） */
+.close-note {
+  margin: 0;
+}
+
+/* 損益の自動計算の表示：左に「損益」、右に 28px・700 の金額（利益/損失/ゼロの色＋符号）、その下に 15px の補足と pips */
+.close-profit {
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.close-profit__values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  text-align: right;
+}
+.close-profit__main {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.close-profit__sub {
+  font-size: var(--fs-subhead);
+}
+/* 「計算できない」ときの補足（灰色）。pips は自分の色（tone-*）を持つ */
+.close-profit__sub:not([class*="tone-"]) {
+  color: var(--color-text-sub);
+}
+
+/* 行全体を押せる文字の行（「確定損益を入力 ›」「自動計算に戻す」）：アクセント色の文字、押したら背景を灰色に */
+.close-action {
+  width: 100%;
+  text-align: left;
+}
+.close-action:active {
+  background: var(--color-fill);
+}
+.close-action__label {
+  color: var(--color-accent);
+}
+
+/* 確定損益の手入力の行：ラベル・＋/− 切替・金額・「円」。切替は幅を決めて、金額欄に残りを渡す */
+.manual-row .segment {
+  flex: 0 0 auto;
+  width: 104px;
+}
+.manual-row .form-row__input {
+  min-width: 0;
+}
+/* 「自動計算（参考）」は色を付けない（15px・灰：design 14.2.5） */
+.close-ref {
+  font-size: var(--fs-subhead);
+}
+.close-ref__value {
+  color: var(--color-text-sub);
+}
+/* 非JPYでレートが空のとき、「自動計算に戻す」の代わりの灰色の文 */
+.close-back-note {
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
+/* 詳細（任意）の中身（決済理由・決済時の感情・タグ・メモのグループ）。閉じているときは hidden で隠す */
+.close-details__body {
+  margin-top: 0;
+}
+
+/* =========================================================
    S-04 トレード詳細（design 14.4。T-20）
    ========================================================= */
 

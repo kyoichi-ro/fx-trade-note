@@ -14,6 +14,7 @@
      ・0件のときは空状態の案内
      ・タブ切替・詳細から戻ったときのスクロール位置の復元（architecture 5.2・5.5）
      ・読み込みに失敗したときのお知らせ行［再読み込み］（design 14.3.8 の優先1）
+   【T-21】決済・保存から戻った直後に、その行を約1秒だけ目立たせる（design 14.3.4。受け渡しは js/row-flash.js）。
    絞り込み（条件チップ・シート）は T-23、詳細・決済画面は T-20・T-21。
    集計・並び順・日付のまとめは js/filter.js（画面に依存しない純粋な関数）、文字の整形は js/format.js。
    ========================================================= */
@@ -28,6 +29,7 @@ import { buildListView, flattenView, nextChunkEnd, summaryRows } from '../filter
 import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime, formatDraftTime,
   toneOf, toTenths, speakYen, speakPips, speakDateTime } from '../format.js';
 import { LIST_PAGE_SIZE } from '../config.js';
+import { takeRowFlash, FLASH_DURATION_MS } from '../row-flash.js';
 
 /** お知らせ行を × で閉じたか（次に起動するまで出さない：design 14.3.8。アプリを開き直すと元に戻る） */
 let draftNoticeClosed = false;
@@ -186,7 +188,21 @@ function tradeRow(item, now) {
     class: 'trade-row__action', href: `#/trades/${id}/close`, 'aria-label': `${t.pair ?? ''} を決済する`,
   }, h('span', { class: 'trade-row__action-label' }, '決済'));
 
-  return h('div', { class: `trade-row${closed ? '' : ' trade-row--open'}` }, link, action);
+  // data-trade-id：戻った直後のハイライトで、どの行かを見つけるための目印（js/row-flash.js）
+  return h('div', { class: `trade-row${closed ? '' : ' trade-row--open'}`, dataset: { tradeId: String(t.id) } }, link, action);
+}
+
+/**
+ * 決済・保存から戻った直後に、その行を約1秒だけ `--color-accent-tint` の背景にする（design 14.3.4）。
+ * 背景色の付け外しだけで、グラデーションや影は使わない。元に戻すときのゆっくりした消え方は CSS の transition が担当し、
+ * 「視差効果を減らす」設定の人には base.css が動きを止めて色の切り替えだけにする。
+ * 該当の行が見つからないとき（絞り込みで外れている、50件より後ろにあるなど）は何もしない。
+ */
+function flashRow(listEl, id) {
+  const row = [...listEl.querySelectorAll('.trade-row')].find((el) => el.dataset.tradeId === id);
+  if (!row) return;
+  row.classList.add('is-flash');
+  setTimeout(() => row.classList.remove('is-flash'), FLASH_DURATION_MS);
 }
 
 /* ---------------------------------------------------------
@@ -279,6 +295,10 @@ function renderList(ctx, trades, position) {
 
   appendChunk(ctx, Math.max(LIST_PAGE_SIZE, position.rows));
   ctx.ready = true;
+
+  // 保存・決済から戻った直後なら、その行を1秒だけ目立たせる（預かりは1度で空になる）
+  const flashId = takeRowFlash();
+  if (flashId) flashRow(ctx.listEl, flashId);
 
   if (ctx.next < ctx.entries.length) {
     if (typeof IntersectionObserver === 'function') {

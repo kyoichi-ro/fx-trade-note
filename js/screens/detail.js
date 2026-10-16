@@ -12,10 +12,13 @@
    表示する内容の組み立ては js/detail-view.js（画面に依存しない関数。テストあり）。ここは並べて描くだけ。
    メモ・タグなど利用者が入力した文字は h() を通す（必ずテキストとして入る：XSS 対策）。
 
+   【T-21】「決済を取り消す」を実処理にした（確認シート → trades.js の reopenTrade → トースト「決済を取り消しました」。
+   詳細画面に留まり、見出しが「保有中」に変わる：design 14.4.5）。
+
    【未実装（確認シートまで）】
-   「決済を取り消す」の処理は T-21、「この記録を削除」の処理は T-22 で作る。T-20 ではアクションシートで確認したあと、
+   「この記録を削除」の処理は T-22 で作る。T-20 ではアクションシートで確認したあと、
    「まだ使えません。この記録は変更されていません」のアラートを出す（押しても何も起きない状態にしないため）。
-   T-21・T-22 ではこのファイルの notYetAvailable を使っている 2 か所を、実際の処理に差し替える。
+   T-22 ではこのファイルの notYetAvailable を使っている 1 か所を、実際の処理に差し替える。
    画像のサムネイル・拡大表示（design 14.4.6）は T-24 で作る。画像のグループは、画像を表示できるようになる T-24 で足す。
    ========================================================= */
 import { h } from '../ui/dom.js';
@@ -23,7 +26,9 @@ import { navbar, backButton, actionBar } from '../ui/bars.js';
 import { badge, button, listGroup, dangerRow, emptyState, showLoadingAfter } from '../ui/parts.js';
 import { renderNotices } from '../ui/notice.js';
 import { confirmAction, showAlert } from '../ui/dialog.js';
-import { getTrade, TRADES_CHANGED } from '../trades.js';
+import { showToast } from '../ui/toast.js';
+import { getTrade, reopenTrade, TRADES_CHANGED } from '../trades.js';
+import { isAppError } from '../util.js';
 import { on } from '../events.js';
 import { buildDetailView, describeTrade } from '../detail-view.js';
 
@@ -89,7 +94,7 @@ function sectionNode(s) {
 /**
  * まだ作っていない処理を押したときの知らせ。押しても何も起きない状態にしないための仮の表示。
  * 「記録は変更されていない」ことを必ず伝える（消えたと誤解して慌てないため）。投資助言にあたる文言は入れない。
- * T-21（決済の取り消し）・T-22（削除）で、呼び出し元を実際の処理に差し替えたらこの関数は消す。
+ * T-22（削除）で、呼び出し元を実際の処理に差し替えたらこの関数は消す（T-21 で決済の取り消しは差し替え済み）。
  */
 function notYetAvailable(name) {
   return showAlert({
@@ -98,7 +103,11 @@ function notYetAvailable(name) {
   });
 }
 
-/** 「決済を取り消す」：確認シート（design 14.7.4）。処理は T-21 */
+/**
+ * 「決済を取り消す」：確認シート（design 14.7.4）→ 保有中に戻す（trades.js の reopenTrade）。
+ * 戻したあとは詳細画面に留まる。保存の通知（TRADES_CHANGED）でこの画面が描き直され、見出しが「保有中」・下部ボタンが「決済する」に変わる。
+ * トーストに「取り消す」は付けない（消した値を別に覚えておく仕組みが要るため。確認シートで何が消えるかを伝えている：design 14.4.5）。
+ */
 async function onCancelClose(ctx) {
   const ok = await confirmAction({
     title: '決済を取り消しますか？',
@@ -106,7 +115,23 @@ async function onCancelClose(ctx) {
     confirmLabel: '決済を取り消す',
   });
   if (!ok || !ctx.alive) return;
-  await notYetAvailable('決済の取り消し'); // T-21 で「保有中に戻す処理」に差し替える
+  try {
+    await reopenTrade(ctx.id);
+  } catch (e) {
+    if (!ctx.alive) return;
+    if (isAppError(e, 'NOT_FOUND')) {
+      load(ctx); // 別の画面で削除されていた：「この記録は見つかりません」の表示に変わる
+      return;
+    }
+    console.error('決済を取り消せませんでした', e);
+    await showAlert({ title: '決済を取り消せませんでした', message: '記録はそのまま残っています。もう一度試してください。' });
+    return;
+  }
+  if (!ctx.alive) return;
+  // すでに保有中だった（別の画面で先に取り消された）ときは何も保存されず通知も出ないので、ここでも描き直して表示を合わせる
+  // （読み込み中に呼ばれたら終わってからやり直すだけなので、通知による描き直しと重なっても害はない）
+  load(ctx);
+  showToast('決済を取り消しました');
 }
 
 /** 「この記録を削除」：確認シート（design 14.7.4）。処理は T-22 */

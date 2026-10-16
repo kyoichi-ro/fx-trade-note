@@ -28,6 +28,8 @@ const CATEGORY_INFO = {
     + '「最初の約50件→続き」の切り出し。絞り込み条件つきの L-02〜L-27 は T-23 で足す',
   '詳細画面': 'design 14.4（DV＝detail-view.js・calc.js の calcQuantity）。見出し・全項目の表示・未入力の「—」・保有時間・数量・'
     + 'リスクリワードの 2 行目・円換算レート・手入力のときの参考損益・保有中/決済済みの出し分け・メモ・壊れたデータ',
+  '決済画面': 'design 14.2、fx-rules 4.4・4.5・8章（CL＝close-form.js・trades.js の決済の組み立て、FL＝row-flash.js）。入力欄の初期値・下書きの読み込み・'
+    + '損益の即時計算・入力チェック（E-08〜E-11・W-02・W-05・W-06）・符号付きの貼り付け・決済と決済の取り消しの組み立て・戻った直後のハイライトの受け渡し',
 };
 
 function renderSummary(el, { total, passed, failed }) {

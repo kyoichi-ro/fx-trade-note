@@ -799,6 +799,104 @@ export function collectDbTests() {
           ['口座区分の誤りは TypeError', err instanceof TypeError, errText(err)],
         ]);
       })),
+
+    t('SV-12', '決済（T-21）：closeTrade で保存されている記録に決済を重ねる', '保有中の記録＋決済の下書きを用意して closeTrade（JPY 150.000→150.250）／もう一度／ない ID／削除済み',
+      'status＝closed・pips＝25・profitJpy＝2500（auto）・lotUnitSize は記録時の値・updatedAt＝今・createdAt 不変・下書きも同時に消える・通知 update。決済済みは ALREADY_CLOSED、ない ID・削除済みは NOT_FOUND',
+      () => withTestDb('SV-12', async (db) => {
+        const clock = makeClock();
+        let unit = 10000; // あとで設定画面の値を変えても、記録時の値で計算されることを確かめる
+        const trades = createTradeService({ db, now: clock, getLotUnitSize: () => unit });
+        const drafts = createDraftService({ db, now: clock });
+        const first = await trades.saveNewTrade(entryFields({ id: 't-close', entryPrice: 150, lots: 1 }));
+        unit = 99999;
+        await drafts.saveDraft({ kind: 'close', tradeId: 't-close', fields: { exitPrice: '150.250' } });
+        const ev = recordTradeEvents();
+        try {
+          const saved = await trades.closeTrade('t-close', {
+            exitPrice: 150.25, exitAt: '2026-10-15T23:05:00+09:00', exitReason: 'tp', exitEmotion: '冷静', tags: ['指標前'], memo: '決済メモ',
+          }, { draftKey: 'close:t-close' });
+          const stored = await db.getTrade('t-close');
+          const again = await errorOf(() => trades.closeTrade('t-close', { exitPrice: 150.3, exitAt: '2026-10-15T23:10:00+09:00' }));
+          const missing = await errorOf(() => trades.closeTrade('no-such-id', { exitPrice: 150.3, exitAt: '2026-10-15T23:10:00+09:00' }));
+          await trades.saveNewTrade(entryFields({ id: 't-deleted' }));
+          await trades.deleteTrade('t-deleted');
+          const deleted = await errorOf(() => trades.closeTrade('t-deleted', { exitPrice: 150.3, exitAt: '2026-10-15T23:10:00+09:00' }));
+          return verdict([
+            ['closed', stored.status === 'closed', stored.status],
+            ['pips', stored.pips === 25, stored.pips],
+            ['損益は自動計算（記録時の1lot＝10,000）', stored.profitJpy === 2500 && stored.profitSource === 'auto', `${stored.profitJpy}/${stored.profitSource}`],
+            ['lotUnitSize は記録時の値', stored.lotUnitSize === 10000, stored.lotUnitSize],
+            ['決済理由・感情・タグ・メモ', stored.exitReason === 'tp' && stored.exitEmotion === '冷静' && sameList(stored.tags, ['指標前']) && stored.memo === '決済メモ'],
+            ['updatedAt が進み createdAt は不変', stored.updatedAt > first.updatedAt && stored.createdAt === first.createdAt, stored.updatedAt],
+            ['syncStatus＝pending', stored.syncStatus === 'pending', stored.syncStatus],
+            ['戻り値＝DB の中身', deepEqual(saved, stored)],
+            ['下書きも同時に消える', (await db.getDraft('close:t-close')) === null],
+            ['通知 update は1回', ev.list.length >= 1 && ev.list[0].type === 'update' && ev.list[0].id === 't-close', JSON.stringify(ev.list.map((e) => e.type))],
+            ['決済済みの再決済は ALREADY_CLOSED（上書きしない）', again instanceof AppError && again.code === 'ALREADY_CLOSED' && (await db.getTrade('t-close')).exitPrice === 150.25, errText(again)],
+            ['ない ID は NOT_FOUND', missing instanceof AppError && missing.code === 'NOT_FOUND', errText(missing)],
+            ['削除済みは NOT_FOUND', deleted instanceof AppError && deleted.code === 'NOT_FOUND', errText(deleted)],
+          ]);
+        } finally {
+          ev.stop();
+        }
+      })),
+
+    t('SV-13', '決済（手入力・非JPY）：確定損益を手入力すると manual。円換算レートは記録として残る', 'EUR/USD 買い 1.08500→1.08750・レート 149.850・手入力 −500／手入力なし',
+      'profitJpy＝-500・manual・quoteToJpyRate＝149.85・pips＝25（手入力でも自動）／手入力なしは 3746・auto',
+      () => withTestDb('SV-13', async (db) => {
+        const trades = createTradeService({ db, now: makeClock() });
+        await trades.saveNewTrade(entryFields({ id: 'e1', pair: 'EUR/USD', entryPrice: 1.085, lots: 1 }));
+        await trades.saveNewTrade(entryFields({ id: 'e2', pair: 'EUR/USD', entryPrice: 1.085, lots: 1 }));
+        const exit = { exitPrice: 1.0875, exitAt: '2026-10-15T23:05:00+09:00', quoteToJpyRate: 149.85 };
+        const manual = await trades.closeTrade('e1', { ...exit, manualProfitJpy: -500 });
+        const auto = await trades.closeTrade('e2', exit);
+        return verdict([
+          ['手入力の円', manual.profitJpy === -500 && manual.profitSource === 'manual', `${manual.profitJpy}/${manual.profitSource}`],
+          ['レートは記録として残る', manual.quoteToJpyRate === 149.85, manual.quoteToJpyRate],
+          ['pips は自動計算', manual.pips === 25, manual.pips],
+          ['手入力なしは自動（3,746円）', auto.profitJpy === 3746 && auto.profitSource === 'auto', `${auto.profitJpy}/${auto.profitSource}`],
+        ]);
+      })),
+
+    t('SV-14', '決済の取り消し（T-21）：reopenTrade で保有中に戻す。理由・感情・メモ・タグ・画像は残る', '決済済み（手入力）の記録＋画像 → reopenTrade → もう一度 → ない ID・削除済み',
+      '6項目（exitPrice・exitAt・pips・profitJpy・profitSource・quoteToJpyRate）が null・status＝open・残す項目はそのまま・updatedAt＝今・syncStatus＝pending・通知 update。すでに保有中なら何も変えず通知なし。ない ID・削除済みは NOT_FOUND',
+      () => withTestDb('SV-14', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await trades.saveNewTrade(entryFields({ id: 'r1', pair: 'EUR/USD', entryPrice: 1.085, imageIds: ['img-r1'], tags: ['ルール違反'], memo: 'メモ' }));
+        await images.saveImage({ id: 'img-r1', tradeId: 'r1', kind: 'entry', blob: sampleBlob(), width: 100, height: 50 });
+        const closed = await trades.closeTrade('r1', {
+          exitPrice: 1.0875, exitAt: '2026-10-15T23:05:00+09:00', quoteToJpyRate: 149.85, manualProfitJpy: -500, exitReason: 'sl', exitEmotion: '焦り',
+        });
+        const ev = recordTradeEvents();
+        try {
+          const r = await trades.reopenTrade('r1');
+          const stored = await db.getTrade('r1');
+          const eventsAfterFirst = ev.list.length;
+          const again = await trades.reopenTrade('r1');
+          const eventsAfterSecond = ev.list.length;
+          const missing = await errorOf(() => trades.reopenTrade('no-such-id'));
+          await trades.saveNewTrade(entryFields({ id: 'r2' }));
+          await trades.deleteTrade('r2');
+          const deleted = await errorOf(() => trades.reopenTrade('r2'));
+          return verdict([
+            ['決済済みだった', closed.status === 'closed', closed.status],
+            ['消える6項目', [stored.exitPrice, stored.exitAt, stored.pips, stored.profitJpy, stored.profitSource, stored.quoteToJpyRate].every((v) => v === null)],
+            ['status＝open', stored.status === 'open', stored.status],
+            ['理由・感情・メモ・タグ・画像は残る', stored.exitReason === 'sl' && stored.exitEmotion === '焦り' && stored.memo === 'メモ' && sameList(stored.tags, ['ルール違反']) && sameList(stored.imageIds, ['img-r1']), `${stored.exitReason}/${stored.exitEmotion}`],
+            ['画像は消えない', (await db.getImage('img-r1')) !== null],
+            ['updatedAt が進み syncStatus＝pending', stored.updatedAt > closed.updatedAt && stored.syncStatus === 'pending', stored.updatedAt],
+            ['戻り値＝DB の中身', deepEqual(r, stored)],
+            ['通知 update は1回', eventsAfterFirst === 1 && ev.list[0].type === 'update', JSON.stringify(ev.list.map((e) => e.type))],
+            ['すでに保有中なら何も変えない・通知なし', deepEqual(again, stored) && eventsAfterSecond === 1, `${eventsAfterSecond}`],
+            ['ない ID は NOT_FOUND', missing instanceof AppError && missing.code === 'NOT_FOUND', errText(missing)],
+            ['削除済みは NOT_FOUND', deleted instanceof AppError && deleted.code === 'NOT_FOUND', errText(deleted)],
+          ]);
+        } finally {
+          ev.stop();
+        }
+      })),
   ];
 }
 
