@@ -91,6 +91,41 @@
   scroll-margin-top: calc(var(--navbar-h) + var(--safe-top) + var(--account-line-h) + var(--sp-2));
 }
 
+/* 詳細（任意）の中身（損切り・利確／根拠／時間足／セッション／感情／タグ／メモのグループ）。閉じているときは hidden で隠す（T-18） */
+.entry-details__body {
+  margin-top: 0;
+}
+
+/* リスクリワードの表示：左に「リスクリワード」、右に 17px・600 の値（等幅）、その下の行に 15px・灰の補足（損切り幅・利確幅の pips か、入れ方の案内）。
+   値の良し悪しを色やコメントで評価しない（助言をしない方針：design 14.1.7）ので、値の色は本文の色のまま。計算できないときだけ灰色の「—」 */
+.rr-row {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.rr-row__value {
+  margin-left: auto;
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+}
+.rr-row__value.is-empty {
+  color: var(--color-text-sub);
+}
+.rr-row__sub {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
+/* 根拠・感情の選択肢がひとつもないとき（設定ですべて削除した）の案内 */
+.choice-empty {
+  margin: 0;
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
 /* 「その他の通貨ペア」のシートの行：ペア名（左）・日本語名（右・灰）・選択中は ✓ */
 .pair-option {
   width: 100%;

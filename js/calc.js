@@ -4,6 +4,7 @@
      ・pips            calcPips(t)        → { diffPoints, pips }（必要な値が空なら両方 null）
      ・損益（円）       calcProfitJpy(t)   → 整数の円 または null（非JPYペアで円換算レートなし／必要な値が空）
      ・リスクリワード   calcRiskReward(t)  → { rr, warn }
+     ・損切り幅・利確幅 calcSlTpPips(t)    → { riskPips, rewardPips }（T-18 で追加。RR の2行目「損切り 20.0 pips・利確 40.0 pips」用）
      ・セッション判定   judgeSession(entryAt) → 'tokyo' | 'london' | 'newyork' | 'other' | null
      ・勝敗判定         judgeResult(trade) → 'win' | 'loss' | 'draw' | null（判定対象外）
 
@@ -24,6 +25,9 @@
      （テスト C-18〜C-20）。保有中の記録や入力途中の画面で呼んでも安全にするため。
    ・judgeSession は entryAt が null・undefined なら null（以前は new Date(null) が1970年として読めて 'tokyo'。テスト Z-23）。
    ・値がそろっているときの計算結果は以前とまったく同じ（fx-rules 9章・14.1 のテストケースで確認）。
+   ・calcRiskReward は、通貨ペア・売買方向・エントリー価格・SL・TP のどれかが空なら { rr: null, warn: [] }
+     （fx-rules 5.3・2026-10-16 オーナー決定。T-18。テスト Y-08〜Y-13）。以前はエントリー価格を 0 とみなして誤った警告 W-01 を出したり、
+     売買方向が空だと「売り」として RR を出したり、通貨ペアが空だと例外で止まったりした。SL だけ・TP だけ先に入れた入力途中に誤警告を出さないため。
    ・画面から渡す値は validate.js で数値（または空なら null）にしてから渡す約束（空文字 '' のまま渡さない）。
 
    【誤差対策のまとめ（fx-rules 6.3）】
@@ -138,20 +142,35 @@ export function calcProfitJpy(t) {
 }
 
 /**
+ * SL・TP までの値幅をポイント（整数）で求める。calcRiskReward と calcSlTpPips が同じ式を使うための内部の部品（fx-rules 5.1）。
+ * 買い：損切り幅＝エントリー−SL、利確幅＝TP−エントリー。売り：損切り幅＝SL−エントリー、利確幅＝エントリー−TP。
+ * 価格はポイント（整数）に直してから差を取る（fx-rules 6.3 ルール1）。
+ */
+function slTpPoints(t) {
+  const e = toPoints(t.entryPrice, t.pair);
+  const sl = toPoints(t.slPrice, t.pair);
+  const tp = toPoints(t.tpPrice, t.pair);
+  return {
+    risk: t.side === 'buy' ? e - sl : sl - e,
+    reward: t.side === 'buy' ? tp - e : e - tp,
+  };
+}
+
+/**
  * リスクリワード（小数第2位）。fx-rules 5章・6.4。
- * SL・TP の両方があるときだけ計算する（どちらかが空なら rr = null、警告なし）。
+ * 計算に必要な値（pair・side・entryPrice・slPrice・tpPrice）のどれか1つでも空（null・undefined）なら { rr: null, warn: [] }
+ * （fx-rules 5.3。エントリー価格や売買方向が分からないうちは、RR も「SL/TP が方向と矛盾しているか」も判断できないため。
+ *   SL だけ・TP だけの入力途中にも警告を出さない）。
  * SL/TP が売買方向と矛盾する（損切り幅または利確幅が0以下）ときは rr = null と警告対象（'SL' / 'TP'）を返す。
  * 警告（W-01）は保存を止めない。建値ストップなど意図的なこともあるため（fx-rules 5.2）。
  * @param {{pair:string, side:'buy'|'sell', entryPrice:number, slPrice?:(number|null), tpPrice?:(number|null)}} t
  * @returns {{rr:(number|null), warn:string[]}}
  */
 export function calcRiskReward(t) {
-  if (t.slPrice == null || t.tpPrice == null) return { rr: null, warn: [] };
-  const e = toPoints(t.entryPrice, t.pair);
-  const sl = toPoints(t.slPrice, t.pair);
-  const tp = toPoints(t.tpPrice, t.pair);
-  const risk = t.side === 'buy' ? e - sl : sl - e;
-  const reward = t.side === 'buy' ? tp - e : e - tp;
+  // 必要な値が空なら RR も W-01 も判断できないので、何も出さない（fx-rules 5.3）。
+  // 空のまま toPoints に渡すと、通貨ペアが空で例外、エントリー価格が undefined で NaN、null で 0 扱いになってしまう
+  if ([t.pair, t.side, t.entryPrice, t.slPrice, t.tpPrice].some(isBlank)) return { rr: null, warn: [] };
+  const { risk, reward } = slTpPoints(t);
   const warn = [];
   if (risk <= 0) warn.push('SL');
   if (reward <= 0) warn.push('TP');
@@ -160,6 +179,22 @@ export function calcRiskReward(t) {
   // 整数演算で四捨五入：floor((200×reward + risk) / (2×risk)) / 100
   // Math.round(x * 100) / 100 だと 0.625 が 0.62 になることがあるため使わない（R-04・R-05）
   return { rr: Math.floor((200 * reward + risk) / (2 * risk)) / 100, warn };
+}
+
+/**
+ * 損切り幅・利確幅（pips・小数第1位）。リスクリワードの2行目「損切り 20.0 pips・利確 40.0 pips」に使う（fx-rules 5.1・6.1・9.2。T-18）。
+ * ・ポイント（整数）の差を10で割るだけなので丸めは不要（pips の計算と同じ。fx-rules 6.3 ルール1）
+ * ・必要な値が空のとき、または SL/TP が売買方向と矛盾する（幅が0以下：W-01）ときは両方 null
+ *   （fx-rules 9.2 の R-06〜R-09 の「損切り幅・利確幅」が「—」なのと同じ。RR が出ないときは幅も出さない）
+ * @param {{pair:string, side:'buy'|'sell', entryPrice:number, slPrice?:(number|null), tpPrice?:(number|null)}} t
+ * @returns {{riskPips:(number|null), rewardPips:(number|null)}}
+ */
+export function calcSlTpPips(t) {
+  const none = { riskPips: null, rewardPips: null };
+  if ([t.pair, t.side, t.entryPrice, t.slPrice, t.tpPrice].some(isBlank)) return none;
+  const { risk, reward } = slTpPoints(t);
+  if (risk <= 0 || reward <= 0) return none;
+  return { riskPips: risk / 10, rewardPips: reward / 10 };
 }
 
 /* ---------------------------------------------------------

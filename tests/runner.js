@@ -24,6 +24,7 @@ import { collectFilterTests } from './filter.test.js';
 import { collectDetailViewTests } from './detail-view.test.js';
 import { collectCloseFormTests } from './close-form.test.js';
 import { collectChoiceListTests } from './choice-list.test.js';
+import { collectEntryFormTests } from './entry-form.test.js';
 
 /** すべてのテストの定義を、表示する順番（architecture 13.2 の表の順）で集める */
 export function collectAllTests() {
@@ -39,6 +40,7 @@ export function collectAllTests() {
     ...collectFilterTests(),   // 一覧の集計（LV）25件（T-19。並び順・日付見出し・サマリー・日計・続き読み込み：analytics 4.6・4.7・4.11）。Node.js でも実行する
     ...collectDetailViewTests(), // 詳細画面の表示内容（DV）30件（T-20。全項目・未入力の「—」・保有時間・数量・RR の 2 行目・出し分け：design 14.4）。Node.js でも実行する
     ...collectCloseFormTests(),  // 決済画面（CL・FL）28件（T-21。入力チェック・損益の即時計算・符号付きの貼り付け・決済/取り消しの組み立て・ハイライトの受け渡し：design 14.2）。Node.js でも実行する
+    ...collectEntryFormTests(),  // エントリー画面（EF）36件（T-18。セッションの自動判定と手動の優先・下書きの読み直し・RR の表示と W-01 などの警告・損切り幅/利確幅・保存時の再計算・タグの追加の判断：design 14.1）。Node.js でも実行する
     ...collectChoiceListTests(), // 選択肢の編集（CH）35件（T-16。名前のチェック・追加/削除/並び替え・通貨ペアの追加 E-12〜E-16・W-07・初期値の master.js への移動・保存の読み直し：design 14.6.3・14.6.4）。Node.js でも実行する
   ];
 }

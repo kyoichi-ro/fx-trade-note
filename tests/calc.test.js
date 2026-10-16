@@ -5,7 +5,7 @@
      ・セッション fx-rules 11.8（S-01〜S-35）
      ・追加（2026-10-16）fx-rules 14.1 の追加のテストケース（X-xx・C-18〜C-20・Y-xx・Z-xx）
    ========================================================= */
-import { calcPips, calcProfitJpy, calcRiskReward, judgeResult, judgeSession } from '../js/calc.js';
+import { calcPips, calcProfitJpy, calcRiskReward, calcSlTpPips, judgeResult, judgeSession } from '../js/calc.js';
 import {
   PROFIT_CASES, RR_CASES, RESULT_CASES, SESSION_CASES,
   EXTRA_PROFIT_CASES, EXTRA_RR_CASES, EXTRA_SESSION_CASES,
@@ -13,8 +13,13 @@ import {
 import { toInt, signed, yen, sameArray, show } from './helpers.js';
 
 const SIDE_JA = { buy: '買い', sell: '売り' };
+/** 入力の説明用：null は「（空）」、undefined は「（undefined）」と書く（Y-08〜Y-13 で空の値の種類を見分けるため） */
+const blankText = (v) => (v === undefined ? '（undefined）' : v === null ? '（空）' : v);
 const RESULT_JA = { win: '勝ち', loss: '負け', draw: '引き分け' };
 const resultJa = (r) => (r == null ? '判定対象外' : RESULT_JA[r] || show(r));
+
+/** 損切り幅・利確幅の表示用（null は「—」） */
+const signedWidth = (x) => (x == null ? '—' : `${x.toFixed(1)}pips`);
 
 /** 計算（C・R・J）のテスト定義 */
 export function collectCalcTests() {
@@ -48,16 +53,22 @@ export function collectCalcTests() {
   for (const c of [...RR_CASES, ...EXTRA_RR_CASES]) {
     tests.push({
       category: '計算', id: c.id, title: c.title,
-      input: `${c.pair} ${SIDE_JA[c.side]} エントリー ${c.entryPrice}・SL ${c.slPrice ?? '（空）'}・TP ${c.tpPrice ?? '（空）'}`,
-      expected: `RR ${c.rr == null ? 'null' : c.rr.toFixed(2)}／警告 ${c.warn.length ? c.warn.join('・') : 'なし'}`,
+      input: `${blankText(c.pair)} ${SIDE_JA[c.side] ?? blankText(c.side)} エントリー ${blankText(c.entryPrice)}・SL ${blankText(c.slPrice)}・TP ${blankText(c.tpPrice)}`,
+      expected: `RR ${c.rr == null ? 'null' : c.rr.toFixed(2)}／警告 ${c.warn.length ? c.warn.join('・') : 'なし'}`
+        + ('riskPips' in c ? `／損切り幅 ${signedWidth(c.riskPips)}・利確幅 ${signedWidth(c.rewardPips)}` : ''),
       run: () => {
         const { rr, warn } = calcRiskReward(c);
         // RR は ×100 の整数で比べる（fx-rules 9.5）
         const rrOk = toInt(rr, 100) === toInt(c.rr, 100);
-        return {
-          actual: `RR ${rr == null ? 'null' : rr.toFixed(2)}／警告 ${warn.length ? warn.join('・') : 'なし'}`,
-          pass: rrOk && sameArray(warn, c.warn),
-        };
+        let actual = `RR ${rr == null ? 'null' : rr.toFixed(2)}／警告 ${warn.length ? warn.join('・') : 'なし'}`;
+        let pass = rrOk && sameArray(warn, c.warn) && (rr === null || Number.isFinite(rr)); // NaN を RR として返さない（Y-12）
+        // 9.2 の「損切り幅・利確幅」の列（T-18：architecture 13.3 #5）。資料に列があるケース（R-01〜R-09）だけ確かめる。pips は ×10 の整数で比べる
+        if ('riskPips' in c) {
+          const w = calcSlTpPips(c);
+          actual += `／損切り幅 ${signedWidth(w.riskPips)}・利確幅 ${signedWidth(w.rewardPips)}`;
+          pass = pass && toInt(w.riskPips, 10) === toInt(c.riskPips, 10) && toInt(w.rewardPips, 10) === toInt(c.rewardPips, 10);
+        }
+        return { actual, pass };
       },
     });
   }

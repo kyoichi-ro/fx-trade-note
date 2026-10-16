@@ -32,7 +32,7 @@ import { getSetting, setSetting } from '../settings-store.js';
 import { CHOICE_KIND_LABELS, getPairSpec } from '../master.js';
 import { CHOICE_NAME_MAX_LENGTH, FAVORITE_GRID_COUNT } from '../config.js';
 import {
-  addChoice, removeChoice, moveItem, addFavoritePair, removeFavoritePair, searchPairCandidates,
+  addChoice, removeChoice, moveItem, addFavoritePair, removeFavoritePair, searchPairCandidates, CHOICE_NAME_ERROR_TEXTS,
 } from '../choice-list.js';
 import { FLASH_DURATION_MS } from '../row-flash.js';
 import { isAppError } from '../util.js';
@@ -41,10 +41,8 @@ import { isAppError } from '../util.js';
    文言（design 14.6.3・14.6.4。通貨ペアのエラーは fx-rules 10.4 のメッセージ例に、E-12 は design の例に合わせた）
    --------------------------------------------------------- */
 
-const NAME_ERRORS = {
-  duplicate: '同じ名前がすでにあります',
-  'too-long': `${CHOICE_NAME_MAX_LENGTH}文字以内で入力してください`,
-};
+// 名前のチェックの文言は choice-list.js の CHOICE_NAME_ERROR_TEXTS（入力画面のタグ追加と共通）
+const NAME_ERRORS = CHOICE_NAME_ERROR_TEXTS;
 
 const PAIR_MESSAGES = {
   'E-12': '通貨ペアは「USD/JPY」の形で入力してください',

@@ -17,7 +17,8 @@
      discardTitle を返すだけ）。
 
    表示の組み立て・入力チェック・符号の貼り付けの解釈は js/close-form.js（画面に依存しない純粋な関数。テストあり）。
-   画像の添付（T-24）と、タグの「＋追加」（設定の選択肢にも加える：design 14.2.6 ⑥）は、まだ作っていない。
+   タグは「＋追加」で、この画面の中で新しい名前を追加できる（設定の選択肢にも加わる。T-18：design 14.2.6 ⑥。ui/tag-picker.js）。
+   画像の添付（T-24）は、まだ作っていない。
    文字はすべて ui/dom.js の h() を通す（innerHTML は使わない：architecture 14.1）。
    ========================================================= */
 import { h, uniqueId } from '../ui/dom.js';
@@ -25,6 +26,7 @@ import { navbar, textButton, backButton, actionBar } from '../ui/bars.js';
 import { button, badge, listGroup, emptyState, setBusy, showLoadingAfter } from '../ui/parts.js';
 import { numberRow, dateTimeRow, segment, chips, textareaRow, setGroupMessages } from '../ui/fields.js';
 import { icon } from '../ui/icons.js';
+import { tagPicker } from '../ui/tag-picker.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
@@ -236,11 +238,8 @@ function buildScreen(root, nav, trade, draft) {
     selected: fields.exitEmotion ? [fields.exitEmotion] : [], multiple: false,
     onChange: (sel) => { fields.exitEmotion = sel[0] || ''; onDetailsChanged(); },
   });
-  const tagOptions = withSelected(choices.tags, fields.tags);
-  const tagChips = chips({
-    label: 'タグ', options: tagOptions.map((v) => ({ value: v, label: v })), selected: fields.tags, multiple: true,
-    onChange: (sel) => { fields.tags = sel; onDetailsChanged(); },
-  });
+  // タグは入力画面の中で新しい名前を追加できる。追加したタグは設定の選択肢にも加わる（design 14.2.6 ⑥、ui/tag-picker.js）
+  const tags = tagPicker({ selected: fields.tags, onChange: (sel) => { fields.tags = sel; onDetailsChanged(); } });
   const memo = textareaRow({
     label: 'メモ', name: 'memo', value: fields.memo,
     onInput: (e) => { fields.memo = e.target.value; onDetailsChanged(); },
@@ -252,7 +251,7 @@ function buildScreen(root, nav, trade, draft) {
   const detailsBody = h('div', { class: 'close-details__body', id: detailsId },
     listGroup({ header: '決済理由', rows: [h('div', { class: 'field-row' }, reasonChips.el)] }),
     listGroup({ header: '決済時の感情', rows: [h('div', { class: 'field-row' }, emotionChips.el)] }),
-    listGroup({ header: 'タグ（複数選択）', rows: [h('div', { class: 'field-row' }, tagChips.el)] }),
+    tags.el,
     listGroup({ header: 'メモ', rows: [memo.row], footer: 'エントリー時のメモに続けて書けます。' }));
   const detailsSub = h('span', { class: 'entry-details__sub' });
   const detailsToggle = h('button', {

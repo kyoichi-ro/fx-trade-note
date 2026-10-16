@@ -3,14 +3,20 @@
    S-02 エントリー記録。型B（入力画面）。URL：#/new（design.md 14.1、requirements F-01）
 
    【T-17 の範囲】必須6項目（①口座 ②通貨ペア ③売買方向 ④エントリー価格 ⑤ロット ⑥日時）の入力・入力チェック・保存と、
-   下書きの自動保存・復元・破棄。「詳細（任意）」は開閉する入れ物だけで、中身（SL/TP・根拠・画像など）は T-18・T-24 で作る。
+   下書きの自動保存・復元・破棄。
+   【T-18 の範囲】「詳細（任意）」の中身：SL・TP（リスクリワードを1文字ごとに表示・方向と矛盾する場合の警告 W-01 など）、根拠（複数選択）、
+   時間足、セッション（日時から自動判定・手で変えたら上書きしない）、感情、タグ（画面の中で追加できる。設定の選択肢にも加わる）、メモ。
+   詳細は毎回閉じた状態で開く（下書きから復元したときだけ、下書きの開閉状態に戻す：design 14.1.5）。閉じたままでも必須6項目だけで従来どおり保存できる。
+   画像の添付は T-24 で作る。
 
    画面の流れ：
    ・開いたとき：下書き（drafts の 'new'）があればその内容で開き、口座色の線の下に「入力途中の内容を復元しました［破棄］」。
      なければ初期値（口座・通貨ペア・ロットは前回値、ロットは口座ごと、売買方向は未選択、日時は今）で開く（design 14.1.5）。
    ・入力のたびに、初期値から変わっていれば0.5秒後に下書きを保存（drafts.js の自動保存の係。保存中の表示は出さない）。
-   ・保存：入力チェック（validate.js）→ trades.js の saveNewTrade（status・セッション・lotUnitSize は trades.js が決める）
+   ・保存：入力チェック（validate.js）→ trades.js の saveNewTrade（status・リスクリワード・lotUnitSize は trades.js が決める）
      → 前回値 lastInput を更新 → トースト「保存しました」→ 呼び出し元（一覧）へ戻る。
+   ・任意項目の読み取り・リスクリワードの表示・警告・セッションの自動判定・下書きの読み直しは js/entry-form.js
+     （画面に依存しない純粋な関数。テストあり）。この画面はその結果を並べて描くだけ。
    ・「キャンセル」：変更があれば router.js の back() が破棄の確認を出す（この画面は hasUnsavedChanges / discardChanges を返すだけ）。
 
    文字はすべて ui/dom.js の h() を通す（innerHTML は使わない：architecture 14.1）。
@@ -18,14 +24,17 @@
 import { h, uniqueId } from '../ui/dom.js';
 import { navbar, textButton, actionBar } from '../ui/bars.js';
 import { button, listGroup, setBusy } from '../ui/parts.js';
-import { numberRow, dateTimeRow, accountSegment, sideSegment, chips, setGroupMessages } from '../ui/fields.js';
+import {
+  numberRow, dateTimeRow, accountSegment, sideSegment, segment, chips, textareaRow, setGroupMessages,
+} from '../ui/fields.js';
+import { tagPicker } from '../ui/tag-picker.js';
 import { icon } from '../ui/icons.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
 import { openSheet } from '../ui/sheet.js';
 import { settingsStore } from '../settings-store.js';
-import { PAIR_MASTER, getPairSpec } from '../master.js';
+import { PAIR_MASTER, getPairSpec, TIMEFRAME_LABELS } from '../master.js';
 import { parsePrice, parseLots, isOutOfPriceRange, isLargeQuantity, normalizeNumberText } from '../validate.js';
 import { saveNewTrade } from '../trades.js';
 import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } from '../drafts.js';
@@ -33,12 +42,18 @@ import { nowInputValue, fromInputValue } from '../datetime.js';
 import { formatDraftTime } from '../format.js';
 import { newId, isAppError } from '../util.js';
 import { FAVORITE_GRID_COUNT } from '../config.js';
+import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す
+import {
+  ENTRY_REQUIRED_KEYS, ENTRY_OPTIONAL_FIELDS, TIMEFRAMES, SESSIONS, SESSION_SEGMENT_LABELS, ENTRY_DETAILS_LIST, SL_LABEL, TP_LABEL,
+  defaultOptionalFields, cloneFields, fieldsFromEntryDraft, isEntryChanged, entryDetailsSummary, nextSession, sessionNote,
+  evaluateLevels, visibleIssues, buildOptionalInput,
+} from '../entry-form.js';
 
 /** 新規エントリーの下書きキー（drafts.js の約束：'new'） */
 const DRAFT_KEY = draftKeyOf(DRAFT_KIND.NEW);
 
-/** 必須グループの欄の並び（画面の上から＝エラーを探す順・フォーカスを移す順） */
-const FIELD_ORDER = ['accountType', 'pair', 'side', 'entryPrice', 'lots', 'entryAt'];
+/** 必須グループの欄の並び（画面の上から＝エラーを探す順・フォーカスを移す順）。詳細（任意）の中の欄は ENTRY_OPTIONAL_FIELDS */
+const FIELD_ORDER = ENTRY_REQUIRED_KEYS;
 
 /** よく使う通貨ペアのうち、格子に並べる数（3列×2段：design 14.1.2。設定の編集画面の「上から6つ」と同じ値を config.js から読む） */
 const GRID_PAIRS = FAVORITE_GRID_COUNT;
@@ -61,31 +76,22 @@ function lastLotsFor(accountType) {
 
 /**
  * 初期値：口座・通貨ペアは前回値（初回は未選択）、ロットは選んでいる口座の前回値、売買方向は毎回未選択、日時は今。
+ * 任意項目は空で、セッションだけ日時から自動判定した値（design 14.1.5）。
  * 下書きの fields と同じ形（入力欄の文字のまま：architecture 6.5）。
  */
 function defaultFields() {
   const last = settingsStore.get('lastInput');
   const accountType = (last && last.accountType) || '';
+  const entryAt = nowInputValue();
   return {
     accountType,
     pair: (last && last.pair) || '',
     side: '',
     entryPrice: '',
     lots: lastLotsFor(accountType),
-    entryAt: nowInputValue(),
+    entryAt,
+    ...defaultOptionalFields(entryAt),
   };
-}
-
-/** 下書きの fields を、知っている項目だけ文字として取り出す（壊れた下書きで画面が止まらないように） */
-function fieldsFromDraft(draft, defaults) {
-  const out = { ...defaults };
-  const src = (draft && draft.fields) || {};
-  for (const k of FIELD_ORDER) {
-    if (typeof src[k] === 'string') out[k] = src[k];
-  }
-  if (!['demo', 'real', ''].includes(out.accountType)) out.accountType = defaults.accountType;
-  if (!['buy', 'sell', ''].includes(out.side)) out.side = '';
-  return out;
 }
 
 /** 「21:32 の下書き」（今日でなければ「10/14 21:32 の下書き」）：design 14.1.10。時刻の書き方は format.js にまとめている */
@@ -213,11 +219,12 @@ function choosePair(favorites, selected) {
  */
 function buildScreen(root, nav, draft) {
   const defaults = defaultFields();
-  const initial = { ...defaults }; // 「初期値から変わったか」の比べる相手（開いた時刻の日時を含む：architecture 9.2）
-  const fields = draft ? fieldsFromDraft(draft, defaults) : { ...defaults };
+  const initial = cloneFields(defaults); // 「初期値から変わったか」の比べる相手（開いた時刻の日時を含む：architecture 9.2）
+  const fields = draft ? fieldsFromEntryDraft(draft, defaults) : cloneFields(defaults);
   const tradeId = (draft && typeof draft.tradeId === 'string' && draft.tradeId) || newId(); // 開いた時点で採番（architecture 8章 ①・11.5）
   const ui = { detailsOpen: Boolean(draft && draft.uiState && draft.uiState.detailsOpen), returnTo: '#/' };
   const favorites = settingsStore.get('favoritePairs');
+  const choices = settingsStore.get('choices');
   const gridPairs = favorites.slice(0, GRID_PAIRS);
 
   let finished = false;      // 保存した・破棄した（もう下書きを作らない）
@@ -226,7 +233,7 @@ function buildScreen(root, nav, draft) {
   let restored = Boolean(draft);
   const shown = new Set();   // エラー・警告の文を出してよい欄（欄から離れた・選んだ・保存を押した欄：design 14.1.8）
 
-  const isChanged = () => FIELD_ORDER.some((k) => fields[k] !== initial[k]);
+  const isChanged = () => isEntryChanged(initial, fields);
 
   /* ----- 部品 ----- */
   const accountLine = h('div', { class: 'account-line', 'aria-hidden': 'true' });
@@ -248,7 +255,7 @@ function buildScreen(root, nav, draft) {
     onInput: (e) => { fields.entryPrice = e.target.value; changed(); },
     onBlur: () => { if (fields.entryPrice !== '') touched('entryPrice'); else refresh(); },
   });
-  // ロットは T-17 の時点で最後の文字入力欄なので「完了」（design 8.4。T-18 で SL・TP が続くようになったら見直す）
+  // ロットは、詳細を閉じているときは最後の文字入力欄なので「完了」、開いているときは SL へ続くので「次へ」（renderDetails が切り替える：design 8.4）
   const lots = numberRow({
     label: 'ロット', name: 'lots', value: fields.lots, unit: 'lot', placeholder: '0.1', enterkeyhint: 'done',
     onInput: (e) => { fields.lots = e.target.value; changed(); },
@@ -256,13 +263,18 @@ function buildScreen(root, nav, draft) {
   });
   const dt = dateTimeRow({
     label: '日時', name: 'entryAt', value: fields.entryAt,
-    onNow: () => { dt.input.value = nowInputValue(); fields.entryAt = dt.input.value; touched('entryAt'); },
-    onChange: () => { fields.entryAt = dt.input.value; touched('entryAt'); },
+    onNow: () => { dt.input.value = nowInputValue(); onEntryAtChange(dt.input.value); touched('entryAt'); },
+    onChange: () => { onEntryAtChange(dt.input.value); touched('entryAt'); },
   });
-  dt.input.addEventListener('input', () => { fields.entryAt = dt.input.value; changed(); });
-  // PC の Enter キー：価格 → ロット → 入力を終える（iPhone の数字キーボードには Enter がないので、PC での確認用）
+  dt.input.addEventListener('input', () => { onEntryAtChange(dt.input.value); changed(); });
+  // PC の Enter キー：価格 → ロット →（詳細を開いていれば）SL → TP → 入力を終える
+  // （iPhone の数字キーボードには Enter がないので、PC での確認用。iPhone は ∧∨ で同じ順に移れる：design 14.1.3）
   price.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lots.input.focus(); } });
-  lots.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lots.input.blur(); } });
+  lots.input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (ui.detailsOpen) sl.input.focus(); else lots.input.blur();
+  });
 
   // 読み上げ用のまとまりの名前（design 14.1.2：セグメント・チップの行には画面上のラベルを置かない）
   const required = listGroup({
@@ -279,18 +291,80 @@ function buildScreen(root, nav, draft) {
     ],
   });
 
-  // 「詳細（任意）」：T-17 では開閉する入れ物だけ（中身は T-18・T-24）。毎回閉じた状態で開き、下書きの復元時だけ開閉状態を戻す
+  /* ----- 詳細（任意）：SL・TP、根拠、時間足、セッション、感情、タグ、メモ（design 14.1.4）。毎回閉じた状態で開く ----- */
+
+  // 損切り・利確：SL・TP とリスクリワードの自動表示。リスクリワードは事実の表示のみ（値の良し悪しを色やコメントで評価しない：design 14.1.7）
+  const sl = numberRow({
+    label: SL_LABEL, name: 'slPrice', value: fields.slPrice, placeholder: pricePlaceholder(fields.pair),
+    onInput: (e) => { fields.slPrice = e.target.value; changed(); },
+    onBlur: () => { announceRr(); if (fields.slPrice !== '') touched('slPrice'); else refresh(); },
+  });
+  const tp = numberRow({
+    label: TP_LABEL, name: 'tpPrice', value: fields.tpPrice, placeholder: pricePlaceholder(fields.pair), enterkeyhint: 'done',
+    onInput: (e) => { fields.tpPrice = e.target.value; changed(); },
+    onBlur: () => { announceRr(); if (fields.tpPrice !== '') touched('tpPrice'); else refresh(); },
+  });
+  sl.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tp.input.focus(); } });
+  tp.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tp.input.blur(); } });
+  const rrValue = h('span', { class: 'rr-row__value num' });
+  const rrSub = h('span', { class: 'rr-row__sub num' });
+  const rrRow = h('div', { class: 'list-row rr-row' }, h('span', { class: 'list-row__label' }, 'リスクリワード'), rrValue, rrSub);
+  const levelsGroup = listGroup({ header: '損切り・利確', className: 'entry-levels', rows: [sl.row, tp.row, rrRow] });
+  // 計算結果は1文字ごとには読み上げず、欄から離れたときに1回だけ読ませる（design 14.1.7）
+  const rrLive = h('div', { class: 'visually-hidden', 'aria-live': 'polite' });
+  levelsGroup.append(rrLive);
+
+  /** 選択肢がひとつもないとき（設定ですべて削除した）の案内。設定へ行けば足せることを伝える */
+  const emptyHint = (kindLabel) => h('p', { class: 'choice-empty' }, `選択肢がありません。設定の「${kindLabel}」で追加できます。`);
+
+  const reasonOptions = withSelected(choices.entryReasons, fields.entryReasons);
+  const reasonChips = chips({
+    label: 'エントリー根拠', options: reasonOptions.map((v) => ({ value: v, label: v })), selected: fields.entryReasons, multiple: true,
+    onChange: (sel) => { fields.entryReasons = sel; onDetailsChanged(); },
+  });
+  const timeframeChips = chips({
+    label: '時間足', options: TIMEFRAMES.map((v) => ({ value: v, label: TIMEFRAME_LABELS[v] })),
+    selected: fields.timeframe ? [fields.timeframe] : [], multiple: false,
+    onChange: (sel) => { fields.timeframe = sel[0] || ''; onDetailsChanged(); },
+  });
+  const sessionSeg = segment({
+    name: 'session', label: 'セッション', value: fields.session || null,
+    options: SESSIONS.map((v) => ({ value: v, label: SESSION_SEGMENT_LABELS[v] })),
+    onChange: (v) => { fields.session = v; onDetailsChanged(); },
+  });
+  const sessionGroup = listGroup({ header: 'セッション', rows: [h('div', { class: 'field-row' }, sessionSeg.el)], footer: sessionNote(fields) });
+  const emotionOptions = withSelected(choices.emotions, fields.emotion ? [fields.emotion] : []);
+  const emotionChips = chips({
+    label: '感情', options: emotionOptions.map((v) => ({ value: v, label: v })), selected: fields.emotion ? [fields.emotion] : [], multiple: false,
+    onChange: (sel) => { fields.emotion = sel[0] || ''; onDetailsChanged(); },
+  });
+  // タグだけ、この画面の中で追加できる（追加したタグは設定の選択肢にも加わる：design 14.1.5）
+  const tags = tagPicker({ selected: fields.tags, onChange: (sel) => { fields.tags = sel; onDetailsChanged(); } });
+  const memo = textareaRow({
+    label: 'メモ', name: 'memo', value: fields.memo, warnAt: 100, // 1,900文字を超えたら残り文字数（design 14.1.5）
+    onInput: (e) => { fields.memo = e.target.value; onDetailsChanged(); },
+  });
+  // 見出し「メモ」があるので、行の中のラベルは画面には出さず読み上げ用に残す
+  memo.row.querySelector('.form-row__label').classList.add('visually-hidden');
+
   const detailsId = uniqueId('details');
   const detailsBody = h('div', { class: 'entry-details__body', id: detailsId },
-    h('p', { class: 'list-row placeholder-note' }, 'SL・TP、根拠、感情、タグ、メモ、画像は T-18 以降で追加します。'));
+    levelsGroup,
+    listGroup({ header: '根拠（複数選択）', rows: [h('div', { class: 'field-row' }, reasonChips.el, choices.entryReasons.length === 0 && fields.entryReasons.length === 0 ? emptyHint('エントリー根拠') : null)] }),
+    listGroup({ header: '時間足', rows: [h('div', { class: 'field-row' }, timeframeChips.el)] }),
+    sessionGroup,
+    listGroup({ header: '感情', rows: [h('div', { class: 'field-row' }, emotionChips.el, choices.emotions.length === 0 && !fields.emotion ? emptyHint('感情') : null)] }),
+    tags.el,
+    listGroup({ header: 'メモ', rows: [memo.row] }));
+  const detailsSub = h('span', { class: 'entry-details__sub' });
   const detailsToggle = h('button', {
     type: 'button', class: 'list-row entry-details__toggle', 'aria-controls': detailsId, onClick: () => toggleDetails(),
   },
   h('span', { class: 'entry-details__text' },
     h('span', { class: 'entry-details__title' }, '詳細（任意）'),
-    h('span', { class: 'entry-details__sub' }, 'SL・TP、根拠、感情、タグ、メモ、画像')),
+    detailsSub),
   icon('chevronRight', { size: 'sm', className: 'entry-details__chevron' }));
-  const details = h('section', { class: 'list-group entry-details' }, h('div', { class: 'list-group__body' }, detailsToggle, detailsBody));
+  const details = h('section', { class: 'list-group entry-details' }, h('div', { class: 'list-group__body' }, detailsToggle));
 
   const topSave = textButton('保存', { strong: true, onClick: () => save() });
   const saveBtn = button(saveLabel(fields.accountType), { variant: 'primary', block: true, onClick: () => save() });
@@ -298,7 +372,7 @@ function buildScreen(root, nav, draft) {
   root.append(
     navbar({ left: textButton('キャンセル', { onClick: () => nav.back(ui.returnTo) }), title: '新規エントリー', right: topSave }),
     accountLine,
-    h('div', { class: 'screen__body entry-body' }, notices, required, details),
+    h('div', { class: 'screen__body entry-body' }, notices, required, details, detailsBody),
     actionBar(saveBtn),
   );
 
@@ -308,7 +382,7 @@ function buildScreen(root, nav, draft) {
     hasStored: Boolean(draft),
     isChanged,
     build: () => ({
-      kind: DRAFT_KIND.NEW, tradeId, fields: { ...fields }, uiState: { ...ui }, addedImageIds: [], removedImageIds: [],
+      kind: DRAFT_KIND.NEW, tradeId, fields: cloneFields(fields), uiState: { ...ui }, addedImageIds: [], removedImageIds: [],
     }),
     onStatus: (ok) => { if (draftFailed === ok) { draftFailed = !ok; renderNoticeRows(); } },
   });
@@ -324,12 +398,37 @@ function buildScreen(root, nav, draft) {
     const other = fields.pair && !gridPairs.includes(fields.pair);
     otherValue.replaceChildren(...(other ? [fields.pair, icon('check', { size: 'xs', className: 'other-pair__check' })] : []));
     otherRow.setAttribute('aria-label', other ? `その他の通貨ペア、${fields.pair}を選択中` : 'その他の通貨ペア');
-    price.input.placeholder = pricePlaceholder(fields.pair);
+    for (const row of [price, sl, tp]) row.input.placeholder = pricePlaceholder(fields.pair);
   }
 
   function renderDetails() {
     detailsToggle.setAttribute('aria-expanded', ui.detailsOpen ? 'true' : 'false');
     detailsBody.hidden = !ui.detailsOpen;
+    // 閉じているとき、値が入っている項目名を2行目に出す（閉じても消えていないことが分かるように：design 14.1.4）
+    detailsSub.textContent = ui.detailsOpen ? ENTRY_DETAILS_LIST : entryDetailsSummary(fields);
+    // ロットの次に SL へ進めるのは、詳細を開いているときだけ
+    lots.input.setAttribute('enterkeyhint', ui.detailsOpen ? 'next' : 'done');
+  }
+
+  /** セッション欄の選択と、その下の説明（自動で判定したか／手動か） */
+  function renderSession() {
+    sessionSeg.setValue(fields.session || null);
+    sessionGroup.querySelector('.list-group__footer').textContent = sessionNote(fields);
+  }
+
+  /** リスクリワードの欄を、今の入力で更新する（1文字入力するたびに呼ぶ：design 14.1.7。エラー・警告の文は触らない） */
+  function renderLevels() {
+    const lv = evaluateLevels(fields);
+    rrValue.textContent = lv.rr.value;
+    rrValue.classList.toggle('is-empty', lv.rr.value === '—');
+    rrSub.textContent = lv.rr.sub || '';
+    rrSub.hidden = !lv.rr.sub;
+    return lv;
+  }
+
+  function announceRr() {
+    const lv = evaluateLevels(fields);
+    rrLive.textContent = lv.rr.value === '—' ? '' : `リスクリワード ${lv.rr.value}`;
   }
 
   function renderNoticeRows() {
@@ -346,17 +445,43 @@ function buildScreen(root, nav, draft) {
     renderNotices(notices, items);
   }
 
-  /** エラー・警告の文を出し直す（出してよい欄の分だけ）。戻り値は全項目の判定結果 */
+  /**
+   * エラー・警告の文を出し直す（出してよい欄の分だけ）。戻り値は全項目の判定結果（画面の上から順：必須 → 損切り・利確）。
+   * 損切り・利確の W-01 は、通貨ペア・売買方向・エントリー価格・SL・TP がそろったときだけ出る（fx-rules 5.3）ので、
+   * SL だけ先に入れた途中には出ない。
+   */
   function refresh() {
     const issues = checkFields(fields);
     const targetOf = { accountType: account.el, pair: pairChips.el, side: side.el, entryPrice: price.input, lots: lots.input, entryAt: dt.input };
     setGroupMessages(required, issues.filter((i) => shown.has(i.field)).map((i) => ({ type: i.type, text: i.text, target: targetOf[i.field] })));
-    return issues;
+    const levelIssues = evaluateLevels(fields).issues;
+    const levelTarget = { slPrice: sl.input, tpPrice: tp.input };
+    setGroupMessages(levelsGroup, visibleIssues(levelIssues, shown).map((i) => ({ type: i.type, text: i.text, target: levelTarget[i.field] })));
+    return [...issues, ...levelIssues];
   }
 
   /* ----- 操作 ----- */
   function changed() {
+    renderLevels();
+    renderDetails();
     if (!finished) autosaver.schedule();
+  }
+
+  /**
+   * エントリー日時が変わった：セッションが「自動のまま」なら新しい日時で判定し直し、手で選んでいたら残す
+   * （fx-rules 11.7 の再判定のタイミング。判断は entry-form.js の nextSession）
+   */
+  function onEntryAtChange(next) {
+    const prev = fields.entryAt;
+    fields.entryAt = next;
+    fields.session = nextSession(prev, next, fields.session);
+    renderSession();
+  }
+
+  /** 詳細（任意）の中の選択・入力が変わった：閉じたときの2行目を更新し、下書きの保存を予約する */
+  function onDetailsChanged() {
+    renderSession(); // セッションの説明（自動／手動）は、日時以外の変更では変わらないが、手で選んだ直後はここで更新する
+    changed();
   }
 
   /** 欄から離れた・選んだ：その欄の文を出してよいことにして出し直し、下書きの保存を予約する */
@@ -382,8 +507,10 @@ function buildScreen(root, nav, draft) {
   function onPairChange(pair) {
     fields.pair = pair;
     renderPair();
-    // 入力済みの価格の桁数を新しいペアの上限でその場で再チェックする（design 14.1.8）
+    // 入力済みの価格（エントリー価格・SL・TP）の桁数を新しいペアの上限でその場で再チェックする（design 14.1.8）
     if (fields.entryPrice !== '') shown.add('entryPrice');
+    if (fields.slPrice !== '') shown.add('slPrice');
+    if (fields.tpPrice !== '') shown.add('tpPrice');
     touched('pair');
   }
 
@@ -404,9 +531,15 @@ function buildScreen(root, nav, draft) {
 
   /** 最初のエラーの欄までスクロールしてフォーカス（design 14.1.8） */
   function focusField(field) {
+    // 詳細（任意）の中の欄でエラーのときは、詳細を自動で開いてからフォーカスする（design 14.1.8）
+    if (ENTRY_OPTIONAL_FIELDS.includes(field) && !ui.detailsOpen) {
+      ui.detailsOpen = true;
+      renderDetails();
+    }
     const el = {
       accountType: account.el.querySelector('input'), pair: pairChips.el.querySelector('button'),
       side: side.el.querySelector('input'), entryPrice: price.input, lots: lots.input, entryAt: dt.input,
+      slPrice: sl.input, tpPrice: tp.input,
     }[field];
     if (!el) return;
     el.scrollIntoView({ block: 'center' });
@@ -423,7 +556,7 @@ function buildScreen(root, nav, draft) {
   /** 保存（design 14.1.6・architecture 8章） */
   async function save() {
     if (saving || finished) return;
-    FIELD_ORDER.forEach((k) => shown.add(k));
+    [...FIELD_ORDER, ...ENTRY_OPTIONAL_FIELDS].forEach((k) => shown.add(k));
     const issues = refresh();
     const firstError = issues.find((i) => i.type === 'error');
     if (firstError) {
@@ -441,6 +574,8 @@ function buildScreen(root, nav, draft) {
       entryPrice: parsePrice(fields.entryPrice, fields.pair).value,
       lots: parseLots(fields.lots).value,
       entryAt: fromInputValue(fields.entryAt),
+      // 任意項目（SL・TP・根拠・時間足・セッション・感情・タグ・メモ）。riskReward は保存側が calcRiskReward で決める
+      ...buildOptionalInput(fields),
     };
     try {
       await saveNewTrade(input, { draftKey: DRAFT_KEY });
@@ -494,6 +629,8 @@ function buildScreen(root, nav, draft) {
   renderAccount();
   renderPair();
   renderDetails();
+  renderSession();
+  renderLevels();
   renderNoticeRows();
 
   return {

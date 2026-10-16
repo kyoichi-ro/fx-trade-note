@@ -20,6 +20,15 @@ import { countChars } from './util.js';
    --------------------------------------------------------- */
 
 /**
+ * 名前のチェックで返るエラーコードに対応する文言（design 14.6.3）。'empty' は文を出さない（行を閉じるだけ）ので載せない。
+ * 設定の選択肢の編集画面（screens/choices.js）と、入力画面のタグ追加（ui/tag-picker.js・T-18）で同じ文を使うため、ここに1つだけ置く。
+ */
+export const CHOICE_NAME_ERROR_TEXTS = Object.freeze({
+  duplicate: '同じ名前がすでにあります',
+  'too-long': `${CHOICE_NAME_MAX_LENGTH}文字以内で入力してください`,
+});
+
+/**
  * 選択肢の名前を確かめる（design 14.6.3 の「追加時のチェック」）。
  * 順番：空白だけ → 21文字以上 → 同じ名前がある。
  * ・前後の空白（全角スペースも）は取り除いてから確かめる。途中の空白はそのまま。
@@ -54,6 +63,24 @@ export function addChoice(list, input) {
  */
 export function removeChoice(list, name) {
   return list.filter((x) => x !== name);
+}
+
+/**
+ * 入力画面（エントリー・決済）の「＋追加」でタグを足すときの判断（design 14.1.5・14.2.6 ⑥、T-18）。
+ * 名前のチェックは設定の画面と同じ checkChoiceName（空白だけ・20文字以内・同じ名前は不可）を使う。
+ * 「同じ名前」は設定のタグ（settingsTags）と比べる。ただし記録が持っているタグは、あとで設定から消されていることがあり、
+ * その名前は画面のチップには残っている（visibleOptions）。そのときは設定に加え直すだけで、チップは増やさない
+ * （同じ名前のチップが2つ並ぶのを防ぐため。isNewChip が false）。
+ * @param {readonly string[]} settingsTags 設定のタグ（choices.tags）
+ * @param {readonly string[]} visibleOptions いま画面に並んでいるタグのチップ（設定のタグ＋選択済みで設定にない値）
+ * @param {string} input 入力された文字
+ * @returns {{ ok: true, name: string, list: string[], isNewChip: boolean } | { ok: false, error: 'empty'|'too-long'|'duplicate' }}
+ *   list は設定に保存するタグの一覧（末尾に追加したもの）
+ */
+export function planTagAdd(settingsTags, visibleOptions, input) {
+  const r = addChoice(settingsTags, input);
+  if (!r.ok) return r;
+  return { ok: true, name: r.name, list: r.list, isNewChip: !visibleOptions.includes(r.name) };
 }
 
 /**

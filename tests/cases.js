@@ -13,6 +13,8 @@
      ・オーナー決定 #5・#6（fx-rules 14.2）に伴い pm が追加した 7件：C-18〜C-20（必要な値が空なら null）、
        V-29〜V-32（損益（円）の手入力で先頭の「+」・全角カンマを受け付ける）
      → 合計 119件 ＋ 44件 ＝ 163件。
+   【追加分（T-18・2026-10-16）】fx-rules 5.3 の Y-08〜Y-13（calcRiskReward は必要な値が空なら { rr: null, warn: [] }）を EXTRA_RR_CASES の末尾に
+     書き写した（6件）。Z-23 の説明文を「null（日時が空）」に直した（判定・合否は変わらない：fx-rules 14.3 の修正依頼 #1）。
 
    書き方の約束：
    ・期待値は資料の表のとおりに書く（pips は小数第1位、RR は小数第2位の数値）。
@@ -231,6 +233,14 @@ export const EXTRA_RR_CASES = [
   { id: 'Y-05', title: '損切り幅が最小（0.1pip）', pair: 'USD/JPY', side: 'buy', entryPrice: 150.000, slPrice: 149.999, tpPrice: 151.000, rr: 1000.00, warn: [] },
   { id: 'Y-06', title: 'RR が 0.00 に丸まる（null ではない）', pair: 'USD/JPY', side: 'buy', entryPrice: 150.000, slPrice: 149.000, tpPrice: 150.001, rr: 0.00, warn: [] },
   { id: 'Y-07', title: 'RR 0.005 の切り上げ', pair: 'USD/JPY', side: 'buy', entryPrice: 150.000, slPrice: 149.800, tpPrice: 150.001, rr: 0.01, warn: [] },
+  // Y-08〜Y-13：必要な値（通貨ペア・売買方向・エントリー価格・SL・TP）のどれかが空なら { rr: null, warn: [] }
+  // （fx-rules 5.3・2026-10-16 オーナー決定。T-18 で 5.3 の表から転記。null＝空、undefined＝渡されなかった値）
+  { id: 'Y-08', title: '買い・エントリー価格が空（誤った警告 W-01 を出さない）', pair: 'USD/JPY', side: 'buy', entryPrice: null, slPrice: 149.800, tpPrice: 150.400, rr: null, warn: [] },
+  { id: 'Y-09', title: '売り・エントリー価格が空（誤った警告 W-01 を出さない）', pair: 'USD/JPY', side: 'sell', entryPrice: null, slPrice: 150.200, tpPrice: 149.600, rr: null, warn: [] },
+  { id: 'Y-10', title: '売買方向が空（買いの並び）', pair: 'USD/JPY', side: null, entryPrice: 150.000, slPrice: 149.800, tpPrice: 150.400, rr: null, warn: [] },
+  { id: 'Y-11', title: '売買方向が空（売りの並び：RR を出さない）', pair: 'USD/JPY', side: null, entryPrice: 150.000, slPrice: 150.200, tpPrice: 149.600, rr: null, warn: [] },
+  { id: 'Y-12', title: 'エントリー価格が undefined（NaN にしない）', pair: 'USD/JPY', side: 'buy', entryPrice: undefined, slPrice: 149.800, tpPrice: 150.400, rr: null, warn: [] },
+  { id: 'Y-13', title: '通貨ペアが空（例外にしない）', pair: null, side: 'buy', entryPrice: 150.000, slPrice: 149.800, tpPrice: 150.400, rr: null, warn: [] },
 ];
 
 /* ---------- fx-rules 14.1：セッション判定 Z-xx（形は SESSION_CASES と同じ。曜日・期間は日本時間） ---------- */
@@ -243,7 +253,7 @@ export const EXTRA_SESSION_CASES = [
   { id: 'Z-14', entryAt: '2026-10-27T06:00:00+09:00', week: '火', period: '②ずれ', expect: 'other', title: '秋のずれ期間の NYクローズ' },
   { id: 'Z-15', entryAt: '2026-11-02T06:30:00+09:00', week: '月', period: '①冬', expect: 'other', title: '米国冬時間に戻った直後の月曜早朝（NY はまだ日曜）' },
   { id: 'Z-21', entryAt: '2026-10-15T21:30:00-04:00', week: '金', period: '③夏', expect: 'tokyo', title: 'NY時刻での表記（日本時間 10/16(金) 10:30）' },
-  { id: 'Z-23', entryAt: null, week: '—', period: '—', expect: null, title: 'null（修正依頼 #1 で合格するようになる）' },
+  { id: 'Z-23', entryAt: null, week: '—', period: '—', expect: null, title: 'null（日時が空）' },
 ];
 
 /* ---------- fx-rules 14.1：入力チェック V-20〜V-28 ----------

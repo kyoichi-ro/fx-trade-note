@@ -29,7 +29,7 @@ import { nowJst } from './datetime.js';
 import { newId, AppError, assertKnownKeys } from './util.js';
 import { emit } from './events.js';
 import { calcRiskReward, calcPips, calcProfitJpy, judgeSession } from './calc.js';
-import { getPairSpec } from './master.js';
+import { getPairSpec, SESSION_LABELS } from './master.js';
 import { settingsStore } from './settings-store.js';
 
 /** 未入力のとき null ではなく空の配列にする項目（architecture 6.7） */
@@ -76,10 +76,12 @@ export function judgeStatus(trade) {
 /**
  * 自動で決まる値を計算し直した新しい記録を返す（architecture 8章：新規・決済・編集・決済取消のどれもこの関数を通す）。
  * ・status：judgeStatus()（渡された値は使わない）
- * ・riskReward：SL・TP の両方と、通貨ペア・売買方向・エントリー価格がそろっているときだけ calcRiskReward()。
- *   そろっていなければ null（requirements 6.1。T-18 で calcRiskReward 自体も空の値に null を返す形に直す予定だが、
- *   ここでも先に確かめておくと、入力途中の値で計算してしまう事故を二重に防げる）
- * ・session：空（null）のときだけ entryAt から判定（judgeSession）。画面で手で選んだ値は書き換えない（design 14.1.5 ⑩）
+ * ・riskReward：calcRiskReward() の結果。SL・TP の両方と、通貨ペア・売買方向・エントリー価格がそろっていなければ null
+ *   （calcRiskReward 自体が空の値に { rr: null, warn: [] } を返す：fx-rules 5.3。T-18 で calc.js 側へ移した）。
+ *   SL/TP が売買方向と矛盾するとき（W-01）も null で、SL/TP の価格はそのまま保存する（fx-rules 5.2）
+ * ・session：空（null）または知らない値のときだけ entryAt から判定（judgeSession）。画面で手で選んだ値は書き換えない
+ *   （「判定ルールを変えても保存済みは再判定しない」＝保存値を正とする：fx-rules 11.7。手で選んだあと日時を変えたときの
+ *   扱い〔手動を優先〕は入力画面が決めて、選んだ結果をここへ渡す：design 14.1.5 ⑩）
  * pips・損益（円）は決済の組み立て（buildClosedTrade）が求めて渡す。ここでは決済情報の有無で status を決めるだけ。
  * @param {object} trade
  * @returns {object}
@@ -87,9 +89,8 @@ export function judgeStatus(trade) {
 export function recompute(trade) {
   const out = { ...trade };
   out.status = judgeStatus(trade);
-  const canRr = [trade.pair, trade.side, trade.entryPrice, trade.slPrice, trade.tpPrice].every((v) => v != null);
-  out.riskReward = canRr ? calcRiskReward(trade).rr : null;
-  if (out.session == null) out.session = judgeSession(out.entryAt);
+  out.riskReward = calcRiskReward(trade).rr;
+  if (!Object.hasOwn(SESSION_LABELS, out.session)) out.session = judgeSession(out.entryAt);
   return out;
 }
 

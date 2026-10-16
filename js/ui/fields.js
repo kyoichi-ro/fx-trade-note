@@ -216,7 +216,9 @@ export function accountSegment({ value = null, onChange } = {}) {
  *   required … 1つだけ選ぶとき、選択中をもう一度押しても解除しない（通貨ペアは必須：design 9.4）
  *   addLabel / onAdd … 末尾の「＋追加」チップ（入力画面ではタグだけ：design 9.4）
  *   className … 並べ方の種類。'chips--pair-grid'＝エントリー画面の通貨ペアの3列×2段の格子（design 9.4 の注記・14.1.2。T-15 で追加）
- * @returns {{ el: HTMLDivElement, getSelected: () => string[], setSelected: (v:string[]) => void }}
+ * @returns {{ el: HTMLDivElement, getSelected: () => string[], setSelected: (v:string[]) => void,
+ *   addOption: (o:{value:string, label:string}) => void, hasOption: (value:string) => boolean }}
+ *   addOption … 画面の中でチップを1つ足す（タグの「＋追加」。T-18）。「＋追加」チップがあればその手前に入れる。同じ値があれば何もしない
  */
 export function chips({
   label, options, selected = [], multiple = false, required = false, onChange, addLabel = '', onAdd, className = '',
@@ -249,19 +251,29 @@ export function chips({
     if (onChange) onChange([...current]);
   };
 
+  const makeChip = (o) => {
+    const btn = h('button', { type: 'button', class: 'chip', onClick: () => toggle(o.value) }, h('span', {}, o.label));
+    buttons.set(o.value, btn);
+    return btn;
+  };
+  const addBtn = addLabel
+    ? h('button', { type: 'button', class: 'chip chip--add', onClick: onAdd }, icon('plus', { size: 'xs' }), h('span', {}, addLabel))
+    : null;
   const el = h('div', { class: `chips${className ? ` ${className}` : ''}`, role: 'group', 'aria-label': label },
-    options.map((o) => {
-      const btn = h('button', { type: 'button', class: 'chip', onClick: () => toggle(o.value) }, h('span', {}, o.label));
-      buttons.set(o.value, btn);
-      return btn;
-    }),
-    addLabel ? h('button', { type: 'button', class: 'chip chip--add', onClick: onAdd }, icon('plus', { size: 'xs' }), h('span', {}, addLabel)) : null,
+    options.map(makeChip),
+    addBtn,
   );
   render();
   return {
     el,
     getSelected: () => [...current],
     setSelected: (v) => { current = [...v]; render(); },
+    addOption: (o) => {
+      if (buttons.has(o.value)) return;
+      el.insertBefore(makeChip(o), addBtn); // addBtn が null なら末尾に入る
+      render();
+    },
+    hasOption: (value) => buttons.has(value),
   };
 }
 

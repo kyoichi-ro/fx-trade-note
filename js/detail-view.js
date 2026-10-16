@@ -18,7 +18,7 @@
 
    依存：calc, master, datetime, format, filter（isClosedTrade）。すべて画面に依存しない層。
    ========================================================= */
-import { calcPips, calcProfitJpy, calcRiskReward, calcQuantity } from './calc.js';
+import { calcProfitJpy, calcRiskReward, calcSlTpPips, calcQuantity } from './calc.js';
 import {
   getPairSpec, SESSION_LABELS, TIMEFRAME_LABELS, EXIT_REASON_LABELS, PROFIT_SOURCE_LABELS,
 } from './master.js';
@@ -85,8 +85,7 @@ function canMeasure(t) {
 
 /**
  * リスクリワードの行。値は保存済みの riskReward（小数第2位）。
- * 2 行目：計算できるときは「損切り 20.0 pips・利確 40.0 pips」。幅は calcPips にエントリー価格と SL/TP を渡して求める
- * （買いで SL が下にあれば負の値になるので、距離として絶対値で出す）。
+ * 2 行目：計算できるときは「損切り 20.0 pips・利確 40.0 pips」。幅は calcSlTpPips（距離として正の値）で求める。
  * SL/TP が売買方向と逆（W-01）のときは、値を「—」にして理由を 2 行目に出す（design 14.4.4）。
  * SL・TP のどちらかが空なら「—」だけ（2 行目なし）。
  */
@@ -99,9 +98,9 @@ export function riskRewardRow(t) {
   if (warn.length > 0) {
     return { ...base, value: EMPTY, empty: true, sub: 'SL/TPが売買方向と逆のため計算していません' };
   }
-  const sl = calcPips({ pair: t.pair, side: t.side, entryPrice: t.entryPrice, exitPrice: t.slPrice }).pips;
-  const tp = calcPips({ pair: t.pair, side: t.side, entryPrice: t.entryPrice, exitPrice: t.tpPrice }).pips;
-  return { ...base, sub: `損切り ${formatPipsDistance(sl)}・利確 ${formatPipsDistance(tp)}` };
+  // 損切り幅・利確幅は calc.js の calcSlTpPips（入力画面のリスクリワード表示と同じ計算。T-18 で入力画面と共通にした）
+  const { riskPips, rewardPips } = calcSlTpPips(t);
+  return { ...base, sub: `損切り ${formatPipsDistance(riskPips)}・利確 ${formatPipsDistance(rewardPips)}` };
 }
 
 /**
