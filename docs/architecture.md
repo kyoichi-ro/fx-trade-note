@@ -2,11 +2,11 @@
 
 | 項目 | 内容 |
 |---|---|
-| 版 | v1.5（T-15 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/theme.js`・`checkRows()` の追記、`setGroupMessages()` の出し方の変更、壊れた設定値を読むときに消さない方針（7.1）、根拠・感情・タグの初期値は T-16 で `master.js` へ移す、テスト件数を212件に更新）。v1.4（T-11 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/` の部品ファイル・確認用ページをファイル構成に追記、`innerHTML` を一切使わない方針に変更、テスト件数を更新） |
+| 版 | v1.6（T-16〜T-22 の実装結果と申し送りを反映する資料のまとめ反映（2026-10-16）：4.1・4.2 に実装済みで未記載だったファイルを追記し `ui/sheet.js` の「未作成」を訂正、6.12 に `computeClose`・`closeTrade`・`reopenTrade`・`saveTrade` の `expectedUpdatedAt` を追記、9.3 に起動時の自動復元の細部、15.1 に `ALREADY_CLOSED`・`CONFLICT` を追記し `NOT_FOUND` の決済・編集画面での扱いを実態に訂正、13.2・18.6 のテスト件数を Node 383件・ブラウザ439件に、Phase 2 の注意（同期は `updatedAt` を変えない）を 3.3 に追記）。v1.5（T-15 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/theme.js`・`checkRows()` の追記、`setGroupMessages()` の出し方の変更、壊れた設定値を読むときに消さない方針（7.1）、根拠・感情・タグの初期値は T-16 で `master.js` へ移す、テスト件数を212件に更新）。v1.4（T-11 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/` の部品ファイル・確認用ページをファイル構成に追記、`innerHTML` を一切使わない方針に変更、テスト件数を更新） |
 | 作成日 | 2026-10-15 |
 | 作成 | engineer |
-| 対応タスク | T-08「技術設計（ファイル構成・IndexedDBスキーマ）」。T-10（プロジェクト雛形）の実装結果を v1.1、T-13（計算）を v1.2、T-12（保存処理）を v1.3、T-11（共通CSS・共通部品）を v1.4、T-15（設定画面①）を v1.5 で反映 |
-| 前提 | `docs/requirements.md` v1.4（5章 機能、6章 データ項目、8章 非機能要件）、`docs/fx-rules.md` v1.5（4.5 再計算と空の値、6章 誤差対策・参照実装、8章 入力チェック、9章 テストケース、10章 通貨ペアマスタ、11章 セッション判定、14.1 追加テストケース）、`docs/analytics.md` v1.1（4章 一覧画面）、`docs/design.md` v1.7（4章 画面遷移・URL、8.4 キーボード、9章 部品、12章 CSS変数、14章 ワイヤーフレーム。12章の寸法変数の追加は designer が更新中）、`docs/roadmap.md` v1.5（Phase 1） |
+| 対応タスク | T-08「技術設計（ファイル構成・IndexedDBスキーマ）」。T-10（プロジェクト雛形）の実装結果を v1.1、T-13（計算）を v1.2、T-12（保存処理）を v1.3、T-11（共通CSS・共通部品）を v1.4、T-15（設定画面①）を v1.5、T-16〜T-22（選択肢の編集・エントリー任意項目・一覧・詳細・決済・編集と削除）を v1.6 で反映 |
+| 前提 | `docs/requirements.md` v1.6（5章 機能、6章 データ項目、8章 非機能要件）、`docs/fx-rules.md` v1.9（4.5 再計算と空の値・通貨ペア変更時の円換算レート、6章 誤差対策・参照実装、8章 入力チェック、9章 テストケース、10章 通貨ペアマスタ、11章 セッション判定、14.1 追加テストケース）、`docs/analytics.md` v1.2（4章 一覧画面）、`docs/design.md` v1.10（4章 画面遷移・URL、8.4 キーボード、9章 部品、12章 CSS変数、14章 ワイヤーフレーム）、`docs/roadmap.md` v1.13（Phase 1） |
 | 主な読み手 | engineer（T-10〜T-29 の実装根拠）、reviewer（T-30・T-31 の確認基準）、sheets-integrator（Phase 2 の接続点）、pm（T-09 の整合チェック） |
 
 > **このドキュメントの位置づけ**
@@ -139,6 +139,7 @@ flowchart LR
 - 送信のきっかけ：保存・編集・削除の直後（`trades.js` が出す「変更通知」を `sync.js` が受け取る）、アプリ起動時、オンライン復帰時（`online` イベント）、アプリが前面に戻ったとき、手動の「今すぐ同期」。iOS には「バックグラウンド同期」の仕組みがないため、アプリが開いているときだけ送る。
 - Phase 1 のコードは `sync.js` の存在を知らない（`trades.js` は変更通知を出すだけ）。Phase 2 で `sync.js` を足しても Phase 1 のファイルはほぼ変えずに済む。
 - Apps Script の URL・合言葉は localStorage（`gasUrl` / `syncToken`）に保存し、コードやGitHubには含めない。
+- **Phase 2 の注意：同期（`sync.js`）は、送信の結果を書き込むとき `updatedAt` を変えない**（変えるのは `syncStatus`・`syncedAt` だけ。roadmap 7.13 #3）。`updatedAt` は、編集画面の「別の画面で先に変更されたか」の検出（6.12 の `expectedUpdatedAt`）と、決済・編集の下書きの照合（`baseUpdatedAt`：9.3）に使っているため、同期が書き換えると、開いている編集画面が誤って競合（`CONFLICT`：15.1）になったり、続きのある下書きが「元の記録が変更された」として破棄されたりする。
 - 詳細（送るデータの形・二重登録の防ぎ方）は 16.3 と sheets-integrator の `docs/sheets-setup.md` で決める。
 
 ---
@@ -157,8 +158,8 @@ flowchart LR
 │   ├── variables.css       … design.md 12章のCSS変数をそのまま貼る（冒頭の注記の参照版は design.md v1.7 で確定：T-11）
 │   ├── base.css            … 全体の基本設定（文字・背景・押せるものの共通設定）
 │   ├── layout.css          … 画面の型A/B/C、ナビゲーションバー、タブバー、下部操作バー、セーフエリア
-│   ├── components.css      … 共通部品（T-11 で作成。.icon / .btn / .list-group・.list-row / .form-row・.field-row・.field-message / .switch / .segment / .chips・.chip / .badge / .notice / .toast / .dialog（.action-sheet・.alert）/ .fab / .empty / .loading・.spinner、.kbd-nav・.is-modal-open）。冒頭に、12章に変数がない部品の寸法を名前付きでまとめている（T-15 の最初に 12章の変数へ移す：roadmap T-15）。ボトムシート .sheet は T-23、一覧の行 .trade-row は T-19 で足す
-│   └── screens.css         … 画面ごとの細かい調整
+│   ├── components.css      … 共通部品（T-11 で作成。.icon / .btn / .list-group・.list-row / .form-row・.field-row・.field-message / .switch / .segment / .chips・.chip / .badge / .notice / .toast / .dialog（.action-sheet・.alert）/ .fab / .empty / .loading・.spinner、.kbd-nav・.is-modal-open）。冒頭に、12章に変数がない部品の寸法を名前付きでまとめている（T-15 の最初に 12章の変数へ移す：roadmap T-15）。ボトムシート .sheet は T-17、一覧の行 .trade-row は T-19 で追加済み
+│   └── screens.css         … 画面ごとの細かい調整（T-16 の選択肢の編集の行 .choice-row など）
 ├── js/
 │   ├── boot-theme.js       … テーマを最初の描画前に適用する小さなスクリプト（モジュールではない）
 │   ├── app.js              … 起動処理（入口）
@@ -176,7 +177,15 @@ flowchart LR
 │   ├── trades.js           … トレード記録の業務処理（新規・決済・編集・決済取消・削除・取消）。T-12 で保存の土台を作成
 │   ├── drafts.js           … 下書きの自動保存・復元。T-12 で保存の土台を作成
 │   ├── images.js           … 画像の縮小・圧縮・保存・表示用URL。T-12 で保存の土台を作成
-│   ├── filter.js           … 一覧の絞り込み・並び順・件数/合計（analytics.md 一覧の章に従う）
+│   ├── filter.js           … 一覧の絞り込み・並び順・日付グループ・件数/合計（analytics.md 一覧の章に従う）。決済済みか（`isClosedTrade`）の判定も持つ。T-19 で作成（絞り込み条件は T-23 で足す）
+│   ├── detail-view.js      … S-04 詳細の表示内容の組み立て（全項目・自動計算値・保有時間・数量・未入力の「—」）。画面に依存しない関数だけ。T-20 で作成
+│   ├── entry-form.js       … S-02 の画面に依存しない部分（セッションの自動判定と手動優先、下書きの読み直し、RR の表示、警告 W-01・W-03・W-06・エラー E-01〜E-04、任意項目の組み立て）。編集画面も使う。T-18 で作成
+│   ├── close-form.js       … S-03 の画面に依存しない部分（入力欄の初期値・下書き・入力チェック・損益欄の出し分け・符号付き貼り付けの解釈 `splitSignedAmount`）。編集画面も使う。T-21 で作成
+│   ├── edit-form.js        … S-05 の画面に依存しない部分（入力欄への変換・変更の検出・口座変更時の `lotUnitSize`・再計算・保存する記録の組み立て・別画面で先に変更された場合の重ね合わせ・通貨ペア変更時の円換算レート `rateAfterPairChange`）。T-22 で作成
+│   ├── draft-notice.js     … 下書きを「続きを開く／黙って消す／破棄して知らせる」に振り分ける判定と、一覧のお知らせ行の文言（純粋な関数）。T-22 で作成
+│   ├── choice-list.js      … 選択肢（根拠・感情・タグ・よく使う通貨ペア）の追加・削除・並び替え・名前のチェック、通貨ペア追加の E-12〜E-16・W-07（純粋な関数）。T-16 で作成
+│   ├── row-flash.js        … 一覧に戻った直後の行の1秒ハイライトの受け渡し（画面をまたぐ変数）。T-21 で作成
+│   ├── deleted-toast.js    … 「削除しました［取り消す］」を一覧の表示後に出すための受け渡し（画面をまたぐ変数）。T-22 で作成
 │   ├── csv.js              … CSVエクスポート（Phase 2 でインポート）
 │   ├── sync.js             … （Phase 2）スプレッドシート同期
 │   ├── analytics.js        … （Phase 3）分析の集計
@@ -191,10 +200,13 @@ flowchart LR
 │   │   ├── notice.js       … お知らせ行（画面の中にも #notice-area にも出せる）
 │   │   ├── keyboard.js     … キーボード表示の判定（design 8.4）と、Tab キー操作中の判定
 │   │   ├── theme.js        … テーマの適用（`<html data-theme>` と `<meta name="theme-color">` の切り替え）。起動時の app.js と設定画面の両方から使うため共通部品の層に置く。T-15 で追加
-│   │   └── sheet.js        … ボトムシート（未作成。絞り込みシートを作る T-23 で作る）
+│   │   ├── sheet.js        … ボトムシート（design 9.8）。T-17 で作成（「その他の通貨ペア」で先に必要になったため。絞り込みシートは T-23 でこの部品に足す）
+│   │   ├── pair-chooser.js … 「その他の通貨ペア」のシート。エントリー画面と編集画面で共用。T-22 で entry.js から移した
+│   │   ├── tag-picker.js   … タグの選択と「＋追加」（追加したタグは設定の選択肢にも加わる）。エントリー・決済・編集画面で共用。T-18 で作成
+│   │   └── sortable.js     … ≡ のドラッグで行を並べ替える部品（2つのグループをまたげる・↑↓キー対応）。T-16 で作成
 │   └── screens/
 │       ├── list.js         … S-01 一覧
-│       ├── trade-form.js   … S-02/S-03/S-05 で共通の入力欄の組み立て
+│       │                     （v1.5 まで予定していた `trade-form.js` は作らなかった。共通部分は上の `entry-form.js`・`close-form.js`・`edit-form.js` と `ui/tag-picker.js`・`ui/pair-chooser.js` に分けた：T-17〜T-22）
 │       ├── entry.js        … S-02 エントリー記録
 │       ├── close.js        … S-03 決済記録
 │       ├── detail.js       … S-04 トレード詳細（画像の拡大表示を含む）
@@ -211,7 +223,9 @@ flowchart LR
 │   ├── index.html          … ブラウザで開くテストページ
 │   ├── runner.js           … 小さなテスト実行の仕組み
 │   ├── cases.js            … fx-rules.md 9・10.8・11.8・14.1 章と analytics.md 4.11 のテストケース（データ）
-│   ├── calc.test.js / pairs.test.js / validate.test.js / datetime.test.js / filter.test.js
+│   ├── calc.test.js / pairs.test.js / validate.test.js / datetime.test.js / format.test.js / filter.test.js
+│   ├── detail-view.test.js / entry-form.test.js / close-form.test.js / edit-form.test.js / choice-list.test.js … 画面に依存しない関数のテスト（T-16〜T-22）
+│   ├── settings-store.test.js … 設定の保存のテスト（ブラウザのテストページだけで実行。Node.js には localStorage がない）
 │   ├── db.test.js          … 保存処理のテスト（T-12。ブラウザのテストページだけで実行：13.2）
 │   ├── helpers.js / test-page.js / tests.css … テストページの道具・表示（T-13・T-12）
 │   ├── run-node.mjs        … 同じテストを Node.js で実行する入口
@@ -226,10 +240,11 @@ flowchart LR
 - 画面ファイル名は `design.md` の画面IDと対応させる（S-01＝`list.js` …）。
 - `js/settings-store.js`（設定の保存）と `js/screens/settings.js`（設定画面）は**役割が違う別ファイル**。名前の衝突を避けるため保存側に `-store` を付けた。
 - 同様に `js/analytics.js`（集計の計算）と `js/screens/analysis.js`（分析画面）は別ファイル。
-- **T-10 の時点で作成済みのファイル**（2026-10-15 の T-09 で確認）：`index.html`、`.nojekyll`、`css/` の5つ、`js/boot-theme.js`・`app.js`・`router.js`・`config.js`、`js/ui/dom.js`・`js/ui/bars.js`、`js/screens/` のうち `list.js`・`entry.js`・`close.js`・`detail.js`・`edit.js`・`settings.js`・`choices.js`・`install-guide.js`・`analysis.js`（中身は入れ物だけ）。それ以外は担当タスクで作る（`trade-form.js` は T-17、`sync-status.js` は Phase 2）。
+- **T-10 の時点で作成済みのファイル**（2026-10-15 の T-09 で確認）：`index.html`、`.nojekyll`、`css/` の5つ、`js/boot-theme.js`・`app.js`・`router.js`・`config.js`、`js/ui/dom.js`・`js/ui/bars.js`、`js/screens/` のうち `list.js`・`entry.js`・`close.js`・`detail.js`・`edit.js`・`settings.js`・`choices.js`・`install-guide.js`・`analysis.js`（中身は入れ物だけ）。それ以外は担当タスクで作る（`sync-status.js` は Phase 2。当時予定していた `trade-form.js` は、T-17〜T-22 で役割ごとに分けたため作らなかった）。
 - **T-13・T-12 で作成済みのファイル**（2026-10-16 確認）：T-13 で `js/master.js`・`calc.js`・`validate.js`・`format.js`、`tests/`（`index.html`・`runner.js`・`cases.js`・`helpers.js`・`test-page.js`・`tests.css`・`calc.test.js`・`pairs.test.js`・`validate.test.js`・`run-node.mjs`）、ルートの `package.json`。T-12 で `js/db.js`・`trades.js`・`images.js`・`drafts.js`・`util.js`・`events.js`・`datetime.js`（日時の生成だけ。残りは T-17）、`tests/db.test.js`。**`js/settings-store.js` は T-12 では作っていない**（T-15 で作る：4.2）。
 - **T-11 で作成・作り直したファイル**（2026-10-16 確認）：新規に `js/ui/parts.js`・`icons.js`・`fields.js`・`toast.js`・`dialog.js`・`notice.js`・`keyboard.js`、`tests/components.html`・`components.js`・`components.css`。作り直し・修正は `css/components.css`（design 9章どおりに作り直し）・`css/variables.css`（注記を design v1.7 に）・`css/layout.css`、`js/ui/dom.js`・`bars.js`、`js/app.js`（お知らせを `ui/notice.js` に、キーボード監視を開始）・`router.js`（画面を表示し終えたら `syncToastWithRoute()`）・`screens/list.js`（新規エントリーボタン）、`tests/index.html`（確認用ページへのリンク）、T-14 を受けた `js/calc.js`・`validate.js`・`tests/cases.js` ほかテストのファイル（13.4）。**`js/ui/sheet.js`（ボトムシート）は T-11 では作っていない**（使うのは絞り込みシートの T-23 なので、そこで作る）。
 - **`js/ui/parts.js` は v1.3 までのファイル一覧になかったファイル**（T-11 で engineer が追加、2026-10-16 オーナー決定でコードに合わせる）。入力部品は `fields.js`、トースト・確認・お知らせは `toast.js`・`dialog.js`・`notice.js` と役割で分け、それ以外の「表示の部品」を `parts.js` に集めた。
+- **T-15〜T-22 で作成したファイル**（2026-10-16 確認。v1.6 で追記）：T-15 で `js/settings-store.js`・`js/ui/theme.js`・`tests/settings-store.test.js`。T-16 で `js/choice-list.js`・`js/ui/sortable.js`・`tests/choice-list.test.js`。T-17 で `js/ui/sheet.js`（予定の T-23 より早く）・`js/datetime.js` の残り・`tests/datetime.test.js`。T-18 で `js/entry-form.js`・`js/ui/tag-picker.js`・`tests/entry-form.test.js`。T-19 で `js/filter.js`・`tests/format.test.js`・`tests/filter.test.js`（`js/format.js` は T-13 で作成済み）。T-20 で `js/detail-view.js`・`tests/detail-view.test.js`。T-21 で `js/close-form.js`・`js/row-flash.js`・`tests/close-form.test.js`。T-22 で `js/edit-form.js`・`js/draft-notice.js`・`js/deleted-toast.js`・`js/ui/pair-chooser.js`・`tests/edit-form.test.js`。画面ファイル（`js/screens/`）は、T-10 の入れ物だった `list.js`・`entry.js`・`close.js`・`detail.js`・`edit.js`・`choices.js` を実際の画面に作り直した。
 
 ### 4.2 各ファイルの役割と主な担当タスク
 
@@ -237,22 +252,30 @@ flowchart LR
 |---|---|---|---|
 | `index.html` | 入れ物。`<main id="app">`（画面の中身が入る）、タブバー（JS が表示するまでは `hidden`）、トースト置き場 `#toast-area`、アプリ全体の問題用のお知らせ置き場 `#notice-area`（画面ごとのお知らせは各画面の中に出す：design 9.16）。CSS と `boot-theme.js`・`app.js` を読み込む | — | T-10（`manifest.json`・`apple-touch-icon` の `<link>` は T-27 で追加） |
 | `js/boot-theme.js` | localStorage のテーマ設定（`fxnote:theme`）を読み、`<html data-theme>` を**最初の描画前**に付ける（白→黒のちらつき防止）。モジュールにせず `<head>` で同期読み込み。モジュールではないので接頭辞 `fxnote:` を直接書いている（`config.js` の `LS_PREFIX` と同じ値。変えるときは両方を直す） | なし | **T-10 で実装済み**。`theme-color` の切り替えと設定画面からの変更は T-15 |
-| `js/app.js` | 起動：DBを開く → 設定読み込み → テーマ監視 → キーボード監視 → Service Worker 登録 → 永続化リクエスト → 下書き確認 → ルーター開始。全体のエラー受け止めもここ（T-10 で「想定外のエラーの受け止め」と「ルーター開始」、T-12 で「DBを開く」（開けない・古い版・他の画面が古い版を開いたまま・別の画面で更新されたときのお知らせ行：6.11）を実装済み。残りは各タスクでこの順に足す） | router, db, settings-store, drafts, ui/notice, ui/keyboard, config | T-10, T-12, T-15, T-17, T-28, T-29 |
-| `js/router.js` | `#/…` を解析して画面モジュールを読み込み・表示・後片付け。戻る操作・保存後の遷移。画面の型を `<body data-layout>` に、画面名を `document.title`（「画面名 - FXトレードノート」）に反映。画面を表示し終えるたびに `ui/toast.js` の `syncToastWithRoute()` を呼ぶ（T-11） | ui/dom（読み込み失敗の表示用）、ui/toast | T-10, T-11 |
-| `js/config.js` | **変わり得る数値を1か所に**。T-10 で定義済み：`APP_VERSION`（`'0.1.0'`。公開前は 0.x.x、最初の公開で `1.0.0`：12.3）、`DB_NAME`（`'fx-trade-note'`）、`DB_VERSION`（`1`）、`LS_PREFIX`（`'fxnote:'`）、`MAX_IMAGES_PER_TRADE`（`4`）、画像の縮小 `IMAGE_MAX_EDGE`（`1280`）・`IMAGE_FALLBACK_EDGE`（`1024`）・`IMAGE_QUALITY_STEPS`（`[0.82, 0.72, 0.62, 0.5]`）・`IMAGE_MAX_BYTES`（250KB）（11.1）、復元の期限 `DRAFT_RESTORE_MINUTES`（`30`。9.3）・`LIST_FILTER_RESTORE_MINUTES`（`30`。5.5）。Chart.js の URL は T-55 で追加 | なし | T-10 |
-| `js/master.js` | 通貨ペアマスタ（fx-rules 10.7 の `PAIR_MASTER`：ペア・日本語名・価格帯 `warnMin`/`warnMax`）、`PIP_EXCEPTIONS`・`KNOWN_CURRENCIES`・`NON_FX_CODES`、pip単位・桁数を求める `derivePairSpec()`・`getPairSpec()`（10.4 手順3。pip単位はマスタに持たず `pair` から求める）。時間足・決済理由・セッション・口座区分などの選択肢と日本語の表示名、根拠・感情・タグの初期値、よく使う通貨ペアの初期値（fx-rules 10.3 の1〜6。高金利通貨は含めない） | なし | T-13, T-16 |
-| `js/calc.js` | pips・損益（円）・RR（fx-rules 6.4）、セッション判定 `judgeSession()`（11.7）、勝敗判定 `judgeResult()`（7章）。**画面もDBも触らない純粋な関数だけ** | master | T-13 |
+| `js/app.js` | 起動：DBを開く → 設定読み込み → テーマ監視 → キーボード監視 → Service Worker 登録 → 永続化リクエスト → 下書き確認 → ルーター開始。全体のエラー受け止めもここ（T-10 で「想定外のエラーの受け止め」と「ルーター開始」、T-12 で「DBを開く」（開けない・古い版・他の画面が古い版を開いたまま・別の画面で更新されたときのお知らせ行：6.11）、T-15 で設定の読み込み・テーマ監視、T-17・T-21・T-22 で下書きの確認（`openRecentDraft`：新規・決済・編集の下書きを30分以内なら自動で開く。対象の記録の確認は `draft-notice.js` の判定：9.3）を実装済み。残りは各タスクでこの順に足す） | router, db, settings-store, drafts, trades, draft-notice, ui/theme, ui/notice, ui/keyboard | T-10, T-12, T-15, T-17, T-21, T-22, T-28, T-29 |
+| `js/router.js` | `#/…` を解析して画面モジュールを読み込み・表示・後片付け。戻る操作・保存後の遷移。画面の型を `<body data-layout>` に、画面名を `document.title`（「画面名 - FXトレードノート」）に反映。画面を表示し終えるたびに `ui/toast.js` の `syncToastWithRoute()` を呼ぶ（T-11）。入力画面（S-02・S-03・S-05）は `hasUnsavedChanges()`・`discardChanges()` に加えて、破棄の確認シートの見出しを `discardTitle`（省略時は「入力内容を破棄しますか？」。決済は「決済の入力内容を破棄しますか？」）で渡せる（T-21。5.2） | ui/dom（読み込み失敗の表示用）、ui/toast、ui/dialog、master（選択肢の種類の確認） | T-10, T-11, T-21 |
+| `js/config.js` | **変わり得る数値を1か所に**。T-10 で定義済み：`APP_VERSION`（`'0.1.0'`。公開前は 0.x.x、最初の公開で `1.0.0`：12.3）、`DB_NAME`（`'fx-trade-note'`）、`DB_VERSION`（`1`）、`LS_PREFIX`（`'fxnote:'`）、`MAX_IMAGES_PER_TRADE`（`4`）、画像の縮小 `IMAGE_MAX_EDGE`（`1280`）・`IMAGE_FALLBACK_EDGE`（`1024`）・`IMAGE_QUALITY_STEPS`（`[0.82, 0.72, 0.62, 0.5]`）・`IMAGE_MAX_BYTES`（250KB）（11.1）、復元の期限 `DRAFT_RESTORE_MINUTES`（`30`。9.3）・`LIST_FILTER_RESTORE_MINUTES`（`30`。5.5）。T-16〜T-19 で追加：`LIST_PAGE_SIZE`（`50`＝一覧の1回に描く件数）・`FAVORITE_GRID_COUNT`（`6`＝エントリー画面に並ぶよく使う通貨ペアの数）・`CHOICE_NAME_MAX_LENGTH`（`20`＝選択肢の名前の上限文字数）。Chart.js の URL は T-55 で追加 | なし | T-10, T-16, T-19 |
+| `js/master.js` | 通貨ペアマスタ（fx-rules 10.7 の `PAIR_MASTER`：ペア・日本語名・価格帯 `warnMin`/`warnMax`）、`PIP_EXCEPTIONS`・`KNOWN_CURRENCIES`・`NON_FX_CODES`、pip単位・桁数を求める `derivePairSpec()`・`getPairSpec()`（10.4 手順3。pip単位はマスタに持たず `pair` から求める）。時間足・決済理由・セッション・損益の算出方法の日本語名の表（`TIMEFRAME_LABELS`・`EXIT_REASON_LABELS`・`SESSION_LABELS`・`PROFIT_SOURCE_LABELS`。保存値は `M15`・`newyork` などのまま、表示だけ日本語にする：T-20）、根拠・感情・タグの初期値（`DEFAULT_CHOICES`。T-16 で `settings-store.js` から移した）、選択肢の種類と画面名（`CHOICE_KINDS`・`CHOICE_KIND_LABELS`：T-16）、よく使う通貨ペアの初期値（fx-rules 10.3 の1〜6。高金利通貨は含めない） | なし | T-13, T-16, T-20 |
+| `js/calc.js` | pips・損益（円）・RR（fx-rules 6.4）、損切り幅・利確幅の pips `calcSlTpPips()`（T-18）、数量 `calcQuantity(lots, lotUnitSize)`＝ロット×1lotの通貨数（整数で計算して誤差を出さない。詳細画面の「数量」：T-20）、セッション判定 `judgeSession()`（11.7）、勝敗判定 `judgeResult()`（7章）。`calcRiskReward` は通貨ペア・売買方向・エントリー価格・SL・TP のどれかが空なら `{ rr: null, warn: [] }`（fx-rules 5.3）。**画面もDBも触らない純粋な関数だけ** | master | T-13, T-18, T-20 |
 | `js/validate.js` | 入力文字の正規化（全角→半角など）、エラー E-01〜E-16・警告 W-01〜W-07 の判定（fx-rules 8章）。通貨ペア追加の `normalizePairInput()`（10.4）、価格帯の警告 `isOutOfPriceRange()`（10.5・W-06）を含む。純粋な関数だけ | master, calc | T-16, T-17, T-18, T-21 |
 | `js/datetime.js` | 日本時間の日時文字列の生成（6.6）、`datetime-local` 入力欄との変換、保有時間の計算 | なし | T-12（保存に必要な `toJstString()`・`nowJst()` だけ先に作成）、T-17（入力欄との変換・保有時間・日時のテスト） |
-| `js/format.js` | 画面表示用の整形（`＋2,500円`、`−37.7 pips`、`±0円`、通貨ペア別の価格桁 `formatPrice()`（fx-rules 10.7）、`10/15(木) 21:30`）。マイナスは表示だけ「−」（U+2212）、ゼロは「±0」（design 6.3） | master, datetime | T-19 |
+| `js/format.js` | 画面表示用の整形（`＋2,500円`、`−37.7 pips`、`±0円`、通貨ペア別の価格桁 `formatPrice()`（fx-rules 10.7）、`10/15(木) 21:30`）。マイナスは表示だけ「−」（U+2212）、ゼロは「±0」（design 6.3）。T-20 で保有時間 `formatDuration()`（ちょうど2時間は「2時間」、1日以上は分を出さない、1分未満は「1分未満」、壊れた記録は「—」：design 14.4.4）・数量・ロットなど5関数を追加 | master, datetime | T-19, T-20 |
 | `js/util.js` | `newId()`（UUID 生成。`crypto.randomUUID` が使えない環境では `crypto.getRandomValues` で代用）、`debounce()`（`flush()`＝すぐ実行・`cancel()`＝取り消し付き）、**アプリ共通のエラー `AppError`**（`code` と日本語の `message`。15章）と `isAppError()`、`assertKnownKeys()`（requirements 6章にない項目が混ざっていないかの確認。プログラムの誤りなので `TypeError`）。T-12 で決定：`AppError` は db.js・業務処理・画面のどこからも使うため、一番下の層のここに置く（2026-10-16 オーナー決定：6.12） | なし | T-12 |
 | `js/events.js` | アプリ内の通知の仕組み（`on`・`off`・`emit`。今ある通知は `trades-changed`＝`{ type: 'add'｜'update'｜'delete'｜'restore', id, trade }`）。`sync.js` や一覧の再描画が受け取る | なし | T-12 |
 | `js/db.js` | IndexedDB を開く・移行処理・各ストアの読み書き。**業務のルールは持たない**（6.10）。ストア名・インデックス名・各ストアの項目名の定数（`STORE`・`INDEX`・`TRADE_KEYS`・`IMAGE_KEYS`・`DRAFT_KEYS`）もここに置く | config, util（`AppError` のため） | T-12 |
-| `js/settings-store.js` | localStorage の読み書き、初期値、壊れた値の修復（7章）。**T-12 では作っていない。T-15 で作る**（2026-10-16 オーナー決定：6.12）。requirements 6.3 の全キーの窓口を T-15 で用意し、各キーは使うタスク（T-16 選択肢、T-17 `lastInput`、T-23 `listFilter`、T-25 `lastExportAt`、T-40 同期設定）で使い始める。**T-15 の時点では、根拠・感情・タグの初期値（`DEFAULT_CHOICES`）をこのファイルに仮置きしている。T-16 で `master.js` へ移す**（7.1：2026-10-16 オーナー決定） | config, master | T-15（初期値の移動は T-16） |
-| `js/trades.js` | 記録の業務処理：新規作成（ID・日時・`lotUnitSize` コピー・`syncStatus`）、自動計算値の再計算、決済、決済取消、編集、論理削除・取消。変更通知を出す（8章）。**T-12 で「保存の土台」を作成済み**（6.12：ID・日時・`syncStatus` の自動付与、32項目へのそろえ、記録の保存＋下書きの削除、論理削除・削除の取り消し）。各タスクはこのファイルに機能を足す | db, datetime, util, events（T-17 で calc, settings-store を追加） | T-12（土台）, T-17, T-21, T-22 |
-| `js/drafts.js` | 下書きの保存（デバウンス＋閉じる直前の即時保存）・復元・破棄（9章）。**T-12 で「保存の土台」を作成済み**（6.12：保存・取得・全件取得・下書きと追加画像の一括破棄、下書きキーの作成 `draftKeyOf()`） | db, util, datetime | T-12（土台）, T-17, T-21, T-22 |
+| `js/settings-store.js` | localStorage の読み書き、初期値、壊れた値の修復（7章）。**T-12 では作らず T-15 で作成済み**（2026-10-16 オーナー決定：6.12）。requirements 6.3 の全キーの窓口を T-15 で用意し、各キーは使うタスク（T-16 選択肢、T-17 `lastInput`、T-23 `listFilter`、T-25 `lastExportAt`、T-40 同期設定）で使い始める。根拠・感情・タグの初期値（`DEFAULT_CHOICES`）は T-15 の時点では仮置きだったが、**T-16 で `master.js` へ移した**ので、このファイルは `master.js` から読む（7.1）。`createSettingsStore()` でテスト用の保存先を差し込める | config, master, util | T-15, T-16 |
+| `js/trades.js` | 記録の業務処理：新規作成（ID・日時・`lotUnitSize` コピー・`syncStatus`）、自動計算値の再計算、決済、決済取消、編集、論理削除・取消。変更通知を出す（8章）。**T-12 で「保存の土台」を作成済み**（6.12：ID・日時・`syncStatus` の自動付与、32項目へのそろえ、記録の保存＋下書きの削除、論理削除・削除の取り消し）。各タスクはこのファイルに機能を足す。**T-21 で追加**：`computeClose(trade, input)`（決済価格から pips と損益〔円〕を求める。計算は `calc.js` に任せる。決済画面の即時表示と保存で同じ関数を使う）、`buildClosedTrade(stored, input)`・`buildReopenedTrade(stored)`（決済した記録・決済を取り消した記録を組み立てる。DB に触れない）、`closeTrade(id, input, { draftKey })`・`reopenTrade(id)`（保存されている最新の記録を読み直してから組み立てて `saveTrade` で保存。すでに決済済みなら `ALREADY_CLOSED`、すでに保有中の取り消しは何も変えない）。**T-22 で追加**：`saveTrade(trade, { draftKey, expectedUpdatedAt })`（編集を始めたあとに別の画面で変更されていたら `CONFLICT` で何も保存しない：6.12） | db, datetime, util, events, calc, master, settings-store | T-12（土台）, T-17, T-21, T-22 |
+| `js/drafts.js` | 下書きの保存（デバウンス＋閉じる直前の即時保存）・復元・破棄（9章）。**T-12 で「保存の土台」を作成済み**（6.12：保存・取得・全件取得・下書きと追加画像の一括破棄、下書きキーの作成 `draftKeyOf()`）。T-17 で自動保存 `createDraftAutosaver()`（0.5秒のデバウンス・閉じる直前の即時保存）と、起動時に自動で開く下書きを選ぶ `pickLaunchDraft()`（30分以内でいちばん新しいもの）を追加。**対象の記録を見て続きを開いてよいかの判定は `draft-notice.js`**（9.3） | db, util, datetime, config | T-12（土台）, T-17, T-21, T-22 |
 | `js/images.js` | 画像の読み込み・縮小・JPEG圧縮・保存・表示用URLの発行と解放・孤立画像の掃除（11章）。**T-12 で「保存の土台」を作成済み**（6.12：保存（ID・作成日時の自動付与）・取得・トレード単位の取得・物理削除） | db, util, datetime（T-24 で config を追加） | T-12（土台）, T-24 |
-| `js/filter.js` | 一覧の絞り込み・キーワード検索・並び順・日付グループ・件数/合計損益（`analytics.md` 4.10 の `buildListView` などと同じ結果）。勝敗は `calc.judgeResult` を使う。純粋な関数 | calc | T-19, T-23 |
+| `js/filter.js` | 一覧の絞り込み・キーワード検索・並び順・日付グループ・件数/合計損益（`analytics.md` 4.10 の `buildListView` などと同じ結果）。勝敗は `calc.judgeResult` を使う。純粋な関数。T-19 では並び順・日付グループ・件数/合計損益・日計・約50件ずつの切り出し（`buildListView(trades, nowMs)`）までを実装し、条件を渡す形（analytics 4.10 の `buildListView(trades, filter, nowMs)`）は T-23 で足す。「決済済みか」の判定 `isClosedTrade()` は一覧・詳細・決済・下書きの判定が共通で使う | datetime, format（勝敗判定のために T-23 で calc を追加） | T-19, T-23 |
+| `js/detail-view.js` | S-04 詳細の表示内容の組み立て：`buildDetailView(trade, now)`（全項目の並びと未入力の「—」）、`describeTrade()`（削除の確認シートに出す要約）、`holdingMinutes()`。pips・損益・RR・セッション・算出方法は**保存済みの値**、数量（`calcQuantity`）・保有時間・RR の2行目（損切り幅/利確幅）・手入力時の「自動計算（参考）」は**表示のたびに計算**する。画面に依存しない関数だけ | calc, master, datetime, format, filter | T-20 |
+| `js/entry-form.js` | S-02 の画面に依存しない部分：必須項目の確認 `checkRequiredFields()`、セッションの自動判定と手動優先 `autoSession()`・`nextSession()`、下書きからの読み直し `fieldsFromEntryDraft()`、変更の検出 `isEntryChanged()`、任意項目の「入力済み」の要約 `entryDetailsSummary()`、SL/TP・RR の表示と警告 W-01・W-03 `evaluateLevels()`、保存する任意項目の組み立て `buildOptionalInput()`。編集画面（S-05）も同じ関数を使う | validate, calc, master, datetime, format | T-18 |
+| `js/close-form.js` | S-03 の画面に依存しない部分：入力欄の初期値 `defaultCloseFields()`、入力チェックと pips・損益の即時計算 `evaluateClose()`、損益欄に出す内容 `describeProfit()`、確定損益に貼り付けた符号付きの値の読み方 `splitSignedAmount()`（貼り付け・入力のたびに先頭の符号で＋/−切替を合わせ、金額欄には数字だけを残す。符号が重なる値は E-09：design 14.2.9）、保存する入力の組み立て `closeInputFromEvaluation()`。pips・損益の計算は `trades.js` の `computeClose` に任せる（式はここに書かない）。編集画面も同じ関数を使う | validate, datetime, master, format, trades | T-21 |
+| `js/edit-form.js` | S-05 の画面に依存しない部分：記録から入力欄への変換 `editFieldsFromTrade()`、下書きからの読み直し、変更の検出 `isEditChanged()`・変更なしの保存の判定 `isSameTradeContent()`、口座区分を変えたときの `lotUnitSize` の取り直し `lotUnitSizeFor()`（元の口座に戻したら記録時の値に戻す）、保存する記録の組み立て・再計算 `buildEditedTrade()`、別の画面で先に変更された記録への重ね合わせ `rebaseEditFields()`、通貨ペア変更時の円換算レート `rateAfterPairChange()`（決済通貨が変わるときはレート欄を空にして E-11 で入れ直しを促す：fx-rules 4.5）。画面に依存しない関数だけ | validate, datetime, master, trades, entry-form, close-form, format | T-22 |
+| `js/draft-notice.js` | 下書き（新規・決済・編集）の「いま使えるか」の判定 `judgeDraftTarget(draft, trade)`（`ok`＝続きを開く／`gone`＝対象が削除済み・存在しない・決済済み〔決済の下書き〕なので黙って消す／`stale`＝下書きを作ったあとに元の記録が変更されたので破棄して知らせる）と、一覧のお知らせ行の文言・下書きの要約。古い内容で記録を上書きする事故に直結する判断を、画面を開かなくても Node.js のテストで確かめられるよう画面ファイルと分けた（9.3）。純粋な関数だけ | filter, format | T-22 |
+| `js/choice-list.js` | 選択肢の追加 `addChoice()`・削除 `removeChoice()`・並び替え `moveItem()`・名前のチェック `checkChoiceName()`（空白だけ → 21文字以上 → 同じ名前の順。20文字は絵文字なども1文字として数える）、タグの追加の振り分け `planTagAdd()`、設定から消された選択済みの値を選択肢の末尾に残す `withSelected()`、よく使う通貨ペアの追加・削除・検索 `addFavoritePair()`・`removeFavoritePair()`・`searchPairCandidates()`（E-12〜E-16・W-07。最後の1つは削除できない）、ドラッグの行き先 `dropIndex()`。純粋な関数だけ | config, master, validate, util | T-16 |
+| `js/row-flash.js` | 一覧に戻った直後の行の1秒ハイライトの受け渡し：入力画面が `requestRowFlash(id)` で預け、一覧が表示を終えたところで `takeRowFlash()` で受け取る（アプリの中の変数で渡す。URL に入れない。預けて4秒を過ぎたものは受け取れない）。決済・編集の保存、削除の取り消しで使う。DOM に触れない | なし | T-21 |
+| `js/deleted-toast.js` | 「削除しました［取り消す］」のトーストを一覧の表示後に出すための受け渡し（`requestDeletedToast`／`takeDeletedToast`。`row-flash.js` と同じ作り。預けて5秒を過ぎたものは受け取れない）。`ui/toast.js` は「取り消す」付きのトーストを画面を移ったときに消すため、詳細画面で先に出せない。DOM に触れない | なし | T-22 |
 | `js/csv.js` | CSV の作成（BOM付きUTF-8）と保存（iPhone は共有シート経由：17章 #17） | db, format, settings-store | T-25 |
 | `js/ui/dom.js` | `h('div', {class:'x'}, '文字')` のように要素を作る道具。文字は必ず `textContent`（テキストノード）で入れる。`style` 属性・`javascript:` の URL・文字列のイベント属性は受け付けない。要素を空にする `clear()`（`innerHTML = ''` の代わり）、読み上げ用の id を作る・付け外しする `uniqueId()`・`addIdRef()`・`removeIdRef()`（T-11 で追加） | なし | T-10（最低限の `h()`・`clear()`）、T-11 |
 | `js/ui/bars.js` | 画面の骨組みの部品：`largeTitle()`（型Aの大タイトル）、`navbar()`（型B・Cのナビゲーションバー）、`backButton()`（‹ 戻る。「‹」は線画アイコン）、`textButton()`（「キャンセル」「保存」）、`actionBar()`（下部操作バー）、`newEntryButton()`（S-01 の新規エントリーボタン。「＋」は線画アイコン：design 9.10）。見た目は `css/layout.css`・`css/components.css`（design 9章冒頭の表） | ui/dom, ui/icons | T-10 で追加、T-11 で線画アイコン化と `newEntryButton()` を追加 |
@@ -262,11 +285,14 @@ flowchart LR
 | `js/ui/toast.js` | トースト（design 9.6・14.7.5）：`showToast(message, { action, duration, iconName })`・`hideToast()`。成功3秒、「取り消す」付き6秒、同時に1つだけ。押している間・フォーカスがある間はカウントを止める。**`syncToastWithRoute()`：「取り消す」付きのトーストは、出したときと違う画面に移ったら消す**（`router.js` が画面を表示し終えるたびに呼ぶ。成功だけのトーストは残す）。そのため削除の「取り消す」付きトーストは、一覧の表示が終わってから出す（roadmap T-22） | ui/dom, ui/icons | T-11 |
 | `js/ui/dialog.js` | `actionSheet()`・`confirmAction()`（確認：design 9.7・14.7.4）と `showAlert()`（失敗の知らせ：9.15 ③・14.7.3）。HTML 標準の `<dialog>` と `showModal()` で作り、閉じたら元の場所へフォーカスを戻す。開いている間は背後をスクロールさせない（`.is-modal-open`） | ui/dom | T-11 |
 | `js/ui/notice.js` | お知らせ行（design 9.16）：`createNotice()`・`renderNotices()`（画面の中に置く。S-01 は大タイトルの下、入力画面は口座色の線の下）と、`showAppNotice(key, opts)`・`hideAppNotice(key)`（アプリ全体の問題を `#notice-area` に出す。同じ種類は1つだけ）。`app.js` の想定外のエラー・DB を開けないときの表示はこれを使う（T-11 で置き換え済み） | ui/dom, ui/icons | T-11 |
-| `js/ui/sheet.js` | ボトムシート（design 9.8）。**T-11 では作っていない**（最初に使う絞り込みシートの T-23 で作る） | ui/dom, ui/icons | T-23 |
+| `js/ui/sheet.js` | ボトムシート（design 9.8）：`openSheet({ title, cancelLabel, content })`。**T-17 で作成済み**（予定の T-23 より早く。エントリー画面の「その他の通貨ペア」〔design 14.1.6〕で必要になり、「選ぶだけで閉じるシート」の形を先に作った）。開閉・フォーカスの戻し・背後のスクロール止めは `dialog.js` の `openModal` と共通。絞り込みシートは T-23 で、この部品に「すべて解除」と下部の主要ボタンを足して使う | ui/dom, ui/dialog | T-17, T-23 |
+| `js/ui/pair-chooser.js` | 「その他の通貨ペア」のボトムシート `choosePair(favorites, selected)`（design 14.1.6）。エントリー画面と編集画面で共用（T-22 で `entry.js` から移した。中身は変えていない） | ui/dom, ui/icons, ui/sheet, master | T-17, T-22 |
+| `js/ui/tag-picker.js` | タグの選択と「＋追加」の部品 `tagPicker()`。追加した名前は設定のタグの選択肢にも加える（名前のチェックは `choice-list.js`）。エントリー・決済・編集の3画面で共用 | ui/dom, ui/icons, ui/fields, ui/parts, ui/dialog, settings-store, choice-list, config, util | T-18 |
+| `js/ui/sortable.js` | ≡ をドラッグして行を並べ替える部品 `attachDragSort()`（2つのグループをまたげる・↑↓キー・端に近づくと自動スクロール）。並べ替えの保存は呼び出し側。行き先の計算は `choice-list.js` の `dropIndex` | choice-list | T-16 |
 | `js/ui/keyboard.js` | `startKeyboardWatch()`：`visualViewport` の高さの変化からキーボード表示中を判定し、`<body>` に `.keyboard-open` を付け外し（design 8.4）。`startInputModalityWatch()`：Tab キーで操作している間だけ `<html>` に `.kbd-nav` を付ける（入力行のフォーカス枠をキーボード操作のときだけ出す：design 9.2）。どちらも `app.js` が起動時に開始（T-11） | なし | T-11, T-17 |
 | `js/ui/theme.js` | テーマを画面に当てる部品（T-15 で追加）：`applyTheme(theme)` が `<html data-theme>`（`light`／`dark` のときだけ付け、`auto` は付けない）と `<meta name="theme-color">`（ライト用・ダーク用の2つ。`--color-bg` と同じ値。「端末に合わせる」に戻したとき元の色に戻せるよう、最初の色を `data-auto-color` に覚えておく）を切り替える。**保存はしない**（保存は `settings-store.js`、どの値を当てるかは呼び出し側が決める）。起動時（`app.js`）と設定画面（`screens/settings.js`）の両方から使うので、画面ファイルが `app.js` を import できない層のルール（4.3）に従い共通部品の層に置いた。最初の描画前の適用は `js/boot-theme.js` のまま | なし | T-15 |
 | `tests/components.html` / `components.js` / `components.css` | 共通部品の確認用ページ（T-11）。design 9章の部品を `js/ui/` の本物の部品と `css/` のアプリと同じ CSS で並べ、ライト/ダークの見た目と動きを目で確かめる（自動テストではないので 13.2 の件数には入らない）。CSP はアプリと同じ。アプリからは読み込まず、Service Worker のキャッシュ対象にもしない | js/ui/*（dom・icons・parts・fields・toast・dialog・notice・bars・keyboard） | T-11 |
-| `js/screens/*.js` | 各画面。表示と操作だけを担当し、保存は `trades.js` などに頼む | ui/*, trades, drafts, images, filter, format, validate, calc, settings-store | T-15〜T-25 |
+| `js/screens/*.js` | 各画面。表示と操作だけを担当し、保存は `trades.js` などに頼む。S-01〜S-06（選択肢の編集を含む）は T-15〜T-22 で実装済み。画面に依存しない判断は `detail-view.js`・`entry-form.js`・`close-form.js`・`edit-form.js`・`draft-notice.js`・`choice-list.js` に置き、画面はその結果を並べるだけにする | ui/*, trades, drafts, images, filter, format, validate, calc, settings-store, master, 上の画面向けの関数, row-flash, deleted-toast, events | T-15〜T-25 |
 | `sw.js` | プリキャッシュ・オフライン応答・古いキャッシュの削除・更新の切り替え（12章） | なし（独立） | T-28 |
 | `manifest.json` | アプリ名・アイコン・全画面表示・`start_url` | — | T-27 |
 
@@ -280,6 +306,8 @@ flowchart LR
  ④ 共通部品        ui/*.js
         ↓（画面から）
  ③ 業務処理        trades.js, drafts.js, images.js, csv.js, filter.js, sync.js, analytics.js
+                   ＋画面向けの純粋な関数 detail-view.js, entry-form.js, close-form.js, edit-form.js,
+                     draft-notice.js, choice-list.js ＋画面間の受け渡し row-flash.js, deleted-toast.js
         ↓
  ② 保存の窓口      db.js（IndexedDB）, settings-store.js（localStorage）
         ↓
@@ -289,6 +317,7 @@ flowchart LR
 - **矢印の逆向き（下の層が上の層を import する）は禁止**。例：`calc.js` が画面の部品を import しない、`db.js` が `trades.js` を import しない。
 - **画面（⑤）は `db.js` を直接呼ばない**。必ず ③ の業務処理を通す（保存時のルール：`updatedAt` 更新・`syncStatus` を `pending` に戻す、などを1か所に集めるため）。
 - ① の `calc.js` / `validate.js` / `datetime.js` / `format.js` / `master.js` は `window` や `document` を使わない。これにより Node.js でもテストできる（13章）。
+- ③ の画面向けの純粋な関数（`detail-view.js` など。上の図の2行目）も `document` や IndexedDB を触らない。「どの欄にどのエラーを出すか」「この下書きを開いてよいか」のような判断を画面ファイルから切り離し、Node.js で確かめるため。`edit-form.js`・`close-form.js` は計算のため同じ層の `trades.js`（`computeClose` など）を使ってよい。`ui/`（④）が `settings-store.js`・`choice-list.js` を使うのは、下の層を使う向きなので層のルールの範囲内。
 - 循環 import（A が B を、B が A を import する）を作らない。
 
 ### 4.4 相対パスのルール（GitHub Pages のサブパス対応）
@@ -395,6 +424,8 @@ export default {
   async mount(root, { params, nav }) { /* 画面を作る。params.id など。nav は go / replace / back */ },
   unmount() { /* 後片付け */ },
   hasUnsavedChanges() { return false; }, // 入力画面だけ意味を持つ
+  discardChanges() {},       // 入力画面だけ：「入力内容を破棄」を選んだとき（下書きと追加した画像を消す：T-17）
+  discardTitle: '…',         // 入力画面だけ（省略可）：破棄の確認シートの見出し。省略すると「入力内容を破棄しますか？」。決済は「決済の入力内容を破棄しますか？」（T-21）
 };
 ```
 
@@ -672,7 +703,7 @@ request.onupgradeneeded = (e) => {
 | 他のタブが古い版を開いている | `onblocked`（古い接続が残っていて移行できない）→「アプリを開いている他の画面を閉じてください」と表示。古い側は `onversionchange` で接続を閉じ、再読み込みを促す（T-12 の実装の文言：「アプリが別の画面で更新されました。再読み込みしてください。」［再読み込み］。どちらも `#notice-area` のお知らせ行） |
 | 古いアプリで新しいDBを開いた | `VersionError` →「アプリを最新版に更新してください」と表示し、データには触らない |
 
-### 6.12 保存の土台（T-12 の実装結果と確定事項・2026-10-16 オーナー決定）
+### 6.12 保存の土台（T-12 の実装結果と確定事項・2026-10-16 オーナー決定。T-21・T-22 で足した関数は v1.6 で追記）
 
 T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台」（`trades.js`・`images.js`・`drafts.js`）を実装した（テストページで 149件合格：計算などの119件＋保存処理の30件）。実装時の確認事項4点は、2026-10-16 にオーナーが**すべて推奨案で決定**した。
 
@@ -688,7 +719,11 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | ファイル | 関数 | 動き | 失敗・例外 |
 |---|---|---|---|
 | `trades.js` | `saveNewTrade(fields, { draftKey })` | 新規保存。`id` は渡されたもの（入力画面を開いた時点で採番：11.5）を使い、なければ採番。`createdAt`・`updatedAt`＝今、`syncStatus`＝`pending`、`syncedAt`・`deletedAt`＝`null` を**必ず付ける**（呼び出し側が渡した値は使わない）。requirements 6.1 の32項目にそろえる（未入力は `null`、配列は `[]`：6.7）。`draftKey` を渡すと下書きの削除も同じトランザクションで行う | 同じ `id` があれば `DUPLICATE`（保存済みとして扱う：15.1） |
-| | `saveTrade(trade, { draftKey })` | 既存の記録の更新（決済・編集・決済の取り消しで使う）。`updatedAt`＝今、`syncStatus`＝`pending`。`createdAt`・`deletedAt`・`syncedAt` は保存されている値を使う（画面から渡された値で上書きしない＝うっかり削除が戻る事故を防ぐ） | 記録がない・**削除済みなら `NOT_FOUND`**（消えた記録を作り直さない） |
+| | `saveTrade(trade, { draftKey, expectedUpdatedAt })` | 既存の記録の更新（決済・編集・決済の取り消しで使う）。`updatedAt`＝今、`syncStatus`＝`pending`。`createdAt`・`deletedAt`・`syncedAt` は保存されている値を使う（画面から渡された値で上書きしない＝うっかり削除が戻る事故を防ぐ）。`status`・`riskReward`・`session` は `recompute()` で決め直す（T-17）。**`expectedUpdatedAt`（T-22）を渡すと、保存されている記録の `updatedAt` がその値のままのときだけ保存する**（編集画面が、編集を始めたときの `updatedAt` を渡す。別の画面で変更・決済・削除の取り消しがあった記録を、古い写しから組み立てた内容で黙って上書きして失わないため）。渡さなければ従来どおり | 記録がない・**削除済みなら `NOT_FOUND`**（消えた記録を作り直さない）。`expectedUpdatedAt` が違うと **`CONFLICT`**（何も保存しない。15.1）。※`updatedAt` は秒単位なので、**同じ秒の内の変更は検出できない**（1人が1台の端末で使う前提では実害は小さい） |
+| | `closeTrade(id, input, { draftKey })`（T-21） | 保有中の記録を決済する。**保存されている最新の記録を読み直して**から `buildClosedTrade` で決済を重ね、`saveTrade` で保存する（画面が持っている古い写しではなく最新の記録に重ねる。`lotUnitSize` も記録時の値のまま使う）。pips・損益・`profitSource`・`status` は渡された値ではなく `computeClose` と `recompute()` で求める。`draftKey` を渡すと下書きの削除も同じトランザクション | 記録がない・削除済みなら `NOT_FOUND`、**すでに決済済みなら `ALREADY_CLOSED`**（別の画面で先に決済された記録を、開いたままの決済画面から上書きしない） |
+| | `reopenTrade(id)`（T-21） | 決済の取り消し。最新の記録を読み直し、`buildReopenedTrade` で `exitPrice`・`exitAt`・`pips`・`profitJpy`・`profitSource`・`quoteToJpyRate` だけを空に戻して保存（決済理由・決済時の感情・メモ・タグ・画像は残す：8章）。**すでに保有中なら何も変えずにその記録を返す**（2回押しても `updatedAt` が動かず、通知も出さない） | 記録がない・削除済みなら `NOT_FOUND` |
+| | `computeClose(trade, { exitPrice, quoteToJpyRate, manualProfitJpy })`（T-21。DB に触れない） | 決済価格から `{ pips, autoProfitJpy, profitJpy, profitSource }` を求める（計算は `calc.js` を呼ぶだけで、式は書かない）。手入力の損益があればそれを使い（`manual`）、なければ自動計算（`auto`）。自動計算できないとき（非JPYペアで円換算レートなし）は損益 `null`・`profitSource` `null`。`lotUnitSize` は記録の値を使う（設定画面で変えても過去の記録は再計算しない）。決済画面の即時表示と保存で同じ関数を使う | — |
+| | `buildClosedTrade(stored, input)`・`buildReopenedTrade(stored)`（T-21。DB に触れない） | 決済した記録・決済を取り消した記録を組み立てる純粋な関数。`status` は渡さない（`saveTrade` の `recompute()` が決済情報の有無から決める）。円換算レートは非JPYペアのときだけ残す | 決済価格か決済日時が無いのに呼ぶと `TypeError`（画面が必ず検査してから渡す前提のプログラムの誤り） |
 | | `getTrade(id)` / `getAllTrades()` | 1件取得（なければ `null`）／全件取得。どちらも**削除済みも含めてそのまま返す**（表示するかは呼び出し側が `deletedAt` で判断） | `DB_READ` |
 | | `deleteTrade(id)` | 論理削除（10章）。`deletedAt`・`updatedAt`＝今、`syncStatus`＝`pending`。画像は消さない。**すでに削除済みなら何も変えずにその記録を返す**（2回押しても削除日時が変わらず、取り消しが効くまま） | 記録がなければ `NOT_FOUND` |
 | | `undoDeleteTrade(id, deletedAt)` | 削除の取り消し（10章）。`deletedAt` が `deleteTrade` の戻り値の値のままのときだけ元に戻し（`deletedAt`＝`null`、`updatedAt`＝今、`syncStatus`＝`pending`）、戻した記録を返す。**変わっていたら（取り消し済み・別の操作で変わった）何もせず `null`** | 記録がなければ `NOT_FOUND` |
@@ -715,7 +750,7 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | 値の形 | すべて `JSON.stringify` した文字列で保存し、読むときに `JSON.parse` する（数値・配列・オブジェクトを同じ方法で扱うため） |
 | 読めないとき | 値が壊れている・型が違う・存在しない場合は**初期値を使い**、画面は止めない。**壊れた値は読むときに消さない**：初期値で補って返すだけにして保存済みの値はそのまま残し、**次に正しい値を保存したときに上書きする**（読むだけで勝手に書き換えない。2026-10-16 オーナー決定）。`choices` は根拠・感情・タグの3種類ごとに別々に補う（例：感情だけが壊れていても、根拠とタグは保存済みの値のまま） |
 | 書けないとき | 容量不足などで失敗したら「設定を保存できませんでした」をアラートで表示（15章） |
-| 初期値 | `master.js` に置く（requirements 6.3 の初期値、Q-10・Q-11 の選択肢）。**T-15 の時点では根拠・感情・タグの初期値だけ `settings-store.js` の `DEFAULT_CHOICES` に仮置きしてあり、T-16 で `master.js` へ移す**（2026-10-16 オーナー決定）。タグの初期値は「ルール違反・指標前・様子見すべきだった」で確定（requirements 6.3） |
+| 初期値 | `master.js` に置く（requirements 6.3 の初期値、Q-10・Q-11 の選択肢）。根拠・感情・タグの初期値は T-15 の時点では `settings-store.js` の `DEFAULT_CHOICES` に仮置きだったが、**T-16 で `master.js` へ移した**（2026-10-16 オーナー決定。`settings-store.js` は `master.js` から読む）。タグの初期値は「ルール違反・指標前・様子見すべきだった」で確定（requirements 6.3） |
 | 使ってよい範囲 | **設定値と、一覧の絞り込み条件の一時保存（`listFilter`）だけ**。トレード記録・画像・下書きは入れない |
 
 ### 7.2 オブジェクト型の設定の中身（確定）
@@ -741,7 +776,8 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | **決済の取り消し（S-04）** | 確認後、`exitPrice`・`exitAt`・`pips`・`profitJpy`・`profitSource`・`quoteToJpyRate` を `null` に、`status: 'open'`。決済理由・決済時の感情・メモ・タグ・画像は**残す**（requirements F-02） | `trades` |
 | **削除・取り消し** | 10章 | `trades` |
 
-- **再計算の場所は1か所**（`trades.js` の `recompute(trade)`）。新規・決済・編集・決済取消のどれもこの関数を通す。**`status` もここで決済情報の有無から自動で決める**（requirements 6.1「決済情報の有無で自動設定」）。`recompute()` と `status` の自動判定は T-17 で作る。T-12 の時点の `saveNewTrade`・`saveTrade` は、渡された `status`・`pips` などの値をそのまま保存する（2026-10-16 オーナー決定：6.12 #4）。
+- **編集の保存では、`saveTrade` に編集を始めたときの `updatedAt` を `expectedUpdatedAt` として渡す**（6.12）。別の画面で先に変更されていたら `CONFLICT` になり、画面は「最新の記録に反映して保存」を選ばせる（自分が変えた項目だけを最新の記録に重ねる〔`edit-form.js` の `rebaseEditFields`〕。重ねた結果に入力の問題が出たときや、別の画面で決済が取り消されたのに決済の項目を直しているときは、保存せず知らせる）。**編集で通貨ペアを変えたときの円換算レート**は fx-rules 4.5 のとおり（決済通貨が変わるときはレート欄を空にして E-11 で入れ直しを促す。同じ決済通貨のペア同士は残す。元のペアに戻したら記録のレートに戻す。手入力の損益は変えない）。
+- **再計算の場所は1か所**（`trades.js` の `recompute(trade)`）。新規・決済・編集・決済取消のどれもこの関数を通す。**`status` もここで決済情報の有無から自動で決める**（requirements 6.1「決済情報の有無で自動設定」）。`recompute()` と `status` の自動判定は T-17 で作成済み（T-12 の時点の `saveNewTrade`・`saveTrade` は、渡された `status`・`pips` などの値をそのまま保存していた。2026-10-16 オーナー決定：6.12 #4）。pips・損益は `recompute()` ではなく決済の組み立て（`computeClose`：6.12）が求めて渡す。
 - 保存は 6.12 の関数で行う（新規＝`saveNewTrade`、決済・編集・決済取消＝`saveTrade`）。**削除済みの記録を決済・編集しようとしたら `NOT_FOUND`**（別の画面で削除された記録を、開いたままの入力画面から保存した場合など。画面は「この記録は見つかりません」：15.1）。
 - **二重保存の防止**：保存ボタンは処理中は押せなくする（design 9.1）。加えて新規は `add`（同じIDは保存できない）なので、万一2回送られても記録は1件になる。
 - **保存の完了は IndexedDB の `complete` を待つ**。待ってからトーストを出し、画面を移る。
@@ -782,8 +818,9 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | 場面 | 動き（2026-10-15 確定） |
 |---|---|
 | `#/new` などを開いたとき、その画面の下書きがある | 自動で入力内容（`fields`・`uiState`）を復元し、口座色の線の下にお知らせ「入力途中の内容を復元しました［破棄］」（design 14.1.10） |
-| **アプリが一度閉じられて開き直したとき**（iPhone のホーム画面版は、閉じられると次回は必ず一覧 `#/` から始まる） | 最終更新（`updatedAt`）から **30分以内**の下書きがあれば、**その入力画面を自動で開いて復元**する（一覧 → 入力画面の順に履歴を作るので「キャンセル」で一覧に戻れる）。30分を過ぎていれば一覧を開き、お知らせ行に「入力途中のエントリーがあります」（決済なら「入力途中の決済があります」、編集なら「入力途中の編集があります」）＋［続ける］を出す。2件以上なら［選ぶ］でアクションシートから選ぶ。× は次の起動まで隠すだけで下書きは消さず、一覧には［破棄］を置かない（design 14.3.8 で確定）。v0.1 の60分案は、design・analytics とそろえて**30分に統一**（20章 ②） |
-| 決済の下書きで、対象のトレードが削除・決済済みになっていた | 下書きを**黙って**消す（design 14.2.10） |
+| **アプリが一度閉じられて開き直したとき**（iPhone のホーム画面版は、閉じられると次回は必ず一覧 `#/` から始まる） | 最終更新（`updatedAt`）から **30分以内**の下書きがあれば、**その入力画面を自動で開いて復元**する（一覧 → 入力画面の順に履歴を作るので「キャンセル」で一覧に戻れる）。30分を過ぎていれば一覧を開き、お知らせ行に「入力途中のエントリーがあります」（決済なら「入力途中の決済があります」、編集なら「入力途中の編集があります」）＋［続ける］を出す。2件以上なら［選ぶ］でアクションシートから選ぶ。× は次の起動まで隠すだけで下書きは消さず、一覧には［破棄］を置かない（design 14.3.8 で確定）。v0.1 の60分案は、design・analytics とそろえて**30分に統一**（20章 ②）。**起動時の自動復元の細部（T-17・T-21・T-22。`app.js` の `openRecentDraft`）**：①一覧（`#/` や空のハッシュ）で開いたときだけ働く。ほかの URL（再読み込みなど）はその画面を優先する ②決済・編集の下書きは、対象の記録を読んで `draft-notice.js` の `judgeDraftTarget` で判定し、`ok` のときだけ自動で開く ③`gone`（対象が削除済み・存在しない、または決済の下書きなのにもう決済済み）は**黙って消し**、次の候補（30分以内でいちばん新しいもの）を見る ④`stale`（下書きを作ったあとに元の記録が変更された）は**自動では開かず**、この起動では候補から外す。下書きは `app.js` では消さず、一覧を表示するとき `list.js` が消して、お知らせ行（× だけ）で「元の記録が変更されたため、入力途中の編集〔決済〕を破棄しました」と知らせる（知らせる前に消すと利用者が気づけないため）⑤対象の記録を読めなかった（DB のエラー）ときは、下書きを消さずに自動で開くのをやめる（一覧のお知らせ行や［決済］［編集］から開き直せる）⑥DB が開けない・遅い（他の画面が古い版を開いたまま）ときに画面が出ないままにならないよう、下書きの確認は1.5秒で見切ってルーターを始める |
+| 決済の下書きで、対象のトレードが削除・決済済みになっていた（`gone`） | 下書きを**黙って**消す（design 14.2.10）。起動時だけでなく、一覧のお知らせ行を作るとき・決済画面を開いたときも同じ判定 |
+| 決済の下書きで、元の記録がその後に別の操作で変更されていた（`stale`。T-22 で照合を追加） | 編集の下書きと同じ考え方。下書きを使わずに破棄し、「元の記録が変更されたため、入力途中の決済を破棄しました」と表示（決済の下書きにも、エントリー時のタグ・メモが入っており、あとから編集で書き換えた内容を古い内容で戻してしまうため。文言は design 14.1.10・14.2.10） |
 | 編集の下書きで、元の記録がその後に別の操作で変更・削除されていた（`baseUpdatedAt` が違う） | 下書きを使わずに破棄し、「元の記録が変更されたため、入力途中の編集を破棄しました」と表示（古い内容で上書きする事故を防ぐ。文言は design 14.1.10・14.3.8） |
 
 - 30分は「起動時に入力画面を自動で開くか」の境目で、下書きの有効期限ではありません（期限による自動削除はしない：design 14.1.10）。
@@ -956,15 +993,24 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | 入力チェック | fx-rules 9.4（V-01〜V-19）の全件 | 19 | T-13, T-17 |
 | 通貨ペア | fx-rules 10.8（P-01〜P-30：マスタ参照・通貨ペアの追加・価格の表示・W-06） | 30 | T-13, T-16 |
 | セッション | fx-rules 11.8（S-01〜S-35） | 35 | T-13 |
-| 追加（境界値など） | fx-rules 14.1 の表（X・C＝計算、Y＝RR、Z＝セッション、V＝入力チェック、P＝通貨ペア）。2026-10-16 オーナー決定で採用（13.4） | 44 | T-11 |
-| 保存処理 | `tests/db.test.js`（DB-01〜DB-30：DB の形・キー名の一致・二重保存の防止・論理削除と取り消し・下書きの破棄・失敗時の取り消しなど）。**ブラウザのテストページだけで実行**（Node.js には IndexedDB がないためスキップ） | 30 | T-12 |
+| 追加（境界値など） | fx-rules 14.1 の表（X・C＝計算、Y＝RR、Z＝セッション、V＝入力チェック、P＝通貨ペア）。2026-10-16 オーナー決定で採用（13.4）。T-18 で Y-08〜Y-13 の6件を追加 | 50 | T-11, T-18 |
+| 保存処理 | `tests/db.test.js`（DB-01〜DB-20・SV-01〜SV-17：DB の形・キー名の一致・二重保存の防止・論理削除と取り消し・下書きの破棄・失敗時の取り消し、T-21・T-22 で足した決済・決済の取り消し・`ALREADY_CLOSED`・`expectedUpdatedAt` と `CONFLICT` など）。**ブラウザのテストページだけで実行**（Node.js には IndexedDB がないためスキップ） | 37（T-12 の 30件＋T-17・T-21・T-22 で 7件） | T-12, T-17, T-21, T-22 |
 | 一覧 | analytics 4.11（L-01〜L-27・D-01〜D-09・N-01〜N-02）。現在時刻を固定値で渡す | 38 | T-23 |
-| 日時 | 6.6 の形式の生成・`datetime-local` との変換・端末が日本以外のタイムゾーンでも JST になること | （T-17 で作成：13.3 #4） | T-17 |
+| 一覧（T-19 の範囲） | `tests/filter.test.js`：並び順・日付グループ・件数/合計損益・日計・約50件ずつの切り出し（絞り込み条件を渡す一覧の 38件は T-23） | 25 | T-19 |
+| 表示の整形 | `tests/format.test.js`：円・pips・日時・保有時間などの表示（T-19・T-20 で追加） | 18 | T-19, T-20 |
+| 日時 | 6.6 の形式の生成・`datetime-local` との変換・端末が日本以外のタイムゾーンでも JST になること | 15 | T-17 |
+| エントリー画面 | `tests/entry-form.test.js`：セッションの自動判定と手動優先・下書きの読み直し・RR の表示と警告・必須項目の確認 | 36 | T-17, T-18 |
+| 詳細画面 | `tests/detail-view.test.js`：表示内容の組み立て・保有時間・数量・未入力の「—」 | 30 | T-20 |
+| 決済画面 | `tests/close-form.test.js`：入力チェック・損益欄の出し分け・符号付き貼り付け `splitSignedAmount` | 28 | T-21 |
+| 編集・削除 | `tests/edit-form.test.js`：変更の検出・口座変更時の `lotUnitSize`・再計算・重ね合わせ・通貨ペア変更時のレート・下書きの判定 `judgeDraftTarget` | 27 | T-22 |
+| 選択肢の編集 | `tests/choice-list.test.js`：追加・削除・並び替え・名前のチェック・通貨ペア追加 E-12〜E-16・W-07・保存と読み直し | 35 | T-16 |
+| 設定の保存 | `tests/settings-store.test.js`（ST-01〜ST-19：初期値・壊れた値の補い方・書き込み失敗 `SETTINGS_WRITE` など）。**ブラウザのテストページだけで実行**（Node.js には localStorage がない） | 19 | T-15 |
 | リリース確認 | `config.js` と `sw.js` の `APP_VERSION` が一致しているか | 1 | T-28 |
 
 - テストIDは資料ごとの番号なので、**テストページでは分類名を付けて表示**する（例：「セッション S-01」「通貨ペア P-01」）。セッションの S-xx は画面ID（S-01 一覧など）とは無関係。analytics の期間テストは fx-rules の P-xx と重ならないよう D-xx に改番済み。
 - テストページの表示：各ケースの分類・ID・期待値・実際の値・合否を表にし、最上部に「全N件中N件合格」のように集計を出す。不合格の行は赤字＋「×」（色だけに頼らない）。
-- **現在の件数（2026-10-16・T-15 完了時点）**：**Node.js 163件**（計算35＋入力チェック19＋通貨ペア30＋セッション35＋追加44）、**ブラウザのテストページ 212件**（163件＋保存処理30件＋T-15 で増えた分19件）。すべて合格。今後の増加：一覧38件（T-23）で Node 201件・ブラウザ231件、日時（T-17）・損切り幅/利確幅（T-18）・リリース確認（T-28）の分が加わる。
+- **現在の件数（2026-10-16・T-22 完了時点）**：**Node.js 383件**、**ブラウザのテストページ 439件**（Node 383件＋ブラウザだけで動かす保存処理 37件・設定の保存 19件＝56件）。すべて合格。Node 383件の内訳は、計算 58・入力チェック 32・通貨ペア 35・セッション 44（ここまでの169件が fx-rules 9・10.8・11.8・14.1 の資料由来。T-18 の Y-08〜Y-13 を含む）、日時 15、表示の整形 18、一覧 25、詳細画面 30、決済画面 28、エントリー画面 36、編集・削除 27、選択肢の編集 35（`node tests/run-node.mjs` の分類名と同じ）。今後の増加：一覧の絞り込み 38件（T-23）、リリース確認（T-28）。
+- 件数は実装のたびに増えるので、正しい数は `node tests/run-node.mjs` の最後の行（「全N件中N件合格」）とテストページの最上部で確かめる。
 - 共通部品の確認用ページ（`tests/components.html`：4.2）は目で確かめるページで、上の件数には入らない。
 - テストケースのデータ（`tests/cases.js`）は fx-rules.md 9・10.8・11.8・14.1 章と analytics.md 4.11 を書き写す。元の資料が更新されたら `cases.js` も更新する（計算・通貨ペア・セッションは T-14 で fx-expert が照合。一覧のテストは T-23 の完了条件）。
 
@@ -1047,7 +1093,9 @@ T-14 で fx-expert が計算処理を「合格」とし、修正依頼1件・提
 | `QUOTA` | 容量不足で保存できない | ③ アラート「保存できませんでした」「端末の空き容量が不足している可能性があります。入力内容はこの画面に残っています。」［閉じる］［もう一度保存］ | 残す（下書きも残る） |
 | `DB_WRITE` / `DB_READ` | その他の保存・読み込みの失敗 | ③ アラート（上と同じ形。原因は「保存中に問題が起きました」） | 残す |
 | `DUPLICATE` | 新規保存が2回送られた | 表示しない（1回目で保存済みとして扱う） | — |
-| `NOT_FOUND` | 詳細などで記録が見つからない。**削除済みの記録を決済・編集の保存で更新しようとした**、削除・削除の取り消しの対象の記録がない（6.12） | 画面内に「この記録は見つかりません」＋［一覧へ］ | 入力画面では入力内容を残したまま表示（下書きは 9.3 の破棄条件に従う） |
+| `NOT_FOUND` | 詳細などで記録が見つからない。**削除済みの記録を決済・編集の保存で更新しようとした**、削除・削除の取り消しの対象の記録がない（6.12） | 画面内に「この記録は見つかりません」＋［一覧へ］（design 14.4.7）。削除の取り消しは「削除を取り消せませんでした」＋「記録が見つかりません。」のアラート | **決済・編集画面では入力内容も下書きも消える**（保存先の記録がもう無く、続きを入力しても保存できないため。`discardAll()` してから「この記録は見つかりません」に切り替える。v1.5 までは「入力内容を残したまま」と書いていたが、実装に合わせて訂正） |
+| `ALREADY_CLOSED` | 決済の保存で、別の画面が先にその記録を決済していた（T-21。`closeTrade` が検出） | 表示しない。**入力内容は上書きせず、下書きを黙って消して**詳細（`#/trades/{id}`）を開く（先に決済された内容を残すため。design 14.2.10） | 消える（保存先は決済済みの詳細に切り替わる） |
+| `CONFLICT` | 編集の保存で、編集を始めたあとに別の画面が先にその記録を変更していた（T-22。`saveTrade` の `expectedUpdatedAt` が違う） | ③ アラート「記録が変更されています」「この記録は、編集を始めたあとに別の画面で変更されました。自分が変えた項目だけを最新の記録に反映して保存できます。」［閉じる］［最新の記録に反映して保存］ | 残す（下書きも残す）。［最新の記録に反映して保存］を選ぶと、自分が変えた項目だけを最新の記録に重ねて保存（8章） |
 | `DB_OPEN` | DB が開けない（ストレージが使えない設定など） | 画面上部のお知らせ行（消えない）「データを保存できない状態です。プライベートブラウズを使っていないか確認してください」 | — |
 | `VERSION` | 古いアプリで新しい DB を開いた | お知らせ行「アプリを最新版に更新してください」［更新］ | — |
 | `IMAGE_DECODE` | 画像が読み込めない | 画像欄の下にエラー文（11.2） | 他の入力は残す |
@@ -1166,8 +1214,8 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 
 | 方法 | 手順 |
 |---|---|
-| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-16 時点で212件） |
-| Node.js | 上のフォルダで `node tests/run-node.mjs`（163件。保存処理30件はスキップ） |
+| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-16 の T-22 完了時点で439件） |
+| Node.js | 上のフォルダで `node tests/run-node.mjs`（383件。IndexedDB・localStorage を使うテスト 56件はスキップ） |
 | 共通部品の確認 | `http://localhost:8000/tests/components.html`（テストページの上部のリンクからも開ける）。ライト/ダークを切り替えて見た目を確かめる |
 
 ---
@@ -1241,3 +1289,4 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 | 2026-10-16 | v1.3 | T-12 の実装結果と 2026-10-16 オーナー決定（T-12・T-14 の確認事項7点）を反映。**6.12 を新設**（保存の土台の置き場所＝`trades.js`・`images.js`・`drafts.js`、`settings-store.js` は T-15、`AppError` は `util.js`、削除の取り消しで削除日時が変わっていたら `null`、削除済みの記録の更新は `NOT_FOUND`、`status` の自動判定は T-17、保存の土台の関数一覧）。4.1：`util.js` の説明・テストのファイル（`db.test.js` ほか）・T-13/T-12 で作成済みのファイルを追記。4.2：`app.js`（T-12 で DB を開く処理を実装）・`datetime.js`（T-12 で日時の生成だけ作成）・`util.js`（`AppError` など）・`events.js`・`db.js`（依存先を「config」から「config, util」に訂正、定数）・`settings-store.js`（T-15 で作成）・`trades.js`／`drafts.js`／`images.js`（T-12 で土台を作成、依存先とタスクを実態に合わせる）。6.10 に T-12 で追加した関数と注意、6.11 に別の画面で更新されたときのお知らせの文言、8章に `status` の自動判定は T-17・削除済みの更新は `NOT_FOUND`、10章に関数名と取り消しの `null`、15章に `AppError` の置き場所と `NOT_FOUND` の場面を追記。13章：13.1 に空の値の扱いと `judgeSession(null)`、13.2 に追加テスト44件・保存処理30件の行を追加し合計を更新、「日時」テストの担当を 13.3 #4 に合わせて T-17 に訂正、13.3 #3 に再確認と E-07 の文言、**13.4 を新設**（T-14 を受けた変更を T-11 と同時に対応） | pm |
 | 2026-10-16 | v1.4 | T-11 の実装結果と engineer の申し送りを 2026-10-16 オーナー決定（推奨案）で反映。4.1：`css/components.css` のクラス一覧を実際のコードに合わせ、`js/ui/` に `parts.js`（T-11 で追加した表示の部品）を追加し `icons.js`・`fields.js`・`toast.js`・`dialog.js`・`notice.js`・`keyboard.js` の説明を実態に合わせる、`sheet.js` は未作成（T-23 で作る）と明記、`tests/components.html`・`components.js`・`components.css`（共通部品の確認用ページ）を追加、T-11 で作成・修正したファイルを明記、`variables.css` の注記は design v1.7 で確定。4.2：`router.js`（`syncToastWithRoute()`・依存先に ui/toast）、`ui/dom.js`（id の道具）、`ui/bars.js`（`newEntryButton()`・依存先に ui/icons）、`ui/icons.js`（座標データから組み立て）を更新し、`toast.js`・`dialog.js`・`notice.js`・`sheet.js` を1行ずつに分け、`parts.js`・確認用ページの行を追加、`fields.js` の依存先を「ui/dom, format」から「ui/dom, ui/icons」に、`dialog.js` の依存先を「ui/dom」に訂正。13.2：現在の件数（Node 163件・ブラウザ193件）と今後の増加を明記。**14.1：`innerHTML` を一切使わない方針に変更**（アイコンの例外を削除）。18.6 に件数と確認用ページ、20.2 に T-11 の申し送り（寸法変数は T-15 の最初、削除のトーストは一覧の表示後、空のエントリー価格の RR は fx-expert）を追記 | pm |
 | 2026-10-16 | v1.5 | T-15 の実装結果と申し送りを 2026-10-16 オーナー決定（推奨案）で反映。4.1・4.2：新しいファイル `js/ui/theme.js`（テーマの適用と `theme-color` の切り替え）、`fields.js` の `checkRows()`（チェックの行）、`setGroupMessages()` がエラー文・注意文を説明文より上に出す変更と `targets` を追記。7.1：壊れた設定値は読むときに消さず初期値で補って返し、次の正しい保存で上書きする方針、根拠・感情・タグの初期値は T-15 では `settings-store.js` に仮置きで T-16 で `master.js` へ移すことを追記。13.2・18.6：テストページを212件（Node 163件）に更新 | pm |
+| 2026-10-16 | v1.6 | T-16〜T-22 の実装済みの内容に資料を合わせる、まとめ反映（コードは変更していない。roadmap 7.14）。**4.1**：実装済みで未記載だった `js/detail-view.js`・`entry-form.js`・`close-form.js`・`edit-form.js`・`draft-notice.js`・`choice-list.js`・`row-flash.js`・`deleted-toast.js`・`js/ui/pair-chooser.js`・`tag-picker.js`・`sortable.js` とテストのファイル、`filter.js` の説明を追記。`ui/sheet.js` の「未作成（T-23 で作る）」を「T-17 で作成済み」に訂正。予定していた `screens/trade-form.js` は作らなかったと明記。**4.2**：上の各ファイルの行を追加し、`app.js`（下書きの確認）・`router.js`（`discardTitle`）・`config.js`（`LIST_PAGE_SIZE` ほか）・`master.js`（日本語名の表・`DEFAULT_CHOICES`・選択肢の種類）・`calc.js`（`calcQuantity`・`calcSlTpPips`）・`format.js`（保有時間 ほか）・`settings-store.js`・`trades.js`・`drafts.js`・`filter.js` の行を実態に合わせる。**4.3**：画面向けの純粋な関数の置き場所を層の図に追記。**5.2**：画面部品の形に `discardChanges`・`discardTitle`。**3.3**：Phase 2 の注意「同期は `updatedAt` を変えない」（roadmap 7.13 #3）。**6.12**：`saveTrade` の `expectedUpdatedAt`／`CONFLICT`、`closeTrade`・`reopenTrade`・`computeClose`・`buildClosedTrade`・`buildReopenedTrade` を追記。**8章**：編集の保存の競合の扱いと通貨ペア変更時の円換算レート。**9.3**：起動時の自動復元の細部（元の記録が変わった下書きは自動で開かず一覧のお知らせ行へ、削除済み・決済済みの決済下書きは黙って消す）と、決済の下書きの照合。**13.2・18.6**：テスト件数を Node 383件・ブラウザ439件に更新し、分類別の件数を追記（追加テストは Y-08〜Y-13 で50件）。**15.1**：`ALREADY_CLOSED`・`CONFLICT` を追加し、`NOT_FOUND` の決済・編集画面での扱いを「入力内容も下書きも消えて『この記録は見つかりません』」に訂正（実装に合わせた）。冒頭の「前提」の参照版を最新に | pm |
