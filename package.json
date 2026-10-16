@@ -1,0 +1,9 @@
+{
+  "name": "fx-trade-note",
+  "private": true,
+  "type": "module",
+  "description": "FXトレード記録PWA。ビルド不要・依存パッケージなし。このファイルは Node.js でテスト（node tests/run-node.mjs）を動かすときに js/ のファイルを ES Modules として読ませるためだけのもの",
+  "scripts": {
+    "test": "node tests/run-node.mjs"
+  }
+}

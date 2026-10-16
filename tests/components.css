@@ -1,0 +1,104 @@
+/* =========================================================
+   tests/components.css
+   確認用ページ（tests/components.html）だけで使う見た目。部品そのものの見た目は css/components.css。
+   ここも色・サイズはアプリの変数だけを使う。
+   ========================================================= */
+
+.c-loading {
+  padding: calc(var(--safe-top) + var(--sp-5)) var(--sp-4);
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
+/* ページの説明（大タイトルの下） */
+.c-lead {
+  margin: 0 var(--sp-4) var(--sp-5);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+/* 部品の種類ごとの大見出し（design の章番号付き） */
+.c-heading {
+  margin: var(--sp-6) var(--sp-4) var(--sp-3);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+/* 部品を置く台（グループの外に置く部品用） */
+.c-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4) var(--sp-5);
+}
+.c-stage--column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* 操作の結果を出す欄（アクションシートで何を選んだか等） */
+.c-result {
+  margin: calc(var(--sp-3) * -1) var(--sp-4) var(--sp-5);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+/* アイコン一覧：名前付きの格子 */
+.c-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--sp-7) + var(--sp-6)), 1fr));
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4) var(--sp-5);
+  padding: var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.c-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+  color: var(--color-text);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+}
+.c-icon__name {
+  color: var(--color-text-sub);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* バッジを並べる行 */
+.c-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ナビゲーションバーの見本：画面上に固定（sticky）にせず、その場に置く */
+.c-navbar-sample .navbar {
+  position: static;
+  padding-top: 0;
+  min-height: var(--navbar-h);
+  border-radius: var(--radius-md);
+}
+
+/* 一覧の1行の見本（バッジの並び順の確認用：design 9.5・14.3.4 の簡易版） */
+.c-trade-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+}
+.c-trade-line__profit {
+  margin-left: auto;
+  color: var(--color-profit);
+}

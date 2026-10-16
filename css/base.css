@@ -1,0 +1,140 @@
+/* =========================================================
+   css/base.css
+   全体の基本設定（文字・背景・押せるものの共通設定）。
+   design.md 12章末尾の「基本設定の例（参考）」と 6章・8.1 をもとにしている。
+   色・サイズは必ず variables.css の変数を使う（直接の値を書かない）。
+   ========================================================= */
+
+/* 余白・幅の計算を「枠線込み」にそろえる（幅いっぱいのボタンに余白を足してもはみ出さないように） */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%; /* 横向き時に文字が勝手に拡大されるのを防ぐ */
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  /* 100vh は iOS Safari のアドレスバーの出し入れでずれるため、100dvh を使う（design.md 8.3） */
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  -webkit-tap-highlight-color: transparent; /* タップ時の青いハイライトを消す（design.md 8.1） */
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+/* 見出しの太さは iOS と同じ段階だけを使う。ブラウザ標準の大きさ・太さは使わない */
+h1,
+h2,
+h3 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* ボタン・入力欄は文字の設定をページと同じにする（ブラウザ標準の小さい文字にさせない） */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+/* 数値は等幅数字にして桁をそろえる（design.md 6.1） */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 押せるものの共通設定（design.md 8.1）
+   ・縦横44px以上（親指で押しやすい最小の大きさ）
+   ・touch-action: manipulation …ダブルタップ拡大の判定待ちによる反応の遅れをなくす
+   ・-webkit-touch-callout: none …長押しで iOS のメニューが出るのを抑える */
+button,
+a,
+[role="button"],
+.chip,
+.segment label {
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+
+/* キーボード操作（PC）のときだけフォーカス枠を出す（太さと外側の隙間は --focus-w＝2px：design 9.1・12章 v1.8） */
+:focus-visible {
+  outline: var(--focus-w) solid var(--color-focus);
+  outline-offset: var(--focus-w);
+}
+
+/* hidden 属性を付けた要素は、display を指定したクラスより優先して必ず隠す */
+[hidden] {
+  display: none !important;
+}
+
+/* 画面には見せず、読み上げ機能にだけ伝える文字 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* JavaScript が無効のときの案内 */
+.noscript {
+  padding: calc(var(--safe-top) + var(--sp-4)) var(--sp-4) var(--sp-4);
+  font-size: var(--fs-body);
+}
+
+/* ヘアライン：0.5px を描けない（画素の細かくない）画面では 1px にする（design.md 7.3）
+   0.5px のままだと線が消えたり太さがばらついたりするため */
+@media (max-resolution: 1dppx), (-webkit-max-device-pixel-ratio: 1) {
+  :root {
+    --hairline: 1px;
+  }
+}
+
+/* 「視差効果を減らす」設定の人には動きを止める（design.md 12章・4.2） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- アプリ本体（index.html）と同じ CSP。インラインの <script>・style 属性は使わない（architecture.md 14.3） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>テスト - FXトレードノート</title>
+  <!-- 色・文字はアプリと同じ変数を使う（ライト/ダークも端末の設定・アプリのテーマ設定に従う） -->
+  <link rel="stylesheet" href="../css/variables.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="tests.css">
+  <script src="../js/boot-theme.js"></script>
+  <script type="module" src="test-page.js"></script>
+</head>
+<body>
+  <main class="t-page">
+    <h1 class="t-title">テスト</h1>
+    <p class="t-lead">docs/fx-rules.md の 9章・10.8・11.8 と 14.1（追加のテストケース）のテストケースを、アプリの計算処理（js/calc.js など）で実行して期待値と照合します。あわせて、IndexedDB への保存処理（js/db.js など）をテスト用の別名 DB で、設定の保存（js/settings-store.js）をテスト用の接頭辞で確かめます（本物の記録・設定には触れません）。</p>
+
+    <!-- 共通部品（design.md 9章）の見た目と動きを確認するページへのリンク（T-11） -->
+    <p class="t-sub"><a href="components.html">共通部品の確認ページを開く</a></p>
+
+    <!-- 集計（JS が書き換える）。JS が動かない・読み込みに失敗したときは、この文のまま残る -->
+    <section id="summary" class="t-summary" aria-live="polite">
+      <p>テストを実行しています…</p>
+      <p class="t-sub">この表示のまま変わらない場合は、ファイルの読み込みに失敗しています。<code>index.html</code> を直接開いた（アドレスが file:/// で始まる）場合は、簡易サーバーを起動して <code>http://localhost:8000/tests/</code> を開いてください。</p>
+    </section>
+
+    <div class="t-controls">
+      <label class="t-check">
+        <input type="checkbox" id="only-failed">
+        <span>不合格のみ表示</span>
+      </label>
+    </div>
+
+    <div id="results"></div>
+
+    <p id="env" class="t-env"></p>
+  </main>
+  <noscript><p class="noscript">テストを実行するには JavaScript を有効にしてください。</p></noscript>
+</body>
+</html>

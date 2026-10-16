@@ -1,0 +1,121 @@
+/* =========================================================
+   css/screens.css
+   画面ごとの細かい調整。
+   各画面を実装するタスク（T-15〜T-25）で、その画面の調整をここに足していく。
+   ========================================================= */
+
+/* 仮の説明文（「この画面の中身は T-xx で作ります」など）。各画面の実装時に消す */
+.placeholder-note {
+  font-size: var(--fs-subhead);
+  color: var(--color-text);
+}
+
+/* 記録ID など、長い英数字を途中で折り返せるようにする（UUID で横スクロールが出ないように） */
+.placeholder-value {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+/* =========================================================
+   S-02 エントリー記録（design 14.1。T-17）
+   ========================================================= */
+
+/* 口座色の線（3px）：ナビゲーションバーの直下に固定。デモ＝琥珀、本番＝墨色、未選択＝区切り線の色（design 14.1.1） */
+.account-line {
+  position: sticky;
+  top: calc(var(--navbar-h) + var(--safe-top));
+  z-index: var(--z-navbar);
+  height: var(--account-line-h);
+  background: var(--color-separator);
+}
+.account-line[data-account="demo"] {
+  background: var(--color-demo-accent);
+}
+.account-line[data-account="real"] {
+  background: var(--color-real);
+}
+
+/* 復元のお知らせ行は口座色の線の下・「必須」の上（design 14.1.10）。本文の上の余白の中に置く */
+.entry-notices.notice-list {
+  margin-bottom: var(--sp-5);
+}
+
+/* 「その他の通貨ペア ›」の行（ボタンを行いっぱいに広げ、文字は左から） */
+.other-pair {
+  width: 100%;
+  text-align: left;
+}
+.other-pair:active {
+  background: var(--color-fill);
+}
+/* 格子にないペアを選んでいるときは「EUR/AUD ✓」を本文の色で（選んだことが分かるように） */
+.other-pair__value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--color-text);
+}
+.other-pair__check {
+  color: var(--color-accent);
+}
+
+/* 「詳細（任意）」の折りたたみ行：1行目17px、2行目に中身の一覧（15px・灰）。右の › は開くと下向き、閉じると右向き */
+.entry-details__toggle {
+  width: 100%;
+  text-align: left;
+}
+.entry-details__toggle:active {
+  background: var(--color-fill);
+}
+.entry-details__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.entry-details__sub {
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+.entry-details__chevron {
+  flex-shrink: 0;
+  color: var(--color-text-sub);
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast) var(--ease-ios);
+}
+.entry-details__toggle[aria-expanded="true"] .entry-details__chevron {
+  transform: rotate(-90deg);
+}
+/* 詳細の行を開いたらその行を画面の上端へ（ナビゲーションバーと口座色の線に隠れないように：design 14.1.4） */
+.entry-details__toggle {
+  scroll-margin-top: calc(var(--navbar-h) + var(--safe-top) + var(--account-line-h) + var(--sp-2));
+}
+
+/* 「その他の通貨ペア」のシートの行：ペア名（左）・日本語名（右・灰）・選択中は ✓ */
+.pair-option {
+  width: 100%;
+  text-align: left;
+}
+.pair-option:active {
+  background: var(--color-fill);
+}
+.pair-option__check {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+.pair-option__empty {
+  color: var(--color-text-sub);
+}
+
+/* =========================================================
+   S-01 一覧（T-17 の時点は、入力途中のお知らせ行と件数の行だけ）
+   ========================================================= */
+.list-notices.notice-list {
+  margin-top: var(--sp-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-details__chevron {
+    transition: none;
+  }
+}

@@ -1,0 +1,122 @@
+/* =========================================================
+   tests/tests.css
+   テストページ（tests/index.html）だけで使う見た目。色・余白はアプリの変数（css/variables.css）を使う。
+   ========================================================= */
+
+.t-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + var(--sp-5)) calc(var(--safe-right) + var(--sp-4)) calc(var(--safe-bottom) + var(--sp-6)) calc(var(--safe-left) + var(--sp-4));
+}
+
+.t-title {
+  font-size: var(--fs-large-title);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.t-lead,
+.t-sub,
+.t-env,
+.t-group__src {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+/* 集計：合格は緑、不合格は赤の帯（記号○×と文言を併用し、色だけに頼らない） */
+.t-summary {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.t-summary.is-pass { background: var(--color-profit-bg); }
+.t-summary.is-fail { background: var(--color-danger-bg); }
+.t-summary__main {
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+}
+.t-summary.is-pass .t-summary__main { color: var(--color-profit); }
+.t-summary.is-fail .t-summary__main { color: var(--color-danger); }
+
+.t-controls {
+  margin-top: var(--sp-3);
+}
+.t-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap-min);
+  font-size: var(--fs-subhead);
+}
+.t-check input {
+  width: 20px;
+  height: 20px;
+}
+
+.t-group {
+  margin-top: var(--sp-5);
+}
+.t-group__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+}
+.t-group__count {
+  font-size: var(--fs-subhead);
+  font-weight: var(--fw-regular);
+  color: var(--color-text-sub);
+}
+
+.t-empty {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-subhead);
+}
+
+/* 表は横に長いので、表の部分だけ横スクロールさせる（ページ全体は横にはみ出さない） */
+.t-table-wrap {
+  margin-top: var(--sp-2);
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.t-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: var(--fs-footnote);
+}
+.t-table th,
+.t-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: var(--hairline) solid var(--color-separator);
+  text-align: left;
+  vertical-align: top;
+}
+.t-table th {
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-sub);
+  white-space: nowrap;
+}
+.t-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.t-mark {
+  width: 3em;
+  font-weight: var(--fw-bold);
+  text-align: center;
+}
+.t-id {
+  white-space: nowrap;
+}
+.t-table tr.is-pass .t-mark { color: var(--color-profit); }
+.t-table tr.is-fail td { color: var(--color-danger); font-weight: var(--fw-semibold); }
+.t-table tr.is-fail { background: var(--color-danger-bg); }
+
+.t-env {
+  margin-top: var(--sp-5);
+  word-break: break-all;
+}

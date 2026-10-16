@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- アプリ本体（index.html）と同じ CSP。インラインの <script>・style 属性は使わない（architecture.md 14.3） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>共通部品の確認 - FXトレードノート</title>
+  <!--
+    共通部品（design.md 9章）の見た目と動きを一覧で確かめるための確認用ページ（T-11）。
+    アプリ本体（index.html）からは読み込まれず、Service Worker のキャッシュ対象にもしない（tests/ はテスト用：architecture 4.1）。
+    CSS はアプリと同じものをそのまま読み込み、部品も js/ui/ のものをそのまま使う（見本と本物がずれないように）。
+  -->
+  <link rel="stylesheet" href="../css/variables.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/layout.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="components.css">
+  <script src="../js/boot-theme.js"></script>
+  <script type="module" src="components.js"></script>
+</head>
+<body data-layout="tab">
+  <!-- アプリ全体のお知らせの置き場（index.html と同じ） -->
+  <div id="notice-area"></div>
+  <main id="app">
+    <p class="c-loading">部品を読み込んでいます。この表示のまま変わらない場合は、簡易サーバーを起動して http://localhost:8000/tests/components.html を開いてください。</p>
+  </main>
+  <!-- トーストの置き場（index.html と同じ） -->
+  <div id="toast-area" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">確認用ページを表示するには JavaScript を有効にしてください。</p></noscript>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <!--
+    viewport-fit=cover：iPhone の画面の端（ノッチ・ホームバーの裏）まで使い、
+    余白は CSS の env(safe-area-inset-*) で自分で確保する（design.md 8.3）。
+    拡大操作は禁止しない（maximum-scale / user-scalable=no は付けない）。
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!--
+    CSP（読み込んでよいものを自分のサイトに限る。XSS の被害を抑える：architecture.md 14.3 の Phase 1 の内容）。
+    インラインの <script> や style="…" 属性はこの設定で動かなくなるため、使わない。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>FXトレードノート</title>
+  <!--
+    manifest.json と apple-touch-icon は T-27（アイコンは T-26）で追加する。
+    ファイルがない今の段階で <link> だけ書くと、毎回「ファイルが見つからない（404）」エラーが出るため、まだ書かない。
+  -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="FXノート">
+  <!-- ステータスバー（時刻・電池）をアプリの背景色の上に重ねる方式（design.md 8.3。最終判断は T-27） -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <!-- CSS は @import を使わず <link> を並べる（@import は順番待ちになり読み込みが遅くなるため） -->
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <!-- テーマ（ライト/ダーク）を最初の描画前に適用するため、モジュールにせず同期で読み込む（白→黒のちらつき防止） -->
+  <script src="js/boot-theme.js"></script>
+  <!-- type="module" は HTML の読み込みが終わってから実行されるので、<head> に置いても <body> の要素を使える -->
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- お知らせ行（新しいバージョン・ホーム画面追加の案内など）。中身は JS が入れる -->
+  <div id="notice-area"></div>
+
+  <!-- 各画面がここに描画される（router.js が中身を入れ替える） -->
+  <main id="app"></main>
+
+  <!--
+    タブバー（下部ナビ）。表示するのは S-01 一覧 / S-08 分析 / S-06 設定 のときだけ（design.md 9.9）。
+    JS が画面に合わせて hidden を外すまでは隠しておく（入力画面を開いた瞬間にタブバーが一瞬見えるのを防ぐ）。
+    data-nav="replace"：タブの切り替えは履歴を増やさない（戻る操作で過去のタブを延々たどらないため：architecture.md 5.3）。
+    アイコンは固定の線画SVG（24px枠・線1.75px・丸い線端・塗りなし・色は文字色に追従：design.md 9.17）。
+  -->
+  <nav class="tabbar" aria-label="メインメニュー" hidden>
+    <a class="tabbar__item" href="#/" data-tab="list" data-nav="replace">
+      <svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M9 6h11M9 12h11M9 18h11"/>
+        <path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>
+      </svg>
+      <span class="tabbar__label">一覧</span>
+    </a>
+    <a class="tabbar__item" href="#/analytics" data-tab="analytics" data-nav="replace">
+      <svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 4v16h16"/>
+        <path d="M8 15l3.5-4 3 2.5L19 8"/>
+      </svg>
+      <span class="tabbar__label">分析</span>
+    </a>
+    <a class="tabbar__item" href="#/settings" data-tab="settings" data-nav="replace">
+      <svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 2.75v2.5M12 18.75v2.5M2.75 12h2.5M18.75 12h2.5M5.46 5.46l1.77 1.77M16.77 16.77l1.77 1.77M5.46 18.54l1.77-1.77M16.77 7.23l1.77-1.77"/>
+        <circle cx="12" cy="12" r="6.25"/>
+      </svg>
+      <span class="tabbar__label">設定</span>
+    </a>
+  </nav>
+
+  <!-- トースト（画面に一瞬出る通知）の置き場。中身は T-11 の ui/toast.js が入れる。読み上げ機能に変化を伝える -->
+  <div id="toast-area" role="status" aria-live="polite"></div>
+
+  <noscript>
+    <p class="noscript">このアプリを使うには JavaScript を有効にしてください。</p>
+  </noscript>
+</body>
+</html>

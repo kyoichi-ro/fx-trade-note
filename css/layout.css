@@ -1,0 +1,199 @@
+/* =========================================================
+   css/layout.css
+   画面の骨組み：画面の型 A（タブ）／B（入力）／C（詳細）、ナビゲーションバー、
+   大タイトル、タブバー（下部ナビ）、下部操作バー、セーフエリア（design.md 2.2・7.4・8.3・9.9・9.11）。
+
+   どの型の画面かは router.js が <body data-layout="tab|form|detail"> で知らせる。
+   セーフエリア＝iPhone のノッチ・ダイナミックアイランド・ホームバーで隠れる部分。
+   variables.css の --safe-top などは env(safe-area-inset-*) の値（対応しない端末では 0）。
+   ========================================================= */
+
+/* ---------- ステータスバーの下敷き ----------
+   ホーム画面版は black-translucent 指定でステータスバー（時刻・電池）が画面の上に重なる。
+   スクロールした中身が時刻の後ろに透けて読みにくくならないよう、その高さだけ背景色で塗って隠す。
+   （すりガラスにはしない：design.md 7.3・10.1） */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background: var(--color-bg);
+  z-index: var(--z-navbar);
+}
+
+/* ---------- 画面の入れ物 ----------
+   PC など広い画面では中央に最大 560px の列として表示する（design.md 2.1 #2）。
+   横向きの iPhone ではノッチ側に中身が潜らないよう、左右のセーフエリアを空ける。 */
+#app {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  /* 下端：ホームバーに最後の行が隠れないように */
+  padding-bottom: calc(var(--safe-bottom) + var(--sp-5));
+}
+
+/* 型A（タブ画面）：タブバーに最後の行が隠れないように、その高さぶん空ける */
+body[data-layout="tab"] #app {
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--sp-5));
+}
+
+/* 新規エントリーボタンがある画面（S-01）：ボタンとタブバーの両方に隠れないように（design.md 7.4） */
+body[data-layout="tab"] #app:has(.fab) {
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--fab-h) + var(--sp-4) * 2);
+}
+
+/* 下部操作バーがある画面（型B・型C）：バーに最後の項目が隠れないように（design.md 7.4）
+   :has() は iOS 15.4 以降で使える（本アプリの下限は iOS 16.4：architecture.md 2章 #10） */
+#app:has(.action-bar) {
+  padding-bottom: calc(var(--action-bar-h) + var(--safe-bottom) + var(--sp-5));
+}
+
+/* ---------- 大タイトル（型A） ----------
+   iOS の「設定」アプリなどと同じ、左揃えの 34px 太字。スクロールで一緒に流れる（固定しない）。
+   上端はステータスバーの下から始める。 */
+.large-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: calc(var(--safe-top) + var(--sp-5)) var(--sp-4) var(--sp-2);
+}
+
+.large-title__text {
+  font-size: var(--fs-large-title);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+/* ---------- ナビゲーションバー（型B・型C） ----------
+   左：キャンセル／‹ 戻る、中央：画面名、右：保存／編集（design.md 9.11）。
+   上に固定（sticky）し、ステータスバーの高さぶん上に余白を足す。
+   背景は不透明、下端はヘアラインで区切る（影もすりガラスも使わない）。 */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-navbar);
+  display: grid;
+  /* 左右の列を同じ幅にして、画面名がいつも真ん中に来るようにする */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  min-height: calc(var(--navbar-h) + var(--safe-top));
+  padding: var(--safe-top) var(--sp-2) 0;
+  background: var(--color-bg);
+  border-bottom: var(--hairline) solid var(--color-separator);
+}
+
+.navbar__left {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.navbar__right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 画面名：中央寄せはナビゲーションバーの画面名だけ（design.md 10.1 #7） */
+.navbar__title {
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+/* ---------- 画面の本文 ---------- */
+.screen__body {
+  padding-top: var(--sp-5);
+}
+
+/* ---------- タブバー（下部ナビ：一覧／分析／設定） ----------
+   画面下に固定。高さ 49px ＋ ホームバーの高さ（design.md 9.9）。
+   背景は不透明の --color-bar、上端にヘアライン。すりガラスにしない。 */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-tabbar);
+  display: flex;
+  justify-content: center;
+  height: calc(var(--tabbar-h) + var(--safe-bottom));
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  background: var(--color-bar);
+  border-top: var(--hairline) solid var(--color-separator);
+}
+
+/* 3項目を均等割り。PC では中身の列（560px）の幅に収める */
+.tabbar__item {
+  flex: 1 1 0;
+  max-width: calc(var(--content-max) / 3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tabbar-gap);
+  color: var(--color-text-sub);
+}
+
+/* 選択中：アイコンと文字の色だけ変える（下線・丸い背景などの飾りは付けない：design.md 9.9） */
+.tabbar__item[aria-current="page"] {
+  color: var(--color-accent);
+}
+
+/* 線画アイコン：24px 枠・線 1.75px・丸い線端・塗りなし・文字色に追従（design.md 9.17）。タブバーでは 25px で表示 */
+.tabbar__icon {
+  width: var(--icon-tab);
+  height: var(--icon-tab);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ラベルは省略しない。11px はタブバーのラベルだけに許された大きさ（design.md 6.2） */
+.tabbar__label {
+  font-size: var(--fs-tab);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+
+/* ---------- 下部操作バー（型B・型C） ----------
+   幅いっぱいの主要ボタン1つを画面下に固定（design.md 9.11）。
+   高さ 66px（ボタン 50px ＋ 上下 8px）＋ ホームバーの高さ。 */
+.action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-tabbar);
+  padding: var(--sp-2) calc(var(--sp-4) + var(--safe-right)) calc(var(--sp-2) + var(--safe-bottom)) calc(var(--sp-4) + var(--safe-left));
+  background: var(--color-bg);
+  border-top: var(--hairline) solid var(--color-separator);
+}
+
+/* PC では中身の列の幅に合わせる */
+.action-bar > * {
+  display: flex;
+  width: 100%;
+  max-width: calc(var(--content-max) - var(--sp-4) * 2);
+  margin: 0 auto;
+}
+
+/* iPhone ではキーボードを出しても画面が縮まず、下に固定したボタンがずれて隠れるため、
+   キーボード表示中は下部操作バーを隠し、ナビゲーションバー右上の「保存」を使う（design.md 8.4）。
+   body に .keyboard-open を付け外しする処理は ui/keyboard.js（T-11 で作成。app.js が起動時に監視を始める）。 */
+.keyboard-open .action-bar {
+  display: none;
+}

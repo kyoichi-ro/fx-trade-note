@@ -1,0 +1,5 @@
+# Windows / OneDrive が作るファイル
+Thumbs.db
+desktop.ini
+# Claude Code の個人設定（共有しない）
+.claude/settings.local.json

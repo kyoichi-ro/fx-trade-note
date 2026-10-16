@@ -1,0 +1,1147 @@
+/* =========================================================
+   css/components.css
+   共通部品（design.md 9章）。T-11 で 9章の仕様どおりに作り直した。
+     アイコン 9.17／ボタン 9.1／グループ化されたリスト 9.13／入力欄 9.2／セグメント 9.3／チップ 9.4／
+     バッジ 9.5／トースト 9.6・14.7.5／アクションシート 9.7・14.7.4／アラート 14.7.3／
+     新規エントリーボタン 9.10／空状態 9.14／読み込み中・エラー表示 9.15／お知らせ行 9.16
+   部品を作る JavaScript は js/ui/（icons・parts・fields・toast・dialog・notice・bars）。
+
+   【守っていること】
+   ・色・文字の大きさ・余白・角丸・影・部品の寸法は css/variables.css（design 12章）の変数だけを使い、値を直接書かない。
+     （T-11 でこのファイルの冒頭に仮置きしていた部品の寸法は、design v1.8 で 12章の正式な変数になったため、
+       T-15 で variables.css へ移してここからは削除した。同じ名前・同じ値なので部品側の書き換えはない）
+   ・グラデーション・すりガラス（backdrop-filter）・大きなぼかし影・飾りのアニメーションは使わない（design 10章）。
+     影が付くのは新規エントリーボタン・トースト・シートだけ（design 7.3）。
+   ・ライト/ダークは変数の値が入れ替わるだけなので、このファイルにダーク用の書き分けはない。
+   ========================================================= */
+
+/* =========================================================
+   アイコン（design 9.17）：24px 枠・線 1.75・丸い線端・塗りなし・文字色に追従
+   ========================================================= */
+.icon {
+  flex-shrink: 0;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon--xs { width: var(--icon-xs); height: var(--icon-xs); }
+.icon--sm { width: var(--icon-sm); height: var(--icon-sm); }
+.icon--lg { width: var(--icon-lg); height: var(--icon-lg); }
+
+/* =========================================================
+   ボタン（design 9.1）
+   ========================================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-headline);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 押したときは iOS の標準ボタンと同じく少し薄くする（光る・跳ねる動きは付けない：design 10.1 #12） */
+.btn:active {
+  opacity: var(--opacity-pressed);
+}
+
+/* 無効：薄く表示して押せなくする（無効表示の文字は WCAG の基準の対象外：design 9.1） */
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: var(--opacity-disabled);
+}
+
+/* 処理中（「保存中」＋回転アイコン）は押せないが、薄くはしない（何が起きているか読めるように：design 9.1） */
+.btn.is-busy:disabled {
+  opacity: 1;
+}
+
+/* 主要ボタン：単色の塗りだけ。グラデーション・影は付けない。1画面に1つだけ */
+.btn--primary {
+  width: 100%;
+  height: var(--button-h);
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: var(--fw-semibold);
+}
+
+/* 副ボタン：灰色の塗り（枠線なし）に、アクセント色の文字 */
+.btn--secondary {
+  height: var(--button-h);
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-fill);
+  color: var(--color-accent);
+  font-weight: var(--fw-semibold);
+}
+
+/* 幅いっぱい（下部操作バーなど） */
+.btn--block {
+  display: flex;
+  width: 100%;
+}
+
+/* 文字ボタン：ナビゲーションバーの「キャンセル」「保存」「‹ 戻る」、「今にする」など。押せる範囲は 44px 以上 */
+.btn--text {
+  padding: 0 var(--sp-2);
+  color: var(--color-accent);
+  font-weight: var(--fw-regular);
+}
+
+/* ナビゲーションバーの「保存」だけは太字（iOS の入力画面と同じ：design 9.1） */
+.btn--text.btn--strong,
+.btn--strong {
+  font-weight: var(--fw-semibold);
+}
+
+/* アイコンボタン：見た目 24px、押せる範囲は 44×44px（design 8.1・9.1） */
+.btn--icon {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  color: var(--color-accent);
+}
+
+/* 戻るの「‹」：線画アイコン。文字「一覧」とくっつけて iOS の戻るボタンと同じ見た目に */
+.btn__chevron {
+  margin-right: calc(var(--sp-1) * -1);
+}
+
+/* 危険な操作：グループ化されたリストの1行の形で、文字だけ赤（design 9.1「この記録を削除」）。
+   押したときは iOS の行と同じく背景を灰色にする（薄くはしない） */
+.btn--danger {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  text-align: left;
+  white-space: normal;
+}
+.btn--danger:active {
+  opacity: 1;
+  background: var(--color-fill);
+}
+
+/* =========================================================
+   グループ化されたリスト（design 9.13）
+   1件ずつのカード＋影にはせず、まとまり単位でだけ角丸にして行はヘアラインで区切る（design 7.2・10.1 #5）
+   ========================================================= */
+.list-group {
+  margin: 0 var(--sp-4) var(--sp-5);
+}
+
+.list-group__header {
+  padding: 0 var(--sp-4) var(--sp-2);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+.list-group__body {
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* 下の説明文・エラー文・注意文の置き場。中身がないときは場所をとらない */
+.list-group__footer {
+  padding: var(--sp-2) var(--sp-4) 0;
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+.list-group__footer:empty {
+  display: none;
+}
+
+/* まとまりの中の行どうしの間にヘアライン。左を 16px 空けて始める（iOS 標準：design 7.3・12章）。
+   表示の行・入力の行・セグメントの行・危険な操作の行のどれが並んでも同じ線になるよう、まとまりの直下の子すべてに引く */
+.list-group__body > * {
+  position: relative;
+}
+.list-group__body > * + *::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--sp-4);
+  right: 0;
+  border-top: var(--hairline) solid var(--color-separator);
+  pointer-events: none;
+}
+
+/* 表示用の行：ラベル左・値右 */
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-height: var(--control-h);
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--color-text);
+}
+
+/* ラベル（左）は縮めない。値（右）が長いときは値の側で折り返す（「記録ID」が「記録／ID」に割れないように） */
+.list-row__label {
+  flex-shrink: 0;
+}
+
+.list-row__value {
+  color: var(--color-text-sub);
+  text-align: right;
+}
+
+/* 次の画面へ進む行：押したら背景を灰色にする（iOS と同じ反応：design 8.1） */
+a.list-row:active,
+button.list-row:active {
+  background: var(--color-fill);
+}
+
+/* 次へ進む印「›」（灰色）。文字の場合（T-10 の画面）と線画アイコンの場合の両方に対応 */
+.list-row__chevron {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--color-text-sub);
+  font-size: var(--fs-body);
+  line-height: 1;
+}
+.list-row--link .list-row__value {
+  margin-left: auto;
+}
+
+/* まとまりの中の部品に付くフォーカス枠は、角丸の外にはみ出すと切れるので内側に引く */
+.list-group__body :focus-visible {
+  outline-offset: calc(var(--focus-w) * -1);
+}
+
+/* =========================================================
+   入力欄（フォーム行。design 9.2）
+   iPhone の「設定」アプリと同じく、行のラベル左・入力値右揃え。行全体が <label> なのでどこを押してもよい
+   ========================================================= */
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h);
+  padding: 0 var(--sp-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  /* フォーカスした欄がナビゲーションバー・下部の操作バーに隠れないように（design 8.4） */
+  scroll-margin-top: calc(var(--navbar-h) + var(--safe-top) + var(--sp-2));
+  scroll-margin-bottom: calc(var(--action-bar-h) + var(--safe-bottom) + var(--sp-2));
+}
+
+.form-row__label {
+  flex-shrink: 0;
+  font-size: var(--fs-body);
+}
+
+/* 入力欄：枠線なし・背景なし・右揃え・17px（16px 未満だと iPhone が勝手に拡大する：design 6.2） */
+.form-row__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--control-h);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--fs-body);
+  text-align: right;
+  /* フォーカスの印は iOS と同じくカーソルだけ。キーボード操作のときは行に枠（下の .kbd-nav） */
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.form-row__input::placeholder {
+  color: var(--color-text-sub);
+  opacity: 1;
+}
+/* 日時選択（datetime-local）も右に寄せる */
+.form-row__input::-webkit-date-and-time-value {
+  text-align: right;
+}
+
+/* 単位（lot・円など）は入力値の右に灰色で */
+.form-row__unit {
+  flex-shrink: 0;
+  color: var(--color-text-sub);
+}
+
+/* 行の中の文字ボタン（「今にする」） */
+.form-row__action {
+  flex-shrink: 0;
+  margin-right: calc(var(--sp-2) * -1);
+}
+
+/* キーボード（Tab キー）で操作しているときだけ、フォーカスのある行に枠（design 9.2。.kbd-nav は ui/keyboard.js が付ける） */
+.kbd-nav .form-row:focus-within {
+  outline: var(--focus-w) solid var(--color-focus);
+  outline-offset: calc(var(--focus-w) * -1);
+}
+
+/* エラー①：ラベルと値を赤に（design 9.2・14.1.8） */
+.form-row.is-error .form-row__label,
+.form-row.is-error .form-row__input {
+  color: var(--color-danger);
+}
+
+/* メモ欄：ラベルの下に左揃えの複数行。入力に合わせて伸びる（高さは fields.js が合わせる） */
+.form-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-1);
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.form-row__textarea {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--fs-body) * var(--lh-normal) * 3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+.form-row__textarea::placeholder {
+  color: var(--color-text-sub);
+}
+/* 残り文字数（残りが少なくなったときだけ文字が入る） */
+.form-row__counter {
+  align-self: flex-end;
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+.form-row__counter:empty {
+  display: none;
+}
+
+/* セグメント・チップを置く行（まとまりの中で左右 16px・上下 8px の余白） */
+.field-row {
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--color-surface);
+}
+
+/* ---------- スイッチ（iOS と同じ形。design 9.2） ----------
+   本物のチェックボックスを透明にしてつまみの上に重ねる（押す・キーボード・読み上げはブラウザ標準のまま） */
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  margin-left: auto;
+}
+.switch__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.switch__track {
+  width: 100%;
+  height: 100%;
+  padding: var(--segment-pad);
+  border-radius: var(--radius-full);
+  background: var(--color-fill);
+  transition: background-color var(--dur-normal) var(--ease-ios);
+}
+.switch__knob {
+  display: block;
+  width: var(--switch-knob);
+  height: var(--switch-knob);
+  border-radius: var(--radius-full);
+  /* つまみはライト・ダークとも白（iOS 標準と同じ。design 9.2・v1.8）。
+     以前はセグメントの選択中の色を借りていたため、ダークでは灰色になっていた */
+  background: var(--color-switch-knob);
+  box-shadow: var(--shadow-segment);
+  transition: transform var(--dur-normal) var(--ease-ios);
+}
+.switch__input:checked + .switch__track {
+  background: var(--color-accent);
+}
+.switch__input:checked + .switch__track .switch__knob {
+  transform: translateX(calc(var(--switch-w) - var(--switch-knob) - var(--segment-pad) * 2));
+}
+.switch__input:focus-visible + .switch__track {
+  outline: var(--focus-w) solid var(--color-focus);
+  outline-offset: var(--focus-w);
+}
+
+/* ---------- チェックの行（iOS「設定」と同じ。1つだけ選ぶ。design 14.6.1 のテーマ。T-15 で追加） ----------
+   ラジオボタン本体は見た目から隠し（.visually-hidden）、選んだ行の右端にアクセント色の ✓ を出す。
+   キーボード操作中の枠は、入力の行と同じく行全体に出る（.kbd-nav .form-row:focus-within）。 */
+.check-row {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 押したときは iOS の行と同じく背景を灰色にする（薄くはしない） */
+.check-row:active {
+  background: var(--color-fill);
+}
+.check-row__mark {
+  margin-left: auto;
+  color: var(--color-accent);
+  visibility: hidden;
+}
+.check-row__input:checked ~ .check-row__mark {
+  visibility: visible;
+}
+
+/* =========================================================
+   セグメント切替（design 9.3）
+   灰色の溝の中で、選ばれたものが浮き上がる。中身は本物のラジオボタン（見た目だけ変える）
+   ========================================================= */
+.segment {
+  display: flex;
+  /* 外側の高さ 48px＝選択肢 44px（押せる範囲。base.css の .segment label の --tap-min）＋溝の内側余白 2px×2（design 9.3・v1.8） */
+  min-height: var(--segment-h);
+  gap: var(--segment-pad);
+  padding: var(--segment-pad);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+}
+
+.segment__option {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: calc(var(--radius-md) - var(--segment-pad));
+  color: var(--color-text);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ラジオボタン本体は透明にして選択肢いっぱいに広げる（押せる範囲＝選択肢全体） */
+.segment__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 選択中：色だけでなく太さ（600）と浮き上がりでも区別する（design 9.3） */
+.segment__option:has(.segment__input:checked) {
+  background: var(--color-segment-selected);
+  box-shadow: var(--shadow-segment);
+  font-weight: var(--fw-semibold);
+}
+
+/* 買い/売り：未選択は灰色の文字、選択中は 買い＝青の塗り／売り＝赤の塗り */
+.segment--side .segment__option {
+  color: var(--color-text-sub);
+}
+.segment--side .segment__option[data-value="buy"]:has(.segment__input:checked) {
+  background: var(--color-buy);
+  color: var(--color-on-buy);
+}
+.segment--side .segment__option[data-value="sell"]:has(.segment__input:checked) {
+  background: var(--color-sell);
+  color: var(--color-on-sell);
+}
+
+/* デモ/本番：デモ＝琥珀の淡い塗り＋濃い文字＋1px 枠、本番＝墨色の塗り（白黒反転） */
+.segment--account .segment__option[data-value="demo"]:has(.segment__input:checked) {
+  background: var(--color-demo-bg);
+  color: var(--color-demo);
+  box-shadow: inset 0 0 0 var(--border-w) var(--color-demo-accent);
+}
+.segment--account .segment__option[data-value="real"]:has(.segment__input:checked) {
+  background: var(--color-real);
+  color: var(--color-on-real);
+}
+
+/* キーボード操作の印（ラジオボタン本体は透明なので、選択肢に枠を出す） */
+.segment__option:has(.segment__input:focus-visible) {
+  outline: var(--focus-w) solid var(--color-focus);
+  outline-offset: var(--focus-w);
+}
+
+/* エラー①：外周に赤い 1px の枠（design 14.1.8） */
+.segment.is-error {
+  box-shadow: 0 0 0 var(--border-w) var(--color-danger);
+}
+
+/* =========================================================
+   チップ選択（design 9.4）
+   ========================================================= */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  border-radius: var(--radius-md);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: var(--control-h);
+  padding: 0 var(--chip-pad-x);
+  border: var(--border-w) solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--fs-subhead);
+  line-height: var(--lh-tight);
+}
+.chip:active {
+  opacity: var(--opacity-pressed);
+}
+
+/* 選択中：アクセントの塗り＋先頭に ✓（色以外の区別） */
+.chip[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* 通貨ペアの3列×2段の格子（エントリー画面：design 14.1.2。使い始めるのは T-17）
+   格子のチップは幅が固定（375px 幅で約98px、320px 幅で約80px）で、選択中は先頭に ✓（16px＋間4px）が付く。
+   左右に --chip-pad-x（14px）を取ると選択中の「USD/JPY」が幅に収まらないため、この格子のチップに限り
+   左右の余白を --sp-1（4px）に縮め、文字と ✓ を中央に置く（design 9.4 の注記。2026-10-16 オーナー決定）。
+   絞り込みシートの格子（期間・勝敗）など他のチップには使わない。 */
+.chips--pair-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.chips--pair-grid .chip {
+  justify-content: center;
+  min-width: 0;
+  padding: 0 var(--sp-1);
+  white-space: nowrap;
+}
+
+/* 「＋追加」：枠線のみ・アクセント色の文字 */
+.chip--add {
+  color: var(--color-accent);
+}
+
+/* エラー①：外周に赤い 1px の枠（design 14.1.8） */
+.chips.is-error {
+  box-shadow: 0 0 0 var(--border-w) var(--color-danger);
+}
+
+/* =========================================================
+   バッジ（design 9.5）
+   押せない小さなラベル。押せるものと見間違えないよう、影や立体感は付けない
+   ========================================================= */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 var(--badge-pad-x);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.badge--demo {
+  background: var(--color-demo-bg);
+  color: var(--color-demo);
+  box-shadow: inset 0 0 0 var(--border-w) var(--color-demo-accent);
+}
+.badge--real {
+  background: var(--color-real);
+  color: var(--color-on-real);
+}
+/* 買い/売りは塗らず文字だけ（一覧では文字だけで十分なため） */
+.badge--buy {
+  padding: 0;
+  color: var(--color-buy);
+}
+.badge--sell {
+  padding: 0;
+  color: var(--color-sell);
+}
+.badge--open {
+  background: var(--color-accent-tint);
+  color: var(--color-open);
+}
+.badge--closed {
+  background: var(--color-closed-bg);
+  color: var(--color-closed);
+}
+.badge--manual {
+  background: var(--color-fill);
+  color: var(--color-text-sub);
+}
+.badge--unsynced {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+/* =========================================================
+   エラー①・注意②の文（グループの直下。design 9.15・14.1.8）
+   ========================================================= */
+.field-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-normal);
+}
+.field-message + .field-message {
+  margin-top: var(--sp-1);
+}
+/* エラー文・注意文はグループの説明文より上に出す（fields.js の setGroupMessages）。説明文との間を少し空ける */
+.field-message + :not(.field-message) {
+  margin-top: var(--sp-2);
+}
+.field-message__icon {
+  /* 1行目の文字の高さの真ん中にそろえる */
+  margin-top: calc((var(--fs-footnote) * var(--lh-normal) - var(--icon-xs)) / 2);
+}
+.field-message--error {
+  color: var(--color-danger);
+}
+.field-message--warning {
+  color: var(--color-warning);
+}
+
+/* =========================================================
+   トースト（design 9.6・14.7.5）
+   位置：タブバー／下部操作バーのすぐ上。S-01 では新規エントリーボタンの上（重ならないように）
+   ========================================================= */
+#toast-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--sp-3) + var(--safe-bottom));
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: center;
+  padding: 0 calc(var(--sp-4) + var(--safe-right)) 0 calc(var(--sp-4) + var(--safe-left));
+  /* トーストのない部分は、下の画面を押せるようにする */
+  pointer-events: none;
+}
+body[data-layout="tab"] #toast-area {
+  bottom: calc(var(--tabbar-h) + var(--sp-3) + var(--safe-bottom));
+}
+body:has(.action-bar) #toast-area {
+  bottom: calc(var(--action-bar-h) + var(--sp-3) + var(--safe-bottom));
+}
+/* S-01：新規エントリーボタンの上（design 14.7.5：タブバーの高さ＋ボタンの高さ＋16px＋12px＋セーフエリア） */
+body:has(.fab) #toast-area {
+  bottom: calc(var(--tabbar-h) + var(--fab-h) + var(--sp-4) + var(--sp-3) + var(--safe-bottom));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: calc(var(--content-max) - var(--sp-4) * 2);
+  min-height: var(--tap-min);
+  padding: 0 var(--sp-2) 0 var(--sp-4);
+  border-radius: var(--radius-md);
+  background: var(--color-toast-bg);
+  color: var(--color-toast-text);
+  font-size: var(--fs-subhead);
+  line-height: var(--lh-normal);
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+  cursor: default;
+  animation: toast-in var(--dur-normal) var(--ease-ios);
+}
+.toast__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--sp-2) 0;
+}
+/* 「取り消す」：暗いトーストの上でも読める専用の色（design 5.2）。本文との間は 16px 以上 */
+.toast__action {
+  flex-shrink: 0;
+  min-height: var(--tap-min);
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  color: var(--color-toast-action);
+  font-size: var(--fs-subhead);
+  font-weight: var(--fw-semibold);
+}
+.toast__action:active {
+  opacity: var(--opacity-pressed);
+}
+.toast__action:focus-visible {
+  outline-color: var(--color-toast-action);
+}
+
+/* 出てくるときだけ、下から少しだけ上がる（画面の出入りの動きだけにとどめる：design 10.1 #12） */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--sp-2));
+  }
+}
+
+/* =========================================================
+   確認（アクションシート：design 9.7）とアラート（design 14.7.3）共通
+   <dialog> 自体を画面いっぱいの半透明の黒にして、中に白いまとまりを置く（ぼかしはしない）
+   ========================================================= */
+.dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-scrim);
+  color: var(--color-text);
+  overflow: hidden;
+}
+.dialog::backdrop {
+  background: transparent;
+}
+/* 開いている間は背後の画面をスクロールさせない（design 8.4。dialog.js が付け外し） */
+.is-modal-open,
+.is-modal-open body {
+  overflow: hidden;
+}
+
+/* ---------- アクションシート ---------- */
+.dialog--sheet[open] {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 calc(var(--sp-2) + var(--safe-right)) calc(var(--sp-2) + var(--safe-bottom)) calc(var(--sp-2) + var(--safe-left));
+}
+
+.action-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: calc(var(--content-max) - var(--sp-4) * 2);
+  max-height: var(--sheet-max-h);
+  margin: 0 auto;
+  animation: sheet-in var(--dur-normal) var(--ease-ios);
+}
+
+.action-sheet__group {
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sheet);
+}
+
+/* 説明：13px・灰・中央（1行目は 600） */
+.action-sheet__header {
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+  text-align: center;
+}
+.action-sheet__title {
+  font-weight: var(--fw-semibold);
+}
+.action-sheet__message {
+  margin-top: var(--sp-1);
+}
+
+.action-sheet__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--button-h);
+  padding: 0 var(--sp-4);
+  border-top: var(--hairline) solid var(--color-separator);
+  color: var(--color-accent);
+  font-size: var(--fs-body);
+}
+.action-sheet__group > .action-sheet__button:first-child {
+  border-top: 0;
+}
+.action-sheet__button:active {
+  background: var(--color-fill);
+}
+.action-sheet__button:focus-visible {
+  outline-offset: calc(var(--focus-w) * -1);
+}
+/* 危険な操作は赤字（design 9.7） */
+.action-sheet__button--danger {
+  color: var(--color-danger);
+}
+/* 「キャンセル」は独立したまとまりで太字 */
+.action-sheet__button--cancel {
+  font-weight: var(--fw-semibold);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* ---------- アラート（画面中央の小さな確認窓：design 14.7.3） ---------- */
+.dialog--alert[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+
+/* 幅 270px（iOS と同じ）、影なし（背後の暗さで浮かせる） */
+.alert {
+  width: var(--alert-w);
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-sheet);
+  background: var(--color-surface);
+  text-align: center;
+}
+.alert__body {
+  padding: var(--sp-4);
+}
+.alert__title {
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+.alert__message {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-footnote);
+}
+.alert__buttons {
+  display: flex;
+  border-top: var(--hairline) solid var(--color-separator);
+}
+.alert__button {
+  flex: 1 1 0;
+  min-height: var(--tap-min);
+  padding: 0 var(--sp-2);
+  color: var(--color-accent);
+  font-size: var(--fs-body);
+}
+.alert__button + .alert__button {
+  border-left: var(--hairline) solid var(--color-separator);
+}
+/* 勧める方（右）は太字 */
+.alert__button--primary {
+  font-weight: var(--fw-semibold);
+}
+.alert__button:active {
+  background: var(--color-fill);
+}
+.alert__button:focus-visible {
+  outline-offset: calc(var(--focus-w) * -1);
+}
+
+/* =========================================================
+   ＋新規エントリーボタン（design 9.10）
+   右下・タブバーの上 16px に浮かぶカプセル型。平らな塗り＋細く小さい影だけ（大きなぼかし影は使わない）。
+   PC では画面の右端ではなく、中身の列（560px）の右端に合わせる。
+   ========================================================= */
+.fab {
+  position: fixed;
+  z-index: var(--z-fab);
+  bottom: calc(var(--tabbar-h) + var(--sp-4) + var(--safe-bottom));
+  right: max(calc(var(--sp-4) + var(--safe-right)), calc((100vw - var(--content-max)) / 2 + var(--sp-4)));
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--fab-h);
+  padding: 0 var(--fab-pad-x);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+  box-shadow: var(--shadow-float);
+}
+.fab:active {
+  opacity: var(--opacity-pressed);
+}
+/* 「＋」は線2px（design 9.10） */
+.fab__icon {
+  stroke-width: var(--icon-stroke-bold);
+}
+
+/* =========================================================
+   空状態（design 9.14）
+   小さな線画アイコン＋短い見出し＋説明1行＋ボタン1つだけ。装飾のイラスト・絵文字は使わない
+   ========================================================= */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-7) var(--sp-4) 0;
+  text-align: center;
+}
+.empty__icon {
+  color: var(--color-text-sub);
+}
+.empty__title {
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+.empty__text {
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+.empty .btn {
+  margin-top: var(--sp-3);
+}
+
+/* =========================================================
+   読み込み中（design 9.15・14.7.7）
+   iOS と同じ小さな回転アイコン。光が流れるような装飾的な表示は使わない
+   ========================================================= */
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-3) 0;
+}
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--color-text-sub);
+  font-size: var(--fs-footnote);
+}
+.btn .spinner__icon {
+  color: inherit;
+}
+.spinner__icon {
+  animation: spin var(--dur-spin) linear infinite;
+}
+/* 「読み込み中」の文字は普段は読み上げ専用（.visually-hidden と同じ隠し方） */
+.spinner__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* 「視差効果を減らす」設定の人には、回転を止めて文字にする（design 9.15）。
+   base.css が動きの時間を 0.01ms にするだけだと止まった円弧が残って意味が分からないため、アイコンごと隠す */
+@media (prefers-reduced-motion: reduce) {
+  /* ボタンの中（「保存中」の左）の回転アイコンも回さない（0.01ms で無限に回ると点滅して見えるため） */
+  .spinner__icon {
+    animation: none;
+  }
+  .spinner .spinner__icon {
+    display: none;
+  }
+  .spinner .spinner__label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+}
+
+/* =========================================================
+   お知らせ行（design 9.16・14.3.8・14.7.6）
+   グループ化されたリストの1行の形。色は付けず、エラーのアイコンだけ赤（注意は琥珀）
+   ========================================================= */
+.notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4) var(--sp-4);
+}
+.notice-list:empty {
+  display: none;
+}
+
+/* 画面の一番上の共通の置き場（アプリ全体の問題：design 9.16）。ステータスバーの下から始める */
+#notice-area.notice-list {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + var(--sp-2)) calc(var(--sp-4) + var(--safe-right)) var(--sp-2) calc(var(--sp-4) + var(--safe-left));
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h);
+  padding: var(--sp-2) 0 var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.notice__icon {
+  color: var(--color-text-sub);
+}
+.notice--error .notice__icon {
+  color: var(--color-danger);
+}
+.notice--warning .notice__icon {
+  color: var(--color-warning);
+}
+.notice__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.notice__text {
+  font-size: var(--fs-subhead);
+  line-height: var(--lh-normal);
+}
+.notice__sub {
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+/* 右の文字ボタン（「続ける」「更新」など）：アクセント色の文字 15px */
+.notice__action {
+  flex-shrink: 0;
+  font-size: var(--fs-subhead);
+  font-weight: var(--fw-semibold);
+}
+/* ボタンがないお知らせは右にも余白を取る */
+.notice > :last-child:not(button) {
+  margin-right: var(--sp-4);
+}
+/* × は灰色（目立たせすぎない） */
+.notice__close {
+  flex-shrink: 0;
+  color: var(--color-text-sub);
+}
+
+/* =========================================================
+   ボトムシート（design 9.8。T-17 で追加：エントリー画面の「その他の通貨ペア」。絞り込みシートは T-23 でこれを使う）
+   <dialog class="dialog dialog--bottom"> の中に .sheet。開閉・背景の暗さはアクションシートと同じ .dialog の仕組み
+   ========================================================= */
+.dialog--bottom[open] {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+/* 背景 --color-bg、上側だけ角丸、高さは中身に合わせて最大で画面の90%（design 9.8） */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--content-max);
+  max-height: var(--sheet-max-h);
+  margin: 0 auto;
+  padding-bottom: var(--safe-bottom);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sheet);
+  animation: sheet-in var(--dur-normal) var(--ease-ios);
+}
+
+/* 上端のつまみ（見た目だけ） */
+.sheet__grip {
+  flex-shrink: 0;
+  width: var(--sheet-grip-w);
+  height: var(--sheet-grip-h);
+  margin: var(--sp-2) auto 0;
+  border-radius: var(--radius-full);
+  background: var(--color-separator);
+}
+
+/* 上部：左「キャンセル」・中央に題名（ナビゲーションバーと同じ並び。左右の列を同じ幅にして題名を真ん中に） */
+.sheet__header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--navbar-h);
+  padding: 0 var(--sp-2);
+}
+.sheet__header-side:last-child {
+  justify-self: end;
+}
+.sheet__title {
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+}
+
+/* 中身だけスクロールする（題名とキャンセルは常に見える） */
+.sheet__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: var(--sp-2);
+}
+
+/* シートの検索欄（iOS の検索欄と同じ、灰色の塗りの角丸。左に虫眼鏡） */
+.sheet-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h);
+  margin: 0 var(--sp-4) var(--sp-4);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  color: var(--color-text-sub);
+}
+.sheet-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--control-h);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--fs-body); /* 16px 未満だと iPhone が勝手に拡大する（design 6.2） */
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.sheet-search__input::placeholder {
+  color: var(--color-text-sub);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}

@@ -1,0 +1,301 @@
+/* =========================================================
+   css/variables.css
+   design.md 12章「CSS変数の定義案」の変数部分をそのまま貼り付けたもの（design.md v1.8。2026-10-16 の T-15 で、v1.8 で追加された部品だけで使う寸法・--segment-h・--color-switch-knob などを含めて貼り直した）。
+   ・値を変えるときは design.md を先に直し、ここへ写す（デザインの正は design.md）。
+   ・12章末尾の「変数を使った基本設定の例（参考）」は役割が違うため
+     base.css / layout.css に分けて書いている。
+   ========================================================= */
+
+/* =========================================================
+   FXトレードノート デザイン変数（design.md 12章）
+   色やサイズは画面ごとに直接書かず、必ずこの変数を使う
+   値は iOS のシステムカラーをもとにコントラストを調整したもの
+   ========================================================= */
+
+/* ---------- ライトモード（初期値）＋ 色以外の共通値 ---------- */
+:root {
+  color-scheme: light; /* 端末標準の部品（日時選択など）もライト表示にする */
+
+  /* ニュートラル */
+  --color-bg: #F2F2F7;            /* ページ背景（グループの外側） */
+  --color-surface: #FFFFFF;       /* 行・グループの背景 */
+  --color-fill: #E5E5EA;          /* セグメントの溝・副ボタン・押下中 */
+  --color-bar: #FFFFFF;           /* タブバーの背景（不透明） */
+  --color-segment-selected: #FFFFFF; /* 汎用セグメントの選択中 */
+  --color-text: #000000;          /* 本文・数値 */
+  --color-text-sub: #636366;      /* 補足・ラベル・セクション見出し */
+  --color-separator: #C6C6C8;     /* ヘアライン */
+  --color-border-strong: #8E8E93; /* チップの枠線（行の背景の上でのみ使う） */
+  --color-scrim: rgba(0, 0, 0, 0.4); /* シート・アラート背後の半透明の黒（ぼかしはしない） */
+  --color-switch-knob: #FFFFFF;   /* スイッチのつまみ（ライト・ダークとも白。iOS標準と同じ） */
+
+  /* アクセント（1色のみ） */
+  --color-accent: #00667C;
+  --color-on-accent: #FFFFFF;
+  --color-accent-tint: #E3F3F6;
+  --color-focus: #00667C;
+
+  /* 買い / 売り */
+  --color-buy: #0057D9;
+  --color-buy-bg: #E8F0FC;
+  --color-on-buy: #FFFFFF;
+  --color-sell: #C00013;
+  --color-sell-bg: #FCE8EA;
+  --color-on-sell: #FFFFFF;
+
+  /* 利益 / 損失 / ゼロ（必ず ＋/− 記号と併用） */
+  --color-profit: #1A7230;
+  --color-profit-bg: #E6F4EA;
+  --color-loss: #C00013;
+  --color-even: #636366;
+
+  /* デモ / 本番 */
+  --color-demo: #8F5A00;
+  --color-demo-bg: #FFF3D6;
+  --color-demo-accent: #B07800;   /* デモの枠線・入力画面の口座色の線 */
+  --color-real: #1C1C1E;          /* 本番の塗り・入力画面の口座色の線 */
+  --color-on-real: #FFFFFF;
+
+  /* 保有中 / 決済済み */
+  --color-open: #00667C;
+  --color-closed: #636366;
+  --color-closed-bg: #E5E5EA;
+
+  /* 危険・警告・通知（赤は売り・損失と、琥珀はデモと共通の値） */
+  --color-danger: #C00013;
+  --color-danger-bg: #FCE8EA;
+  --color-warning: #8F5A00;
+  --color-warning-bg: #FFF3D6;
+  --color-toast-bg: #1C1C1E;
+  --color-toast-text: #FFFFFF;
+  --color-toast-action: #40C8E0; /* トースト内の「取り消す」（ダークのアクセントと同じ値） */
+
+  /* 影（使う場所は限定：新規エントリーボタン・トースト・シート） */
+  --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.10);
+  --shadow-sheet: 0 -1px 4px rgba(0, 0, 0, 0.08);
+  --shadow-segment: 0 1px 2px rgba(0, 0, 0, 0.12); /* セグメントの選択中 */
+
+  /* ---------- 以下は色以外（ライト/ダーク共通） ---------- */
+
+  /* フォント（iPhone：SF Pro＋ヒラギノ角ゴ） */
+  --font-family: -apple-system, BlinkMacSystemFont, system-ui, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+
+  /* 文字サイズ（iOS標準の段階） */
+  --fs-large-title: 34px; /* タブ画面の大タイトル */
+  --fs-title: 28px;       /* 決済・詳細の損益 */
+  --fs-title2: 22px;      /* 合計損益・詳細の通貨ペア・空状態の見出し */
+  --fs-headline: 17px;    /* 行の主な文字・ボタン（太さ600） */
+  --fs-body: 17px;        /* 本文・入力欄 */
+  --fs-subhead: 15px;     /* 行の2行目・チップ・トースト */
+  --fs-footnote: 13px;    /* セクション見出し・説明・エラー文 */
+  --fs-caption: 12px;     /* バッジ（これより小さくしない） */
+  --fs-tab: 11px;         /* タブバーのラベルのみ */
+
+  --lh-tight: 1.2;
+  --lh-normal: 1.35;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* 余白（4pxの倍数） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;   /* 画面左右・行の左右の基本余白 */
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* 角丸 */
+  --radius-sm: 5px;      /* バッジ */
+  --radius-md: 10px;     /* リストのまとまり・入力欄・セグメント */
+  --radius-lg: 12px;     /* ボタン・アクションシート */
+  --radius-sheet: 14px;  /* ボトムシートの上側 */
+  --radius-full: 9999px; /* チップ・新規エントリーボタン */
+
+  /* 区切り線・枠線 */
+  --hairline: 0.5px;     /* 非対応の端末では 1px に置き換える */
+  --border-w: 1px;       /* チップ・デモのバッジとセグメントの枠線、エラーの外枠 */
+  --focus-w: 2px;        /* フォーカス枠の太さと外側の隙間 */
+
+  /* サイズ */
+  --tap-min: 44px;       /* タップ領域の最小値 */
+  --control-h: 44px;     /* 入力行・チップの最小の高さ／セグメントの選択肢1つの高さ */
+  --segment-h: calc(var(--control-h) + var(--segment-pad) * 2); /* セグメントの外側の高さ＝48px */
+  --button-h: 50px;      /* 主要ボタン */
+  --badge-h: 20px;
+  --navbar-h: 44px;
+  --tabbar-h: 49px;
+  --fab-h: 50px;
+  --action-bar-h: 66px;
+  --account-line-h: 3px; /* 入力画面の口座色の線 */
+  --row-h-2line: 60px;   /* 2行の行の目安 */
+  --content-max: 560px;
+
+  /* 部品だけで使う寸法（design 7.5。4pxの段階にない値は、その部品にだけ使う） */
+  --segment-pad: 2px;    /* セグメントの溝の内側余白・スイッチのつまみの周り */
+  --badge-pad-x: 6px;    /* バッジの左右の内側余白 */
+  --chip-pad-x: 14px;    /* チップの左右の内側余白 */
+  --fab-pad-x: 18px;     /* 新規エントリーボタンの左右の内側余白 */
+  --tabbar-gap: 2px;     /* タブバーのアイコンと文字の間 */
+  --alert-w: 270px;      /* アラートの幅（iOS と同じ） */
+  --switch-w: 51px;      /* スイッチ（iOS と同じ大きさ） */
+  --switch-h: 31px;
+  --switch-knob: 27px;   /* スイッチのつまみの直径 */
+  --sheet-grip-w: 36px;  /* ボトムシートの上端のつまみ */
+  --sheet-grip-h: 5px;
+  --sheet-max-h: 90dvh;  /* シートの高さの上限（画面の90%） */
+  --row-button-h: 32px;  /* 一覧の保有中の行の「決済」ボタンの見た目の高さ（押せる範囲は44px） */
+  --row-button-min-w: 64px;
+
+  /* アイコン（design 9.17） */
+  --icon-xs: 16px;       /* エラー文の⚠・チップの✓ */
+  --icon-sm: 20px;       /* 新規エントリーボタンの＋ */
+  --icon-md: 24px;       /* 標準（24px の枠） */
+  --icon-tab: 25px;      /* タブバー */
+  --icon-lg: 40px;       /* 空状態 */
+  --icon-stroke: 1.75;   /* 線の太さ（SVG の単位なしの数） */
+  --icon-stroke-bold: 2; /* 新規エントリーボタンの＋だけ */
+
+  /* 押したとき・押せないとき（design 9.1） */
+  --opacity-pressed: 0.7;
+  --opacity-disabled: 0.4;
+
+  /* セーフエリア（iPhoneのノッチ・ホームバー分の余白。対応しない端末では0） */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* 重なり順（数字が大きいほど手前） */
+  --z-navbar: 10;
+  --z-tabbar: 20;
+  --z-fab: 30;
+  --z-toast: 40;
+  --z-dialog: 50;
+
+  /* 動き（控えめに） */
+  --dur-fast: 100ms;
+  --dur-normal: 250ms;
+  --dur-spin: 900ms;     /* 読み込み中の回転アイコンの1回転 */
+  --ease-ios: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* ---------- ダークモード（端末設定がダーク かつ 手動でライトを選んでいないとき） ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-bg: #000000;
+    --color-surface: #1C1C1E;
+    --color-fill: #2C2C2E;
+    --color-bar: #121214;
+    --color-segment-selected: #636366;
+    --color-text: #FFFFFF;
+    --color-text-sub: #98989F;
+    --color-separator: #38383A;
+    --color-border-strong: #7C7C80;
+    --color-scrim: rgba(0, 0, 0, 0.6);
+    --color-switch-knob: #FFFFFF;
+
+    --color-accent: #40C8E0;
+    --color-on-accent: #000000;
+    --color-accent-tint: #0C2F36;
+    --color-focus: #40C8E0;
+
+    --color-buy: #4DA2FF;
+    --color-buy-bg: #0F2440;
+    --color-on-buy: #000000;
+    --color-sell: #FF6961;
+    --color-sell-bg: #3A1614;
+    --color-on-sell: #000000;
+
+    --color-profit: #30D158;
+    --color-profit-bg: #0E2E17;
+    --color-loss: #FF6961;
+    --color-even: #98989F;
+
+    --color-demo: #FFD60A;
+    --color-demo-bg: #3A3000;
+    --color-demo-accent: #B89600;
+    --color-real: #F2F2F7;
+    --color-on-real: #000000;
+
+    --color-open: #40C8E0;
+    --color-closed: #98989F;
+    --color-closed-bg: #2C2C2E;
+
+    --color-danger: #FF6961;
+    --color-danger-bg: #3A1614;
+    --color-warning: #FFD60A;
+    --color-warning-bg: #3A3000;
+    --color-toast-bg: #E5E5EA;
+    --color-toast-text: #000000;
+    --color-toast-action: #00667C;
+
+    /* ダークでは影がほぼ見えないため、浮きは背景色の差で表現する */
+    --shadow-float: 0 2px 8px rgba(0, 0, 0, 0.6);
+    --shadow-sheet: none;
+    --shadow-segment: none;
+  }
+}
+
+/* ---------- ダークモード（設定で手動で「ダーク」を選んだとき） ---------- */
+/* ※ 上の @media 内と同じ値。変更するときは両方を直すこと */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #000000;
+  --color-surface: #1C1C1E;
+  --color-fill: #2C2C2E;
+  --color-bar: #121214;
+  --color-segment-selected: #636366;
+  --color-text: #FFFFFF;
+  --color-text-sub: #98989F;
+  --color-separator: #38383A;
+  --color-border-strong: #7C7C80;
+  --color-scrim: rgba(0, 0, 0, 0.6);
+  --color-switch-knob: #FFFFFF;
+
+  --color-accent: #40C8E0;
+  --color-on-accent: #000000;
+  --color-accent-tint: #0C2F36;
+  --color-focus: #40C8E0;
+
+  --color-buy: #4DA2FF;
+  --color-buy-bg: #0F2440;
+  --color-on-buy: #000000;
+  --color-sell: #FF6961;
+  --color-sell-bg: #3A1614;
+  --color-on-sell: #000000;
+
+  --color-profit: #30D158;
+  --color-profit-bg: #0E2E17;
+  --color-loss: #FF6961;
+  --color-even: #98989F;
+
+  --color-demo: #FFD60A;
+  --color-demo-bg: #3A3000;
+  --color-demo-accent: #B89600;
+  --color-real: #F2F2F7;
+  --color-on-real: #000000;
+
+  --color-open: #40C8E0;
+  --color-closed: #98989F;
+  --color-closed-bg: #2C2C2E;
+
+  --color-danger: #FF6961;
+  --color-danger-bg: #3A1614;
+  --color-warning: #FFD60A;
+  --color-warning-bg: #3A3000;
+  --color-toast-bg: #E5E5EA;
+  --color-toast-text: #000000;
+  --color-toast-action: #00667C;
+
+  --shadow-float: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --shadow-sheet: none;
+  --shadow-segment: none;
+}
