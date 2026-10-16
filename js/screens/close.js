@@ -39,6 +39,7 @@ import { formatPrice, formatLots, formatDateTime, formatDraftTime } from '../for
 import { isClosedTrade } from '../filter.js';
 import { isAppError } from '../util.js';
 import { requestRowFlash } from '../row-flash.js';
+import { judgeDraftTarget, DRAFT_STALE_TEXT } from '../draft-notice.js';
 import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す（T-16 で choice-list.js へ移した）
 import {
   EXIT_REASONS, defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
@@ -128,8 +129,9 @@ function renderLoadError(root, nav, retry) {
  * @param {object} nav router.js の移動の道具
  * @param {object} trade 保有中の記録
  * @param {object|null} draft 復元する下書き（なければ null）
+ * @param {{ staleText?: string }} [opts] staleText：元の記録が変わったため下書きを破棄したときの知らせ（T-22：T-21 申し送り #9）
  */
-function buildScreen(root, nav, trade, draft) {
+function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   const spec = getPairSpec(trade.pair);
   const base = `#/trades/${encodeURIComponent(trade.id)}`;
   const draftKey = draftKeyOf(DRAFT_KIND.CLOSE, trade.id);
@@ -144,6 +146,7 @@ function buildScreen(root, nav, trade, draft) {
   let saving = false;
   let draftFailed = false;   // 下書きの保存に失敗している（design 14.7.6）
   const restored = Boolean(draft);
+  let staleOpen = Boolean(staleText);
   const shown = new Set();   // エラー・警告の文を出してよい欄（欄から離れた・保存を押した欄：design 14.1.8）
   let signTapUntil = 0;      // この時刻までは、金額欄が空で外れても自動計算に戻さない（＋/− 切替を押している最中）
   let renderedKey = '';      // 損益グループに今並べている行の種類（変わったときだけ並べ直す）
@@ -353,6 +356,10 @@ function buildScreen(root, nav, trade, draft) {
         iconName: 'pencil', text: '入力途中の内容を復元しました', subtext: draftTimeText(draft.updatedAt),
         action: { label: '破棄', onClick: () => onDiscardRestored() },
       });
+    }
+    if (staleOpen) {
+      // 下書きを作ったあとに元の記録が変わったので、下書きは使わずに破棄した（× で閉じるだけ：design 14.3.8）
+      items.push({ iconName: 'pencil', text: staleText, onClose: () => { staleOpen = false; renderNoticeRows(); } });
     }
     if (draftFailed) {
       items.push({ iconName: 'warning', tone: 'warning', text: '下書きを保存できません', subtext: 'アプリを閉じると入力内容が消えます。' });
@@ -580,7 +587,7 @@ async function readDraft(key, tradeId) {
   }
 }
 
-/** 下書きを黙って消す（対象が削除・決済済みのとき：design 14.2.10）。消せなくても画面は止めない */
+/** 下書きを消す（対象が削除・決済済みのとき：design 14.2.10・元の記録が変わったとき）。消せなくても画面は止めない */
 async function dropDraft(key) {
   try {
     await discardDraft(key);
@@ -638,7 +645,15 @@ const screen = {
       nav.replace(base);
       return;
     }
-    ctrl = buildScreen(root, nav, trade, draft);
+    // 下書きを作ったあとに元の記録が変わっていたら、下書きは使わずに破棄して知らせる
+    // （エントリー時のタグ・メモが入った下書きで、あとから編集した内容を古い内容で戻さないため：T-21 申し送り #9）
+    let staleText = '';
+    if (draft && judgeDraftTarget(draft, trade) === 'stale') {
+      await dropDraft(draftKey);
+      draft = null;
+      staleText = DRAFT_STALE_TEXT.close;
+    }
+    ctrl = buildScreen(root, nav, trade, draft, { staleText });
   },
 
   unmount() {

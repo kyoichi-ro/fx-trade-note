@@ -5,7 +5,12 @@
    【T-10】画面の入れ物。
    【T-17】お知らせ行「入力途中のエントリーがあります［続ける］」（design 14.3.8）。
      × は「次に起動するまで出さない」だけで、下書きは消さない（一覧には破棄の操作を置かない）。
-     決済・編集の下書き（T-21・T-22）と2件以上の［選ぶ］は、それぞれのタスクで足す。
+   【T-22】決済・編集の下書きも同じお知らせ行で案内する（「入力途中の決済／編集があります」。2件以上は「入力途中の記録がn件あります［選ぶ］」
+     → アクションシートで選ぶ）。対象の記録が削除・決済済みになった下書きは黙って消し、編集（・決済）の下書きで元の記録が下書きのあとに
+     変更されていたものは、消したうえで「元の記録が変更されたため、入力途中の編集を破棄しました」を1回だけ出す（× のみ）。
+     判定と文言は js/draft-notice.js（画面に依存しない関数。テストあり）。
+     詳細画面で削除して戻ってきたら、一覧の表示が終わってからトースト「削除しました［取り消す］」を6秒出す（受け渡しは js/deleted-toast.js）。
+     「取り消す」→ undoDeleteTrade で元に戻し、行を1秒ハイライト（js/row-flash.js）。取り消しで null が返った（削除日時が変わっていた）ときは何もしない。
    【T-19】記録の一覧（design 14.3.1・14.3.4〜14.3.6・14.3.9）：
      ・サマリー（件数・合計損益。デモと本番が混在なら口座別2行）とその直下の pips の注記
      ・「保有中 n件」のグループ（エントリー日時の新しい順。行の右端に［決済］）
@@ -22,14 +27,19 @@ import { h } from '../ui/dom.js';
 import { largeTitle, newEntryButton } from '../ui/bars.js';
 import { listGroup, badge, emptyState, spinner, showLoadingAfter } from '../ui/parts.js';
 import { renderNotices } from '../ui/notice.js';
-import { getAllTrades, TRADES_CHANGED } from '../trades.js';
+import { actionSheet, showAlert } from '../ui/dialog.js';
+import { showToast } from '../ui/toast.js';
+import { getAllTrades, getTrade, undoDeleteTrade, TRADES_CHANGED } from '../trades.js';
 import { on } from '../events.js';
-import { getDraft, draftKeyOf, DRAFT_KIND } from '../drafts.js';
+import { getAllDrafts, discardDraft, DRAFT_KIND } from '../drafts.js';
+import { judgeDraftTarget, buildDraftNotice, DRAFT_STALE_TEXT } from '../draft-notice.js';
+import { takeDeletedToast } from '../deleted-toast.js';
+import { isAppError } from '../util.js';
 import { buildListView, flattenView, nextChunkEnd, summaryRows } from '../filter.js';
-import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime, formatDraftTime,
+import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime,
   toneOf, toTenths, speakYen, speakPips, speakDateTime } from '../format.js';
 import { LIST_PAGE_SIZE } from '../config.js';
-import { takeRowFlash, FLASH_DURATION_MS } from '../row-flash.js';
+import { takeRowFlash, requestRowFlash, FLASH_DURATION_MS } from '../row-flash.js';
 
 /** お知らせ行を × で閉じたか（次に起動するまで出さない：design 14.3.8。アプリを開き直すと元に戻る） */
 let draftNoticeClosed = false;
@@ -44,21 +54,6 @@ let savedPosition = { scrollY: 0, rows: 0 };
 
 /** 今表示している一覧の状態（unmount で後片付けするために1つだけ持つ） */
 let current = null;
-
-/* ---------------------------------------------------------
-   入力途中のお知らせ行（T-17）
-   --------------------------------------------------------- */
-
-/** 2行目「USD/JPY ▲買い・21:32」（選んでいない項目は省く。今日でなければ「10/14 21:32」：design 14.3.8） */
-function draftSummary(draft) {
-  const f = draft.fields || {};
-  const words = [];
-  if (typeof f.pair === 'string' && f.pair) words.push(f.pair);
-  if (f.side === 'buy') words.push('▲買い');
-  if (f.side === 'sell') words.push('▼売り');
-  const time = formatDraftTime(draft.updatedAt);
-  return words.length ? `${words.join(' ')}・${time}` : time;
-}
 
 /* ---------------------------------------------------------
    部品（サマリー・トレード行）
@@ -319,7 +314,11 @@ function renderList(ctx, trades, position) {
    お知らせ行・読み込み
    --------------------------------------------------------- */
 
-/** お知らせ行を並べ直す。優先順は 読み込みエラー → 入力途中の下書き（design 14.3.8。同時に最大2行） */
+/**
+ * お知らせ行を並べ直す。優先順は 読み込みエラー → 元の記録が変わったため破棄した下書きの知らせ → 入力途中の下書き
+ * （design 14.3.8。同時に最大2行。破棄の知らせは一度きりの知らせなので、続きを開ける案内より先に出す）。
+ * 入力途中の下書きの文言は draft-notice.js の buildDraftNotice（1件＝［続ける］、2件以上＝［選ぶ］）。
+ */
 function refreshNotices(ctx) {
   const items = [];
   if (ctx.loadError) {
@@ -331,16 +330,36 @@ function refreshNotices(ctx) {
       action: { label: '再読み込み', onClick: () => load(ctx, { scrollY: 0, rows: 0 }) },
     });
   }
-  if (ctx.draft && !draftNoticeClosed) {
+  // 元の記録が下書きのあとに変更されたため破棄した（× のみ。1回だけ：この一覧を開いている間だけ出す）
+  for (const kind of ctx.staleKinds) {
     items.push({
       iconName: 'pencil',
-      text: '入力途中のエントリーがあります',
-      subtext: draftSummary(ctx.draft),
-      action: { label: '続ける', onClick: () => ctx.nav.go('#/new') },
+      text: DRAFT_STALE_TEXT[kind],
+      onClose: () => { ctx.staleKinds = ctx.staleKinds.filter((k) => k !== kind); refreshNotices(ctx); },
+    });
+  }
+  const draftNotice = draftNoticeClosed ? null : buildDraftNotice(ctx.draftItems);
+  if (draftNotice) {
+    items.push({
+      iconName: 'pencil',
+      text: draftNotice.text,
+      subtext: draftNotice.subtext,
+      action: draftNotice.mode === 'continue'
+        ? { label: '続ける', onClick: () => ctx.nav.go(draftNotice.hash) }
+        : { label: '選ぶ', onClick: () => chooseDraft(ctx, draftNotice) },
       onClose: () => { draftNoticeClosed = true; refreshNotices(ctx); },
     });
   }
   renderNotices(ctx.notices, items);
+}
+
+/** 入力途中の記録が2件以上のとき、アクションシートに新しい順に並べて選んでもらう（design 14.3.8）。選んだらその入力画面を開く */
+async function chooseDraft(ctx, notice) {
+  const hash = await actionSheet({
+    title: '続ける記録を選んでください',
+    actions: notice.choices.map((c) => ({ label: c.label, value: c.hash })),
+  });
+  if (hash && ctx.alive) ctx.nav.go(hash);
 }
 
 /**
@@ -369,6 +388,12 @@ async function load(ctx, position) {
   }
   if (!ctx.alive) return;
   refreshNotices(ctx);
+  // 詳細画面で削除して戻ってきたとき：一覧の表示が終わったここで、トースト「削除しました［取り消す］」を出す（deleted-toast.js）
+  if (!ctx.toastChecked) {
+    ctx.toastChecked = true;
+    const deleted = takeDeletedToast();
+    if (deleted) showDeletedToast(ctx, deleted);
+  }
   if (ctx.dirty) {
     ctx.dirty = false;
     // 描き終えていれば今の位置のまま、まだなら最初に決めた位置で、描き直す
@@ -376,14 +401,84 @@ async function load(ctx, position) {
   }
 }
 
-/** 入力途中の下書きを確かめて、あればお知らせ行に出す（一覧の表示は待たせない） */
-async function loadDraft(ctx) {
+/**
+ * 削除した直後のトースト「削除しました［取り消す］」を出す（6秒。design 14.7.5）。
+ * 一覧の表示が終わってから出す必要がある（ui/toast.js は「取り消す」付きのトーストを、画面を移ったときに消すため）。
+ */
+function showDeletedToast(ctx, { id, deletedAt }) {
+  showToast('削除しました', { action: { label: '取り消す', onClick: () => undoDelete(ctx, id, deletedAt) } });
+}
+
+/**
+ * 「取り消す」：undoDeleteTrade で元に戻す（architecture 10章）。
+ * ・削除日時が変わっていた（すでに取り消し済み・別の操作で変わった）ときは null が返る。何もしない（トーストも出さない）
+ * ・戻したら、トースト「削除を取り消しました」（3秒）と、その行の1秒ハイライト（row-flash.js。一覧は記録の変更の通知で描き直し、
+ *   描き終えたところで受け取る。通知より前に預ける必要はなく、描き直しは IndexedDB の読み込みを待つので、戻り値を受け取った直後に預けて間に合う）
+ * ・失敗はアラート（design 14.7.3：記録がない／保存の失敗）。保存の失敗は［もう一度］で試し直せる
+ */
+async function undoDelete(ctx, id, deletedAt) {
+  let restored;
   try {
-    ctx.draft = await getDraft(draftKeyOf(DRAFT_KIND.NEW));
+    restored = await undoDeleteTrade(id, deletedAt);
+  } catch (e) {
+    console.error('削除を取り消せませんでした', e);
+    const message = isAppError(e, 'NOT_FOUND') ? '記録が見つかりません。' : '保存中に問題が起きました。もう一度試してください。';
+    const buttons = isAppError(e, 'NOT_FOUND')
+      ? [{ label: '閉じる', value: 'close' }]
+      : [{ label: '閉じる', value: 'close' }, { label: 'もう一度', value: 'retry', primary: true }];
+    const choice = await showAlert({ title: '削除を取り消せませんでした', message, buttons });
+    if (choice === 'retry') await undoDelete(ctx, id, deletedAt);
+    return;
+  }
+  if (!restored) return;
+  if (ctx.alive) requestRowFlash(id);
+  showToast('削除を取り消しました');
+}
+
+/**
+ * 入力途中の下書き（エントリー・決済・編集）を確かめて、お知らせ行に出す（一覧の表示は待たせない）。
+ * 下書きごとに対象の記録を見て、draft-notice.js の judgeDraftTarget で判定する：
+ *   ok    … お知らせ行の対象にする
+ *   gone  … 対象が削除・決済済みなど。お知らせを出す前に黙って消す（design 14.2.10・14.3.8）
+ *   stale … 元の記録が下書きのあとに変更された。消して、種類ごとに「破棄しました」の知らせを出す（architecture 9.3）
+ * 記録を読めなかった下書きは、消さずに何も出さない（読めるようになってから案内する）。
+ */
+async function loadDrafts(ctx) {
+  let drafts = [];
+  try {
+    drafts = await getAllDrafts();
   } catch (e) {
     console.error('下書きを確認できませんでした', e);
+    return;
   }
-  if (ctx.alive) refreshNotices(ctx);
+  const items = [];
+  const staleKinds = [];
+  for (const draft of drafts) {
+    if (!Object.values(DRAFT_KIND).includes(draft.kind)) continue; // 知らない種類（壊れた下書き）には触らない
+    let trade = null;
+    try {
+      if (draft.kind !== DRAFT_KIND.NEW) trade = await getTrade(draft.tradeId);
+    } catch (e) {
+      console.error('下書きの対象の記録を確認できませんでした', e);
+      continue;
+    }
+    const verdict = judgeDraftTarget(draft, trade);
+    if (verdict === 'ok') {
+      items.push({ draft, trade });
+      continue;
+    }
+    try {
+      await discardDraft(draft.key);
+    } catch (e) {
+      console.error('下書きを消せませんでした', e);
+      continue; // 消せなかったものは知らせない（次に開いたとき、もう一度試す）
+    }
+    if (verdict === 'stale' && !staleKinds.includes(draft.kind)) staleKinds.push(draft.kind);
+  }
+  if (!ctx.alive) return;
+  ctx.draftItems = items;
+  ctx.staleKinds = staleKinds;
+  refreshNotices(ctx);
 }
 
 export default {
@@ -404,7 +499,7 @@ export default {
 
     const ctx = {
       alive: true, nav, notices, content,
-      ready: false, loading: false, dirty: false, loadError: false, draft: null,
+      ready: false, loading: false, dirty: false, loadError: false, draftItems: [], staleKinds: [], toastChecked: false,
       view: null, entries: [], next: 0, shownRows: 0, now: new Date(),
       listEl: null, body: null, sentinel: null, observer: null,
       stopWatching: null,
@@ -418,7 +513,7 @@ export default {
 
     // 読み込みは待たずに画面を出す（DB が開くのを待っている間も画面が真っ白にならないように）
     load(ctx, savedPosition);
-    loadDraft(ctx);
+    loadDrafts(ctx);
   },
 
   unmount() {

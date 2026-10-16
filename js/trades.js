@@ -17,7 +17,10 @@
    ・buildClosedTrade() / buildReopenedTrade()：決済した記録・決済を取り消した記録を組み立てる純粋な関数（DB に触れない。テストあり）。
    ・closeTrade() / reopenTrade()：保存されている記録を読み直してから上の関数で組み立て、saveTrade で保存する。
      画面が持っている古い写しではなく、保存されている最新の記録に決済を重ねるため（lotUnitSize も記録時の値のまま使う）。
-   T-22 で、編集時の lotUnitSize のコピーし直しを足す。
+   【T-22：編集】
+   ・編集の組み立て（口座区分を変えたときの lotUnitSize の取り直し・再計算）は画面に依存しない js/edit-form.js が行い、
+     ここの computeClose / buildClosedTrade を呼ぶ。保存は saveTrade（expectedUpdatedAt で別画面の変更を検出する）。
+   ・削除・削除の取り消し（deleteTrade / undoDeleteTrade）は T-12 から変わらない。画面（詳細・一覧）から呼ぶだけ。
 
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
@@ -203,13 +206,17 @@ export function createTradeService({
    *   削除状態を変えられるのは deleteTrade / undoDeleteTrade だけにして、うっかり削除が戻る事故を防ぐ
    * ・記録がない・削除済みなら AppError NOT_FOUND（消えた記録を put で作り直さない）
    * ・draftKey を渡すと下書きの削除も同じトランザクションで行う
+   * ・expectedUpdatedAt を渡すと（編集画面：T-22）、保存されている記録の updatedAt がその値のままのときだけ保存する。
+   *   違うとき（編集を始めたあとに別の画面で変更・決済・削除の取り消しなどがあった）は AppError CONFLICT で、何も保存しない。
+   *   画面が古い写しを元に組み立てた記録で、新しい変更（決済した値など）を黙って上書きして失わないため。
+   *   渡さなければ従来どおり（決済・決済の取り消しは保存されている最新の記録を読み直してから組み立てるので不要）
    * 下の closeTrade / reopenTrade からも呼ぶため、メソッドではなくこの関数の中の部品として定義している
    * （tradeService の分割代入 { saveTrade, ... } で取り出しても this に頼らず動くようにするため）。
    * @param {object} trade 32項目（id 必須）
-   * @param {{draftKey?: string}} [opts]
+   * @param {{draftKey?: string, expectedUpdatedAt?: string}} [opts]
    * @returns {Promise<object>} 保存した記録
    */
-  async function saveTrade(trade, { draftKey } = {}) {
+  async function saveTrade(trade, { draftKey, expectedUpdatedAt } = {}) {
     assertId(trade && trade.id);
     normalizeTrade(trade); // 6.1 にない項目が混ざっていないかを、DB を開く前に確かめる
     const t = now();
@@ -217,6 +224,9 @@ export function createTradeService({
     await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
       const stored = await ops.get(STORE.TRADES, trade.id);
       if (!stored || stored.deletedAt != null) throw notFound();
+      if (expectedUpdatedAt !== undefined && stored.updatedAt !== expectedUpdatedAt) {
+        throw new AppError('CONFLICT', 'この記録は、別の画面で変更されています。');
+      }
       saved = normalizeTrade(recompute({
         ...trade,
         createdAt: stored.createdAt,

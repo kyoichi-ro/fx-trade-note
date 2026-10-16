@@ -20,6 +20,7 @@ import { createDraftService, draftKeyOf } from '../js/drafts.js';
 import { toJstString, nowJst } from '../js/datetime.js';
 import { on } from '../js/events.js';
 import { AppError } from '../js/util.js';
+import { editFieldsFromTrade, buildEditedTrade } from '../js/edit-form.js';
 
 /** テスト用 DB の名前の先頭（本物の DB_NAME とは必ず違う名前にする） */
 export const TEST_DB_PREFIX = 'fx-trade-note-test-';
@@ -896,6 +897,78 @@ export function collectDbTests() {
         } finally {
           ev.stop();
         }
+      })),
+
+    t('SV-15', '編集の保存（T-22）：saveTrade の expectedUpdatedAt で、別の画面が先に変更していたら CONFLICT', '保存 → 正しい expectedUpdatedAt で保存 → 古い値で保存 → 渡さずに保存／下書きつき',
+      '一致すれば保存（updatedAt が進む）。違えば CONFLICT で何も保存せず、下書きも残る。渡さなければ従来どおり保存。成功すると下書きも同時に消える',
+      () => withTestDb('SV-15', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const drafts = createDraftService({ db, now: clock });
+        const first = await trades.saveNewTrade(entryFields({ id: 'e-conf' }));
+        const second = await trades.saveTrade({ ...first, memo: '別の画面の変更' });
+        await drafts.saveDraft({ kind: 'edit', tradeId: 'e-conf', fields: { memo: '編集中' }, baseUpdatedAt: first.updatedAt });
+        const conflict = await errorOf(() => trades.saveTrade({ ...first, memo: '編集中' }, { draftKey: 'edit:e-conf', expectedUpdatedAt: first.updatedAt }));
+        const afterConflict = await db.getTrade('e-conf');
+        const draftAfterConflict = await db.getDraft('edit:e-conf');
+        const ok = await trades.saveTrade({ ...second, memo: '最新を土台に編集' }, { draftKey: 'edit:e-conf', expectedUpdatedAt: second.updatedAt });
+        const noExpect = await trades.saveTrade({ ...ok, memo: '渡さない' });
+        return verdict([
+          ['古い値は CONFLICT', conflict instanceof AppError && conflict.code === 'CONFLICT', errText(conflict)],
+          ['CONFLICT のとき何も保存しない（別の画面の変更が残る）', afterConflict.memo === '別の画面の変更' && afterConflict.updatedAt === second.updatedAt, afterConflict.memo],
+          ['CONFLICT のとき下書きは残る', draftAfterConflict !== null, draftAfterConflict],
+          ['一致すれば保存', ok.memo === '最新を土台に編集' && ok.updatedAt > second.updatedAt, ok.memo],
+          ['成功すると下書きも消える', (await db.getDraft('edit:e-conf')) === null],
+          ['渡さなければ従来どおり', noExpect.memo === '渡さない'],
+        ]);
+      })),
+
+    t('SV-16', '編集の保存（T-22）：口座区分の変更・手入力損益・画像などの項目が落ちない', '決済済み（手入力・画像つき）の記録を、口座 real→demo で組み立てて saveTrade／元に戻して saveTrade',
+      'lotUnitSize は変更先の今の設定値（demo 100000）・profitJpy −500（manual のまま）・imageIds・createdAt 不変・syncStatus＝pending・updatedAt が進む。戻したら lotUnitSize 10000',
+      () => withTestDb('SV-16', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock, getLotUnitSize: (a) => (a === 'demo' ? 100000 : 10000) });
+        const images = createImageService({ db, now: clock });
+        await trades.saveNewTrade(entryFields({ id: 'e-acc', entryPrice: 150, lots: 1, imageIds: ['img-acc'], tags: ['タグ'], memo: 'メモ' }));
+        await images.saveImage({ id: 'img-acc', tradeId: 'e-acc', kind: 'entry', blob: sampleBlob(), width: 10, height: 10 });
+        const closed = await trades.closeTrade('e-acc', { exitPrice: 150.25, exitAt: '2026-10-15T23:05:00+09:00', manualProfitJpy: -500 });
+        const ctx = { getLotUnitSize: (a) => (a === 'demo' ? 100000 : 10000) };
+        const toDemo = await trades.saveTrade(buildEditedTrade(closed, { ...editFieldsFromTrade(closed), accountType: 'demo' }, ctx), { expectedUpdatedAt: closed.updatedAt });
+        const stored = await db.getTrade('e-acc');
+        const back = await trades.saveTrade(buildEditedTrade(stored, { ...editFieldsFromTrade(stored), accountType: 'real' }, ctx), { expectedUpdatedAt: stored.updatedAt });
+        return verdict([
+          ['口座・lotUnitSize', stored.accountType === 'demo' && stored.lotUnitSize === 100000, `${stored.accountType}/${stored.lotUnitSize}`],
+          ['手入力損益は変わらない', stored.profitJpy === -500 && stored.profitSource === 'manual', `${stored.profitJpy}/${stored.profitSource}`],
+          ['pips は変わらない（価格が同じ）', stored.pips === 25, stored.pips],
+          ['画像・タグ・メモが落ちない', sameList(stored.imageIds, ['img-acc']) && sameList(stored.tags, ['タグ']) && stored.memo === 'メモ'],
+          ['画像本体も消えない', (await db.getImage('img-acc')) !== null],
+          ['createdAt 不変・updatedAt が進む・pending', stored.createdAt === closed.createdAt && stored.updatedAt > closed.updatedAt && stored.syncStatus === 'pending', stored.updatedAt],
+          ['status は closed のまま', stored.status === 'closed', stored.status],
+          ['戻り値＝DB の中身', deepEqual(toDemo, stored)],
+          ['元の口座に戻したら lotUnitSize も記録時の値（10000）', back.accountType === 'real' && back.lotUnitSize === 10000, `${back.accountType}/${back.lotUnitSize}`],
+        ]);
+      })),
+
+    t('SV-17', '編集・削除（T-22）：削除された記録の編集は NOT_FOUND。削除の取り消しは削除日時が変わっていたら何もしない', '削除済みを saveTrade／削除→取り消し→もう一度削除→最初の deletedAt で取り消し',
+      '削除済みの保存は NOT_FOUND（作り直さない）。古い deletedAt での取り消しは null で何も変えない。削除して取り消すと deletedAt＝null・updatedAt が進む',
+      () => withTestDb('SV-17', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const saved = await trades.saveNewTrade(entryFields({ id: 'e-del' }));
+        const deleted1 = await trades.deleteTrade('e-del');
+        const editDeleted = await errorOf(() => trades.saveTrade({ ...saved, memo: '削除済みを編集' }, { expectedUpdatedAt: saved.updatedAt }));
+        const restored = await trades.undoDeleteTrade('e-del', deleted1.deletedAt);
+        const deleted2 = await trades.deleteTrade('e-del');
+        const stale = await trades.undoDeleteTrade('e-del', deleted1.deletedAt);
+        const stillDeleted = await db.getTrade('e-del');
+        return verdict([
+          ['削除済みの編集の保存は NOT_FOUND', editDeleted instanceof AppError && editDeleted.code === 'NOT_FOUND', errText(editDeleted)],
+          ['削除済みの記録を作り直していない', (await db.getTrade('e-del')).memo !== '削除済みを編集', stillDeleted.memo],
+          ['取り消すと deletedAt＝null', restored !== null && restored.deletedAt === null && restored.updatedAt > deleted1.updatedAt, restored && restored.deletedAt],
+          ['2回目の削除は別の削除日時', deleted2.deletedAt !== deleted1.deletedAt, deleted2.deletedAt],
+          ['古い deletedAt での取り消しは null', stale === null, stale],
+          ['古い取り消しで記録は戻らない', stillDeleted.deletedAt === deleted2.deletedAt, stillDeleted.deletedAt],
+        ]);
       })),
   ];
 }

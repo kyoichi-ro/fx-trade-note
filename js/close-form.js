@@ -223,7 +223,8 @@ export function evaluateClose(trade, fields, { now = new Date() } = {}) {
   if (exit.empty) add('exitPrice', 'error', TEXT.required.exitPrice);
   else if (!exit.ok) add('exitPrice', 'error', EXIT_PRICE_ERRORS[exit.error]);
   else {
-    if (isLargePriceGap(trade.entryPrice, exit.value, trade.pair)) add('exitPrice', 'warning', TEXT['W-02']);
+    // エントリー価格が空（編集画面でエントリー価格を入れ直している途中）のときは、差を比べられないので警告しない
+    if (trade.entryPrice != null && isLargePriceGap(trade.entryPrice, exit.value, trade.pair)) add('exitPrice', 'warning', TEXT['W-02']);
     if (isOutOfPriceRange(exit.value, trade.pair)) {
       add('exitPrice', 'warning', `${EXIT_PRICE_LABEL}：${trade.pair} の価格としては大きく外れています。通貨ペアと桁を確認してください。`);
     }

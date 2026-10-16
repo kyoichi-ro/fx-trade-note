@@ -16,6 +16,8 @@
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
    T-17：⑦ 下書きの確認を追加（30分以内の新規エントリーの下書きがあれば、一覧 → 入力画面の順に履歴を作って入力画面を開く）。
    T-21：⑦ に決済の下書きも加えた（対象の記録が削除・決済済みになっていた決済の下書きは、黙って消して次の候補を見る）。
+   T-22：⑦ に編集の下書きも加えた。決済・編集の下書きは、対象の記録を見て judgeDraftTarget（draft-notice.js）で判定する
+   （対象が無い・削除済み・決済済みの決済 → 黙って消す／元の記録が下書きのあとに変わっていた → 自動では開かず、消さずに一覧のお知らせ行へ任せる）。
    ========================================================= */
 import { startRouter } from './router.js';
 import { openDb, setHandlers } from './db.js';
@@ -25,7 +27,7 @@ import { settingsStore } from './settings-store.js';
 import { applyTheme } from './ui/theme.js';
 import { getAllDrafts, pickLaunchDraft, discardDraft, DRAFT_KIND } from './drafts.js';
 import { getTrade } from './trades.js';
-import { isClosedTrade } from './filter.js';
+import { judgeDraftTarget, draftTargetHash } from './draft-notice.js';
 
 /**
  * アプリ全体の問題を、画面上部の #notice-area にお知らせ行として出す（architecture 4.5・15.1、design 9.16）。
@@ -111,10 +113,13 @@ function loadSettingsAndWatchTheme() {
  * 「一覧 → 入力画面」の順に履歴を作ってから入力画面を開く（入力画面の「キャンセル」で一覧に戻れるように）。
  * 入力画面は開いたときに自分で下書きを読み込んで復元する（entry.js）。30分を過ぎた下書きは一覧のお知らせ行で案内する（list.js）。
  * ・一覧以外の URL で開いた（再読み込みなど）ときは、その画面を優先して何もしない。
- * ・復元できる入力画面は、新規エントリー（T-17）と決済（T-21）。編集（T-22）の下書きは T-22 でここに足す。
- * ・決済の下書きは、対象の記録がまだ保有中のときだけ開く。削除済み・決済済み・存在しないときは、下書きを黙って消して
- *   次の候補（30分以内でいちばん新しいもの）を見る（design 14.2.10）。記録を読めなかった（DB のエラー）ときは、下書きを消さずに
- *   自動で開くのをやめる（一覧のお知らせ行や［決済］から開き直せる）。
+ * ・復元できる入力画面は、新規エントリー（T-17）・決済（T-21）・編集（T-22）。
+ * ・決済・編集の下書きは、対象の記録がまだ開いてよい状態のときだけ自動で開く（judgeDraftTarget：draft-notice.js）。
+ *   - 'gone'（削除済み・存在しない・すでに決済済みの決済）：下書きを黙って消して、次の候補（30分以内でいちばん新しいもの）を見る（design 14.2.10）
+ *   - 'stale'（下書きを作ったあとに元の記録が変更された）：古い内容で上書きしないよう自動では開かない。下書きは消さず、
+ *     一覧を表示したときにお知らせ行が「元の記録が変更されたため、入力途中の編集を破棄しました」と知らせて消す（list.js。architecture 9.3）。
+ *     ここで消さないのは、知らせる前に消すと利用者が気づけないため
+ *   記録を読めなかった（DB のエラー）ときは、下書きを消さずに自動で開くのをやめる（一覧のお知らせ行や［決済］［編集］から開き直せる）。
  * ・DB が開けない・遅い（他の画面が古い版を開いたまま）ときに画面が出ないままにならないよう、1.5秒で見切ってルーターを始める。
  */
 async function openRecentDraft() {
@@ -127,9 +132,9 @@ async function openRecentDraft() {
     console.error('下書きを確認できませんでした', err);
     return;
   }
-  const kinds = [DRAFT_KIND.NEW, DRAFT_KIND.CLOSE];
+  const kinds = [DRAFT_KIND.NEW, DRAFT_KIND.CLOSE, DRAFT_KIND.EDIT];
   let draft = pickLaunchDraft(drafts, { kinds });
-  while (draft && draft.kind === DRAFT_KIND.CLOSE) {
+  while (draft && draft.kind !== DRAFT_KIND.NEW) {
     let target;
     try {
       target = await getTrade(draft.tradeId);
@@ -137,21 +142,24 @@ async function openRecentDraft() {
       console.error('下書きの対象の記録を確認できませんでした', err);
       return;
     }
-    if (target && target.deletedAt == null && !isClosedTrade(target)) break;
-    // 対象が無くなった決済の下書き：黙って消して、次の候補へ
-    try {
-      await discardDraft(draft.key);
-    } catch (err) {
-      console.error('下書きを消せませんでした', err);
+    const verdict = judgeDraftTarget(draft, target);
+    if (verdict === 'ok') break;
+    if (verdict === 'gone') {
+      // 対象が無くなった下書き：黙って消して、次の候補へ
+      try {
+        await discardDraft(draft.key);
+      } catch (err) {
+        console.error('下書きを消せませんでした', err);
+      }
     }
+    // 'stale' は消さずに、この起動では自動で開く候補から外すだけ（知らせて消すのは一覧）
     const dropped = draft.key;
     drafts = drafts.filter((d) => d.key !== dropped);
     draft = pickLaunchDraft(drafts, { kinds });
   }
   if (!draft) return;
-  const target = draft.kind === DRAFT_KIND.CLOSE ? `#/trades/${encodeURIComponent(draft.tradeId)}/close` : '#/new';
   history.replaceState({ fxnoteIdx: 0 }, '', '#/');
-  history.pushState({ fxnoteIdx: 1 }, '', target);
+  history.pushState({ fxnoteIdx: 1 }, '', draftTargetHash(draft));
 }
 
 async function main() {

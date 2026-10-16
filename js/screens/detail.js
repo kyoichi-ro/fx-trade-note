@@ -15,10 +15,10 @@
    【T-21】「決済を取り消す」を実処理にした（確認シート → trades.js の reopenTrade → トースト「決済を取り消しました」。
    詳細画面に留まり、見出しが「保有中」に変わる：design 14.4.5）。
 
-   【未実装（確認シートまで）】
-   「この記録を削除」の処理は T-22 で作る。T-20 ではアクションシートで確認したあと、
-   「まだ使えません。この記録は変更されていません」のアラートを出す（押しても何も起きない状態にしないため）。
-   T-22 ではこのファイルの notYetAvailable を使っている 1 か所を、実際の処理に差し替える。
+   【T-22】「この記録を削除」を実処理にした（確認シート → trades.js の deleteTrade（論理削除）→ 一覧へ戻る →
+   一覧の表示が終わってからトースト「削除しました［取り消す］」を6秒出す：design 14.4.5・14.7.5）。
+   「取り消す」付きのトーストは画面を移ると消えるので、ここでは出さず、js/deleted-toast.js に預けて一覧に出してもらう。
+   「編集」（右上・決済済みの下部）は T-20 から実画面（#/trades/{id}/edit）へのリンク。
    画像のサムネイル・拡大表示（design 14.4.6）は T-24 で作る。画像のグループは、画像を表示できるようになる T-24 で足す。
    ========================================================= */
 import { h } from '../ui/dom.js';
@@ -27,7 +27,8 @@ import { badge, button, listGroup, dangerRow, emptyState, showLoadingAfter } fro
 import { renderNotices } from '../ui/notice.js';
 import { confirmAction, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
-import { getTrade, reopenTrade, TRADES_CHANGED } from '../trades.js';
+import { getTrade, reopenTrade, deleteTrade, TRADES_CHANGED } from '../trades.js';
+import { requestDeletedToast } from '../deleted-toast.js';
 import { isAppError } from '../util.js';
 import { on } from '../events.js';
 import { buildDetailView, describeTrade } from '../detail-view.js';
@@ -88,20 +89,8 @@ function sectionNode(s) {
 }
 
 /* ---------------------------------------------------------
-   危険な操作（確認シートまで。実際の処理は T-21・T-22）
+   危険な操作（確認シート → 実処理。決済の取り消しは T-21、削除は T-22）
    --------------------------------------------------------- */
-
-/**
- * まだ作っていない処理を押したときの知らせ。押しても何も起きない状態にしないための仮の表示。
- * 「記録は変更されていない」ことを必ず伝える（消えたと誤解して慌てないため）。投資助言にあたる文言は入れない。
- * T-22（削除）で、呼び出し元を実際の処理に差し替えたらこの関数は消す（T-21 で決済の取り消しは差し替え済み）。
- */
-function notYetAvailable(name) {
-  return showAlert({
-    title: `${name}はまだ使えません`,
-    message: '次の更新で使えるようになります。この記録は変更されていません。',
-  });
-}
 
 /**
  * 「決済を取り消す」：確認シート（design 14.7.4）→ 保有中に戻す（trades.js の reopenTrade）。
@@ -134,7 +123,14 @@ async function onCancelClose(ctx) {
   showToast('決済を取り消しました');
 }
 
-/** 「この記録を削除」：確認シート（design 14.7.4）。処理は T-22 */
+/**
+ * 「この記録を削除」：確認シート（design 14.7.4）→ 論理削除（trades.js の deleteTrade。画像は消さない）→ 一覧へ戻る。
+ * 「削除しました［取り消す］」のトーストは、ここでは出さず deleted-toast.js に預ける
+ * （ui/toast.js は「取り消す」付きのトーストを画面を移ったときに消すので、先に出すと一覧に戻った時点で消える。
+ *  一覧が表示を終えたところで出す：list.js。取り消せるのはそこから6秒間）。
+ * 削除の通知（TRADES_CHANGED）でこの画面が「見つかりません」に描き直されて一瞬見えないよう、削除中は描き直さない（ctx.leaving）。
+ * 失敗したときは記録をそのまま残してアラート（design 14.7.3「記録の削除」。やり直しは確認シートからもう一度）。
+ */
 async function onDelete(ctx) {
   const ok = await confirmAction({
     title: 'この記録を削除しますか？',
@@ -142,7 +138,25 @@ async function onDelete(ctx) {
     confirmLabel: '削除',
   });
   if (!ok || !ctx.alive) return;
-  await notYetAvailable('記録の削除'); // T-22 で「削除して一覧へ戻る処理」に差し替える
+  ctx.leaving = true;
+  let deleted;
+  try {
+    deleted = await deleteTrade(ctx.id);
+  } catch (e) {
+    ctx.leaving = false;
+    if (!ctx.alive) return;
+    if (isAppError(e, 'NOT_FOUND')) {
+      load(ctx); // 別の画面で記録が消えていた：「この記録は見つかりません」の表示に変わる
+      return;
+    }
+    console.error('記録を削除できませんでした', e);
+    await showAlert({ title: '削除できませんでした', message: '記録はそのまま残っています。もう一度試してください。' });
+    return;
+  }
+  if (!ctx.alive) return;
+  requestDeletedToast({ id: ctx.id, deletedAt: deleted.deletedAt });
+  // 削除済みの詳細画面を履歴に残さない（history.back。履歴がなければ一覧へ置き換え：architecture 5.3）
+  ctx.nav.back('#/');
 }
 
 /** 最下部の独立したグループ。決済済みは「決済を取り消す」「この記録を削除」、保有中は削除だけ（design 14.4.5） */
@@ -271,13 +285,13 @@ export default {
       alive: true, root, nav, id: params.id,
       // URL に戻すときは encodeURIComponent で符号化する（ID に / や # などが混ざっていても URL が壊れないように）
       base: `#/trades/${encodeURIComponent(params.id)}`,
-      trade: null, busy: false, dirty: false, rendered: false, loading: null, stopWatching: null,
+      trade: null, busy: false, dirty: false, rendered: false, loading: null, stopWatching: null, leaving: false,
     };
     current = ctx;
     renderLoading(ctx);
     // この記録が他の画面・操作で変わったら描き直す（T-21 の決済の取り消しなど）
     ctx.stopWatching = on(TRADES_CHANGED, (detail) => {
-      if (detail && detail.id === ctx.id) load(ctx);
+      if (detail && detail.id === ctx.id && !ctx.leaving) load(ctx);
     });
     // 読み込みは待たずに画面を出す（DB が開くのを待っている間も画面が真っ白にならないように）
     load(ctx);

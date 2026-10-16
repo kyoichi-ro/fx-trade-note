@@ -18,9 +18,9 @@
            tags / memo        … タグの配列・メモ
    キー名は requirements 6.1 に合わせている。T-17 の下書き（任意項目のキーがない）も、足りないキーを初期値で補って読める。
    ========================================================= */
-import { parsePrice, isFarFromEntry, isOutOfPriceRange } from './validate.js';
+import { parsePrice, parseLots, isFarFromEntry, isOutOfPriceRange, isLargeQuantity } from './validate.js';
 import { calcRiskReward, calcSlTpPips, judgeSession } from './calc.js';
-import { TIMEFRAME_LABELS } from './master.js';
+import { TIMEFRAME_LABELS, getPairSpec } from './master.js';
 import { fromInputValue } from './datetime.js';
 import { formatPipsDistance } from './format.js';
 
@@ -48,6 +48,66 @@ const isString = (v) => typeof v === 'string';
 /** 文字の配列から、文字でないものと重複を取り除く（壊れた下書きで画面が止まらないように） */
 function cleanStrings(v) {
   return Array.isArray(v) ? [...new Set(v.filter(isString))] : [];
+}
+
+/* ---------------------------------------------------------
+   必須グループの入力チェック（design 14.1.8。T-22 で entry.js から移した：編集画面でも同じ文言・同じ判定を使うため）
+   --------------------------------------------------------- */
+
+/** 価格の欄の名前（E-01〜E-04・W-06 の文の先頭に付ける：design 14.1.8） */
+export const PRICE_LABEL = 'エントリー価格';
+
+const PRICE_ERRORS = {
+  'E-01': `${PRICE_LABEL}：数値で入力してください`,
+  'E-02': `${PRICE_LABEL}：0より大きい値を入力してください`,
+  'E-03': `${PRICE_LABEL}：価格は小数第3位までで入力してください`,
+  'E-04': `${PRICE_LABEL}：価格は小数第5位までで入力してください`,
+};
+const LOTS_ERRORS = {
+  'E-05': 'ロット：0より大きい値を入力してください',
+  'E-06': 'ロット：ロットは小数第2位までで入力してください',
+};
+
+/** 価格の見本：JPYペア「0.000」、非JPYペア「0.00000」（入力できる桁数に合わせる：design 14.1.5）。通貨ペア未選択は JPY 相当 */
+export function pricePlaceholder(pair) {
+  const digits = pair ? getPairSpec(pair).maxInputDecimals : 3;
+  return `0.${'0'.repeat(digits)}`;
+}
+
+/**
+ * 必須グループの全項目を確かめ、エラー・警告を欄の上からの順に返す。
+ * @param {object} f 入力欄の文字（fields）
+ * @param {{ lotUnitSize?: (number|null) }} [opts] W-04（数量が大きすぎる）の判定に使う 1lot の通貨数。
+ *   新規は「選んだ口座の今の設定値」、編集は「保存される 1lot の通貨数」（口座を変えなければ記録時の値）。null なら W-04 は出さない
+ * @returns {{ field: string, type: 'error'|'warning', text: string }[]}
+ */
+export function checkRequiredFields(f, { lotUnitSize = null } = {}) {
+  const out = [];
+  const err = (field, text) => out.push({ field, type: 'error', text });
+  const warn = (field, text) => out.push({ field, type: 'warning', text });
+
+  if (!f.accountType) err('accountType', 'デモか本番を選んでください');
+  if (!f.pair) err('pair', '通貨ペアを選んでください');
+  if (!f.side) err('side', '買いか売りを選んでください');
+
+  // 価格：通貨ペアが未選択のときは桁数を決められないので、数値として読めるか・0より大きいかだけを見る
+  // （桁の上限が大きい非JPYペアの規則で読み、E-01・E-02 だけを使う。桁数は通貨ペアを選んだ時点でその場で再チェックする）
+  const price = parsePrice(f.entryPrice, f.pair || 'EUR/USD');
+  if (price.empty) err('entryPrice', 'エントリー価格を入力してください');
+  else if (!price.ok && (f.pair || price.error === 'E-01' || price.error === 'E-02')) err('entryPrice', PRICE_ERRORS[price.error]);
+  else if (price.ok && f.pair && isOutOfPriceRange(price.value, f.pair)) {
+    warn('entryPrice', `${PRICE_LABEL}：${f.pair} の価格としては大きく外れています。通貨ペアと桁を確認してください。`);
+  }
+
+  const lots = parseLots(f.lots);
+  if (lots.empty) err('lots', 'ロットを入力してください');
+  else if (!lots.ok) err('lots', LOTS_ERRORS[lots.error]);
+  else if (lotUnitSize != null && isLargeQuantity(lots.value, lotUnitSize)) {
+    warn('lots', '数量が非常に大きくなっています。ロットと1lotの通貨数を確認してください。');
+  }
+
+  if (!fromInputValue(f.entryAt)) err('entryAt', '日時を入力してください');
+  return out;
 }
 
 /* ---------------------------------------------------------

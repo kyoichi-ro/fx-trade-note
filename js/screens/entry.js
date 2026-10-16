@@ -32,10 +32,10 @@ import { icon } from '../ui/icons.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
-import { openSheet } from '../ui/sheet.js';
+import { choosePair } from '../ui/pair-chooser.js';
 import { settingsStore } from '../settings-store.js';
-import { PAIR_MASTER, getPairSpec, TIMEFRAME_LABELS } from '../master.js';
-import { parsePrice, parseLots, isOutOfPriceRange, isLargeQuantity, normalizeNumberText } from '../validate.js';
+import { TIMEFRAME_LABELS } from '../master.js';
+import { parsePrice, parseLots, normalizeNumberText } from '../validate.js';
 import { saveNewTrade } from '../trades.js';
 import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } from '../drafts.js';
 import { nowInputValue, fromInputValue } from '../datetime.js';
@@ -46,7 +46,7 @@ import { withSelected } from '../choice-list.js'; // 設定から消された選
 import {
   ENTRY_REQUIRED_KEYS, ENTRY_OPTIONAL_FIELDS, TIMEFRAMES, SESSIONS, SESSION_SEGMENT_LABELS, ENTRY_DETAILS_LIST, SL_LABEL, TP_LABEL,
   defaultOptionalFields, cloneFields, fieldsFromEntryDraft, isEntryChanged, entryDetailsSummary, nextSession, sessionNote,
-  evaluateLevels, visibleIssues, buildOptionalInput,
+  evaluateLevels, visibleIssues, buildOptionalInput, checkRequiredFields, pricePlaceholder, PRICE_LABEL,
 } from '../entry-form.js';
 
 /** 新規エントリーの下書きキー（drafts.js の約束：'new'） */
@@ -57,9 +57,6 @@ const FIELD_ORDER = ENTRY_REQUIRED_KEYS;
 
 /** よく使う通貨ペアのうち、格子に並べる数（3列×2段：design 14.1.2。設定の編集画面の「上から6つ」と同じ値を config.js から読む） */
 const GRID_PAIRS = FAVORITE_GRID_COUNT;
-
-/** 価格の欄の名前（E-01〜E-04・W-06 の文の先頭に付ける：design 14.1.8） */
-const PRICE_LABEL = 'エントリー価格';
 
 /** 今表示しているこの画面の操作の係（unmount・hasUnsavedChanges から使う） */
 let ctrl = null;
@@ -100,12 +97,6 @@ function draftTimeText(updatedAt) {
   return time ? `${time} の下書き` : '';
 }
 
-/** 価格の見本：JPYペア「0.000」、非JPYペア「0.00000」（入力できる桁数に合わせる：design 14.1.5） */
-function pricePlaceholder(pair) {
-  const digits = pair ? getPairSpec(pair).maxInputDecimals : 3;
-  return `0.${'0'.repeat(digits)}`;
-}
-
 /** 下部の保存ボタンの文字（口座を必ず添える：design 13章 ③・14.1.6） */
 function saveLabel(accountType) {
   if (accountType === 'real') return '本番で保存';
@@ -114,98 +105,17 @@ function saveLabel(accountType) {
 }
 
 /* ---------------------------------------------------------
-   入力チェック（design 14.1.8。判定は validate.js、文言はここ）
+   入力チェック（design 14.1.8。判定・文言は entry-form.js の checkRequiredFields。T-22 で編集画面と共用にした）
    --------------------------------------------------------- */
 
-const PRICE_ERRORS = {
-  'E-01': `${PRICE_LABEL}：数値で入力してください`,
-  'E-02': `${PRICE_LABEL}：0より大きい値を入力してください`,
-  'E-03': `${PRICE_LABEL}：価格は小数第3位までで入力してください`,
-  'E-04': `${PRICE_LABEL}：価格は小数第5位までで入力してください`,
-};
-const LOTS_ERRORS = {
-  'E-05': 'ロット：0より大きい値を入力してください',
-  'E-06': 'ロット：ロットは小数第2位までで入力してください',
-};
-
-/**
- * 必須グループの全項目を確かめ、エラー・警告を欄の上からの順に返す。
- * @param {object} f 入力欄の文字（fields）
- * @returns {{ field: string, type: 'error'|'warning', text: string }[]}
- */
+/** 必須グループの全項目を確かめる。W-04 の 1lot の通貨数は「選んだ口座の今の設定値」 */
 function checkFields(f) {
-  const out = [];
-  const err = (field, text) => out.push({ field, type: 'error', text });
-  const warn = (field, text) => out.push({ field, type: 'warning', text });
-
-  if (!f.accountType) err('accountType', 'デモか本番を選んでください');
-  if (!f.pair) err('pair', '通貨ペアを選んでください');
-  if (!f.side) err('side', '買いか売りを選んでください');
-
-  // 価格：通貨ペアが未選択のときは桁数を決められないので、数値として読めるか・0より大きいかだけを見る
-  // （桁の上限が大きい非JPYペアの規則で読み、E-01・E-02 だけを使う。桁数は通貨ペアを選んだ時点でその場で再チェックする）
-  const price = parsePrice(f.entryPrice, f.pair || 'EUR/USD');
-  if (price.empty) err('entryPrice', 'エントリー価格を入力してください');
-  else if (!price.ok && (f.pair || price.error === 'E-01' || price.error === 'E-02')) err('entryPrice', PRICE_ERRORS[price.error]);
-  else if (price.ok && f.pair && isOutOfPriceRange(price.value, f.pair)) {
-    warn('entryPrice', `${PRICE_LABEL}：${f.pair} の価格としては大きく外れています。通貨ペアと桁を確認してください。`);
-  }
-
-  const lots = parseLots(f.lots);
-  if (lots.empty) err('lots', 'ロットを入力してください');
-  else if (!lots.ok) err('lots', LOTS_ERRORS[lots.error]);
-  else if (f.accountType && isLargeQuantity(lots.value, settingsStore.get(`lotUnitSize.${f.accountType}`))) {
-    warn('lots', '数量が非常に大きくなっています。ロットと1lotの通貨数を確認してください。');
-  }
-
-  if (!fromInputValue(f.entryAt)) err('entryAt', '日時を入力してください');
-  return out;
+  return checkRequiredFields(f, { lotUnitSize: f.accountType ? settingsStore.get(`lotUnitSize.${f.accountType}`) : null });
 }
 
 /* ---------------------------------------------------------
    画面の部品
    --------------------------------------------------------- */
-
-/**
- * 「その他の通貨ペア」のボトムシート（design 14.1.6）：上に検索欄、下に全ペア（よく使うペアが先頭）。タップで選んで閉じる。
- * @param {string[]} favorites 設定の「よく使う通貨ペア」（全部）
- * @param {string} selected 今選んでいるペア
- * @returns {Promise<string|null>} 選んだペア。キャンセルなら null
- */
-function choosePair(favorites, selected) {
-  // よく使うペア（設定で追加したペアを含む）→ マスタの残り、の順。同じペアは1回だけ
-  const all = [...new Set([...favorites, ...PAIR_MASTER.map((p) => p.pair)])];
-  // 検索は大文字小文字・全角半角・区切りの「/」を無視する（「eurAUD」「ユーロ」でも見つかるように）
-  const norm = (s) => String(s).normalize('NFKC').toUpperCase().replace(/[\s/\-_]/g, '');
-
-  return openSheet({
-    title: '通貨ペア',
-    content: (finish) => {
-      const listBody = h('div', { class: 'list-group__body' });
-      const renderList = (query) => {
-        const q = norm(query);
-        const hits = all.filter((p) => !q || norm(p).includes(q) || norm(getPairSpec(p).nameJa).includes(q));
-        listBody.replaceChildren(...(hits.length ? hits.map((p) => h('button', {
-          type: 'button', class: 'list-row pair-option', 'aria-pressed': p === selected ? 'true' : 'false', onClick: () => finish(p),
-        },
-        h('span', { class: 'list-row__label num' }, p),
-        h('span', { class: 'list-row__value' }, getPairSpec(p).nameJa),
-        p === selected ? icon('check', { size: 'sm', className: 'pair-option__check' }) : null)) : [
-          h('p', { class: 'list-row pair-option__empty' }, '該当する通貨ペアがありません'),
-        ]));
-      };
-      const search = h('input', {
-        class: 'sheet-search__input', type: 'search', placeholder: 'EUR/AUD など', 'aria-label': '通貨ペアを検索',
-        autocomplete: 'off', autocorrect: 'off', autocapitalize: 'characters', spellcheck: 'false', enterkeyhint: 'search',
-        onInput: (e) => renderList(e.target.value),
-      });
-      renderList('');
-      return h('div', {},
-        h('label', { class: 'sheet-search' }, icon('search', { size: 'sm', className: 'sheet-search__icon' }), search),
-        h('section', { class: 'list-group' }, listBody));
-    },
-  });
-}
 
 /* ---------------------------------------------------------
    画面の組み立てと操作
