@@ -94,7 +94,7 @@ function checkLastInput(v) {
   };
 }
 
-/** 一覧の絞り込み条件（architecture 7.2）：形だけ確かめる。filter の中身の確認と30分の期限の判定は T-23 で行う */
+/** 一覧の絞り込み条件（architecture 7.2）：形だけ確かめる。filter の中身の確認（壊れた項目だけ初期値）と30分の期限の判定は、画面側が js/filter.js の restoreFilter で行う（T-23） */
 function checkListFilter(v) {
   if (!isPlainObject(v) || v.version !== 1 || typeof v.savedAt !== 'string' || !JST_FORMAT.test(v.savedAt)
     || !isPlainObject(v.filter)) return undefined;

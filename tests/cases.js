@@ -16,6 +16,10 @@
    【追加分（T-18・2026-10-16）】fx-rules 5.3 の Y-08〜Y-13（calcRiskReward は必要な値が空なら { rr: null, warn: [] }）を EXTRA_RR_CASES の末尾に
      書き写した（6件）。Z-23 の説明文を「null（日時が空）」に直した（判定・合否は変わらない：fx-rules 14.3 の修正依頼 #1）。
 
+   【追加分（T-23・2026-10-16）】analytics.md 4.11.3 の一覧の絞り込み L-01〜L-27（27件）、期間の境目 D-01〜D-09（9件）、
+     表記ゆれ N-01〜N-02（2件）の計38件を末尾に書き写した（LIST_CASES・PERIOD_CASES・NORMALIZE_CASES）。
+     サンプルデータ T01〜T12 は tests/filter.test.js の SAMPLE（4.11.2）。「今」は 2026-10-15（木）12:00（日本時間）。
+
    書き方の約束：
    ・期待値は資料の表のとおりに書く（pips は小数第1位、RR は小数第2位の数値）。
      比べるときは pips ×10、RR ×100 の「整数」に直してから比べる（fx-rules 9.5・6.3 ルール5）。
@@ -334,4 +338,91 @@ export const EXTRA_PAIR_CASES = [
     { input: 'USD/CNY', expect: { ok: true, pair: 'USD/CNY', pipSize: 0.0001, priceDecimals: 5, quoteToJpyPair: 'CNY/JPY', warn: ['W-07'] } },
     { input: 'eur/cnh', expect: { ok: true, pair: 'EUR/CNH', pipSize: 0.0001, priceDecimals: 5, quoteToJpyPair: 'CNH/JPY', warn: [] } },
   ] },
+];
+
+/* ---------- analytics 4.11.3 一覧の絞り込み L-01〜L-27（T-23） ----------
+   filter は初期値からの差分だけを書く（書かなかった項目は初期値＝絞り込まない）。period は { preset, from, to } のうち書いたものだけ。
+   open / closed … 表示順（保有中グループ／決済済み。空文字＝そのグループなし）
+   real / demo   … サマリーの行。null＝その口座の行を出さない。yen・pips が null＝決済済みが0件で「—」
+                   pips は表示と同じ小数第1位（比べるときは ×10 の整数にする：fx-rules 6.3 ルール5）
+*/
+const row = (count, openCount, yen, pips) => ({ count, openCount, yen, pips });
+export const LIST_CASES = [
+  { id: 'L-01', title: '初期状態（すべて）。削除済みの T11 は出ない・保有中が上', filter: {},
+    open: 'T09 T10', closed: 'T03 T01 T02 T12 T04 T05 T06 T08 T07', total: 11, real: row(7, 1, -46980, 12.8), demo: row(4, 1, 1543, -19.7) },
+  { id: 'L-02', title: 'デモ/本番＝本番（1行だけになる）', filter: { accountType: 'real' },
+    open: 'T09', closed: 'T01 T02 T04 T06 T08 T07', total: 7, real: row(7, 1, -46980, 12.8), demo: null },
+  { id: 'L-03', title: 'デモ/本番＝デモ', filter: { accountType: 'demo' },
+    open: 'T10', closed: 'T03 T12 T05', total: 4, real: null, demo: row(4, 1, 1543, -19.7) },
+  { id: 'L-04', title: '状態＝保有中（損益は「±0円」ではなく「—」）', filter: { status: 'open' },
+    open: 'T09 T10', closed: '', total: 2, real: row(1, 1, null, null), demo: row(1, 1, null, null) },
+  { id: 'L-05', title: '状態＝決済済み（保有中グループが出ない）', filter: { status: 'closed' },
+    open: '', closed: 'T03 T01 T02 T12 T04 T05 T06 T08 T07', total: 9, real: row(6, 0, -46980, 12.8), demo: row(3, 0, 1543, -19.7) },
+  { id: 'L-06', title: '期間＝今日（削除済みの T11 は出ない）', filter: { period: { preset: 'today' } },
+    open: 'T09', closed: 'T03 T01', total: 3, real: row(2, 1, 2500, 25.0), demo: row(1, 0, -1885, -37.7) },
+  { id: 'L-07', title: '期間＝今週（10/12〜）：月曜 09:00 の T05 が入る・金曜の T06 は入らない', filter: { period: { preset: 'thisWeek' } },
+    open: 'T09', closed: 'T03 T01 T02 T12 T04 T05', total: 7, real: row(4, 1, -43750, 25.0), demo: row(3, 0, 1543, -19.7) },
+  { id: 'L-08', title: '期間＝先週（10/5〜10/11）', filter: { period: { preset: 'lastWeek' } },
+    open: '', closed: 'T06', total: 1, real: row(1, 0, -30, 0.5), demo: null },
+  { id: 'L-09', title: '期間＝今月：T08（10/1 00:05 決済）が入る・T07（9/30）と T10（9/28 エントリーの保有中）は入らない', filter: { period: { preset: 'thisMonth' } },
+    open: 'T09', closed: 'T03 T01 T02 T12 T04 T05 T06 T08', total: 9, real: row(6, 1, -41280, 50.5), demo: row(3, 0, 1543, -19.7) },
+  { id: 'L-10', title: '期間＝先月（T08 は入らない・保有中はエントリー日時で判定）', filter: { period: { preset: 'lastMonth' } },
+    open: 'T10', closed: 'T07', total: 2, real: row(1, 0, -5700, -37.7), demo: row(1, 1, null, null) },
+  { id: 'L-11', title: '期間を指定 10/13〜10/14（終了日 23:40 の T02 が入る・円と pips の符号が逆の例）', filter: { period: { preset: 'custom', from: '2026-10-13', to: '2026-10-14' } },
+    open: '', closed: 'T02 T12 T04', total: 3, real: row(2, 0, -46250, 0.0), demo: row(1, 0, 3428, 18.0) },
+  { id: 'L-12', title: '期間を指定 10/14〜10/13（逆順は自動で入れ替わり L-11 と同じ）', filter: { period: { preset: 'custom', from: '2026-10-14', to: '2026-10-13' } },
+    open: '', closed: 'T02 T12 T04', total: 3, real: row(2, 0, -46250, 0.0), demo: row(1, 0, 3428, 18.0) },
+  { id: 'L-13', title: '勝敗＝負け（T06：＋0.5 pips でも手入力の −30円 なので負け）', filter: { outcomes: ['loss'] },
+    open: '', closed: 'T03 T04 T06 T07', total: 4, real: row(3, 0, -55730, -62.2), demo: row(1, 0, -1885, -37.7) },
+  { id: 'L-14', title: '勝敗＝引き分け（決済済みの合計0は「±0円」）', filter: { outcomes: ['draw'] },
+    open: '', closed: 'T05', total: 1, real: null, demo: row(1, 0, 0, 0.0) },
+  { id: 'L-15', title: '勝敗＝勝ち・引き分け（同じ項目の中は OR・保有中は自動で対象外）', filter: { outcomes: ['win', 'draw'] },
+    open: '', closed: 'T01 T02 T12 T05 T08', total: 5, real: row(3, 0, 8750, 75.0), demo: row(2, 0, 3428, 18.0) },
+  { id: 'L-16', title: '通貨ペア＝USD/JPY・EUR/USD、売買方向＝買い（ペアの中は OR、方向とは AND）', filter: { pairs: ['USD/JPY', 'EUR/USD'], side: 'buy' },
+    open: 'T09', closed: 'T03 T01 T02 T06', total: 5, real: row(4, 1, 6220, 50.5), demo: row(1, 0, -1885, -37.7) },
+  { id: 'L-17', title: '売買方向＝売り', filter: { side: 'sell' },
+    open: '', closed: 'T12 T04 T08', total: 3, real: row(2, 0, -47500, 0.0), demo: row(1, 0, 3428, 18.0) },
+  { id: 'L-18', title: '本番＋今月＋負け（3条件の AND）', filter: { accountType: 'real', period: { preset: 'thisMonth' }, outcomes: ['loss'] },
+    open: '', closed: 'T04 T06', total: 2, real: row(2, 0, -50030, -24.5), demo: null },
+  { id: 'L-19', title: 'キーワード「ルール違反」（タグを検索・削除済みの T11 は出ない）', filter: { keyword: 'ルール違反' },
+    open: '', closed: 'T03 T07', total: 2, real: row(1, 0, -5700, -37.7), demo: row(1, 0, -1885, -37.7) },
+  { id: 'L-20', title: 'キーワード「ぽんど」（ひらがな ⇔ 半角カタカナ）', filter: { keyword: 'ぽんど' },
+    open: '', closed: 'T04', total: 1, real: row(1, 0, -50000, -25.0), demo: null },
+  { id: 'L-21', title: 'キーワード「cpi」（小文字 ⇔ 全角大文字）', filter: { keyword: 'cpi' },
+    open: '', closed: 'T06', total: 1, real: row(1, 0, -30, 0.5), demo: null },
+  { id: 'L-22', title: 'キーワード「さぽーと」（ひらがな ⇔ カタカナ・保有中も検索される）', filter: { keyword: 'さぽーと' },
+    open: 'T09', closed: '', total: 1, real: row(1, 1, null, null), demo: null },
+  { id: 'L-23', title: 'キーワード「建値　指標」（全角空白＝2語の AND。T05 は「建値」だけなので出ない）', filter: { keyword: '建値　指標' },
+    open: '', closed: 'T06', total: 1, real: row(1, 0, -30, 0.5), demo: null },
+  { id: 'L-24', title: 'キーワード「誤登録」（削除済みのメモは検索されない → 0件）', filter: { keyword: '誤登録' },
+    open: '', closed: '', total: 0, real: null, demo: null },
+  { id: 'L-25', title: 'キーワード「 ﾌﾞﾚｲｸ 」（半角カナ・前後の空白は無視・根拠に部分一致）', filter: { keyword: ' ﾌﾞﾚｲｸ ' },
+    open: '', closed: 'T03 T07', total: 2, real: row(1, 0, -5700, -37.7), demo: row(1, 0, -1885, -37.7) },
+  { id: 'L-26', title: '状態＝保有中＋勝敗＝負け（画面では作れない組み合わせ。ロジックとしては0件）', filter: { status: 'open', outcomes: ['loss'] },
+    open: '', closed: '', total: 0, real: null, demo: null },
+  { id: 'L-27', title: 'キーワード「押し目」＋期間＝今日（根拠・メモの両方から一致）', filter: { keyword: '押し目', period: { preset: 'today' } },
+    open: 'T09', closed: 'T01', total: 2, real: row(2, 1, 2500, 25.0), demo: null },
+];
+
+/* ---------- analytics 4.11.3 期間の境目 D-01〜D-09（T-23）----------
+   now … 「今」。from / to … 期待する範囲 [開始, 終了)（日本時間）
+*/
+export const PERIOD_CASES = [
+  { id: 'D-01', title: '今日', now: '2026-10-15T12:00:00+09:00', preset: 'today', from: '2026-10-15T00:00:00+09:00', to: '2026-10-16T00:00:00+09:00' },
+  { id: 'D-02', title: '今週（月曜始まり）', now: '2026-10-15T12:00:00+09:00', preset: 'thisWeek', from: '2026-10-12T00:00:00+09:00', to: '2026-10-19T00:00:00+09:00' },
+  { id: 'D-03', title: '先週', now: '2026-10-15T12:00:00+09:00', preset: 'lastWeek', from: '2026-10-05T00:00:00+09:00', to: '2026-10-12T00:00:00+09:00' },
+  { id: 'D-04', title: '今月', now: '2026-10-15T12:00:00+09:00', preset: 'thisMonth', from: '2026-10-01T00:00:00+09:00', to: '2026-11-01T00:00:00+09:00' },
+  { id: 'D-05', title: '先月', now: '2026-10-15T12:00:00+09:00', preset: 'lastMonth', from: '2026-09-01T00:00:00+09:00', to: '2026-10-01T00:00:00+09:00' },
+  { id: 'D-06', title: '今年', now: '2026-10-15T12:00:00+09:00', preset: 'thisYear', from: '2026-01-01T00:00:00+09:00', to: '2027-01-01T00:00:00+09:00' },
+  { id: 'D-07', title: '先月（年またぎ）', now: '2027-01-02T10:00:00+09:00', preset: 'lastMonth', from: '2026-12-01T00:00:00+09:00', to: '2027-01-01T00:00:00+09:00' },
+  { id: 'D-08', title: '今週（年またぎ・土曜でも週の初めは月曜）', now: '2027-01-02T10:00:00+09:00', preset: 'thisWeek', from: '2026-12-28T00:00:00+09:00', to: '2027-01-04T00:00:00+09:00' },
+];
+
+/** D-09：今年以外の決済日の見出し（「今」＝ 2026-10-15。2025-12-30 09:00 の決済 →「2025年12月30日（火）」） */
+export const PERIOD_HEADING_CASE = { id: 'D-09', now: '2026-10-15T12:00:00+09:00', exitAt: '2025-12-30T09:00:00+09:00', heading: '2025年12月30日（火）' };
+
+/* ---------- analytics 4.11.3 表記ゆれ N-01〜N-02（T-23）---------- */
+export const NORMALIZE_CASES = [
+  { id: 'N-01', title: 'normalizeForSearch（半角カナ・全角英字と全角空白・ヴ）', input: 'ﾎﾟﾝﾄﾞ ＡＢＣ　ヴァ', expected: 'ぽんど abc ゔぁ' },
+  { id: 'N-02', title: 'toTokens（前後の空白は無視・間の全角空白は語の区切り）', input: ' 建値　指標 ', expected: ['建値', '指標'] },
 ];

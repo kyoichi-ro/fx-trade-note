@@ -20,14 +20,24 @@
      ・タブ切替・詳細から戻ったときのスクロール位置の復元（architecture 5.2・5.5）
      ・読み込みに失敗したときのお知らせ行［再読み込み］（design 14.3.8 の優先1）
    【T-21】決済・保存から戻った直後に、その行を約1秒だけ目立たせる（design 14.3.4。受け渡しは js/row-flash.js）。
-   絞り込み（条件チップ・シート）は T-23、詳細・決済画面は T-20・T-21。
+   【T-23】絞り込み（design 14.3.1・14.3.7・14.3.9・14.3.10、analytics 4.2〜4.8）：
+     ・大タイトル右の絞り込みボタン（条件の数つき）→ 絞り込みシート（js/ui/filter-sheet.js）。「n件を表示」で適用
+     ・適用中の条件チップ（js/ui/filter-chips.js）。タップで確認なしにその条件だけ解除、2つ以上なら「すべて解除」
+     ・条件を変えたら、読み込み済みの記録（ctx.trades）から選び直す（DB は読み直さない：analytics 4.1）。スクロールは先頭へ
+     ・条件に合う記録が0件のときの空状態（「記録はまだありません」とは別。チップは出したまま［条件を解除］）
+     ・条件は画面を離れても残し（モジュールの変数）、変えるたびに localStorage の listFilter へ保存する。
+       アプリを開いたときに保存から30分以内なら復元、超えていれば初期値（analytics 4.8。判定は filter.js の restoreFilter）
+     ・アプリが前面に戻ったとき、日付が変わっていれば「今日」「今月」などを計算し直す（analytics 4.4.2）
+   詳細・決済画面は T-20・T-21。
    集計・並び順・日付のまとめは js/filter.js（画面に依存しない純粋な関数）、文字の整形は js/format.js。
    ========================================================= */
 import { h } from '../ui/dom.js';
 import { largeTitle, newEntryButton } from '../ui/bars.js';
-import { listGroup, badge, emptyState, spinner, showLoadingAfter } from '../ui/parts.js';
+import { listGroup, badge, emptyState, spinner, showLoadingAfter, button } from '../ui/parts.js';
 import { renderNotices } from '../ui/notice.js';
-import { actionSheet, showAlert } from '../ui/dialog.js';
+import { actionSheet, showAlert, closeOpenDialog } from '../ui/dialog.js';
+import { openFilterSheet } from '../ui/filter-sheet.js';
+import { createFilterButton, renderFilterChips } from '../ui/filter-chips.js';
 import { showToast } from '../ui/toast.js';
 import { getAllTrades, getTrade, undoDeleteTrade, TRADES_CHANGED } from '../trades.js';
 import { on } from '../events.js';
@@ -35,7 +45,10 @@ import { getAllDrafts, discardDraft, DRAFT_KIND } from '../drafts.js';
 import { judgeDraftTarget, buildDraftNotice, DRAFT_STALE_TEXT } from '../draft-notice.js';
 import { takeDeletedToast } from '../deleted-toast.js';
 import { isAppError } from '../util.js';
-import { buildListView, flattenView, nextChunkEnd, summaryRows } from '../filter.js';
+import { buildListView, flattenView, nextChunkEnd, summaryRows, defaultFilter, describeFilter, clearCondition,
+  packFilter, restoreFilter } from '../filter.js';
+import { getSetting, setSetting } from '../settings-store.js';
+import { jstParts } from '../datetime.js';
 import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime,
   toneOf, toTenths, speakYen, speakPips, speakDateTime } from '../format.js';
 import { LIST_PAGE_SIZE } from '../config.js';
@@ -51,6 +64,40 @@ let draftNoticeClosed = false;
  * 行数も覚えるのは、下の方までスクロールしていたとき、続きの行を描き足さないと位置まで届かないため。
  */
 let savedPosition = { scrollY: 0, rows: 0 };
+
+/**
+ * 絞り込み条件。タブを切り替えても、詳細を見て戻っても残す（analytics 4.8）。null＝まだ決めていない。
+ * アプリを閉じて開き直したときは、最初に一覧を開く時点で localStorage の listFilter から復元する（getCurrentFilter）。
+ */
+let currentFilter = null;
+
+/**
+ * アプリを開いた時刻（ページを読み込んだ時刻）。30分以内かどうかはここを基準にする。
+ * 一覧を最初に開いた時刻にしないのは、起動時に入力途中の画面が自動で開いて、一覧に来るのが遅れた場合でも
+ * 「アプリを開いたとき」の時刻で判定するため（analytics 4.8）。
+ */
+function appStartedAt() {
+  const origin = typeof performance !== 'undefined' && performance.timeOrigin;
+  return new Date(Number.isFinite(origin) && origin > 0 ? origin : Date.now());
+}
+
+/** 今の条件。最初の1回だけ保存値から復元（30分を過ぎていれば初期値）する */
+function getCurrentFilter() {
+  if (currentFilter === null) currentFilter = restoreFilter(getSetting('listFilter'), appStartedAt());
+  return currentFilter;
+}
+
+/**
+ * 条件を localStorage に保存する（保存時刻つき）。保存できなくても一覧の操作は続けられる（次に開いたときに復元されないだけ）ので、
+ * アラートでは止めずコンソールに残す。
+ */
+function persistFilter(filter) {
+  try {
+    setSetting('listFilter', packFilter(filter));
+  } catch (e) {
+    console.warn('絞り込み条件を保存できませんでした', e);
+  }
+}
 
 /** 今表示している一覧の状態（unmount で後片付けするために1つだけ持つ） */
 let current = null;
@@ -263,6 +310,78 @@ function emptyNode() {
   });
 }
 
+/** 空状態（絞り込みの結果が0件：design 14.3.9）。条件のチップは出したまま、［条件を解除］ですべての条件を初期値に戻す */
+function noMatchNode(ctx) {
+  return emptyState({
+    iconName: 'search',
+    title: '条件に合う記録はありません',
+    text: '条件を変えるか、解除してください。',
+    action: button('条件を解除', { variant: 'secondary', onClick: () => setFilter(ctx, defaultFilter()) }),
+  });
+}
+
+/* ---------------------------------------------------------
+   絞り込み（条件の変更・チップ・シート）
+   --------------------------------------------------------- */
+
+/** 絞り込みボタンの数字と無効表示、条件チップを今の条件に合わせる */
+function syncFilterUi(ctx) {
+  const chips = describeFilter(ctx.filter, ctx.now.getTime());
+  renderFilterChips(ctx.chipsEl, chips, {
+    onClear: (key) => {
+      setFilter(ctx, clearCondition(ctx.filter, key));
+      ctx.filterButton.el.focus(); // 押したチップは消えるので、キーボード・読み上げの人の位置を絞り込みボタンに移す
+    },
+    onClearAll: () => {
+      setFilter(ctx, defaultFilter());
+      ctx.filterButton.el.focus();
+    },
+  });
+  // 記録が1件もない（または読み込み前）あいだは押せない
+  ctx.filterButton.update({ count: chips.length, disabled: !ctx.view || ctx.view.recordCount === 0 });
+}
+
+/**
+ * 条件を変える。保存して、読み込み済みの記録から選び直し、スクロールは先頭に戻す（条件が変わったので、前の位置に意味がないため）。
+ * 記録をまだ読み込んでいなければ、読み込み後の描画が新しい条件を使う。
+ */
+function setFilter(ctx, next) {
+  currentFilter = next;
+  ctx.filter = next;
+  persistFilter(next);
+  if (ctx.trades) renderList(ctx, ctx.trades, { scrollY: 0, rows: 0 });
+  else syncFilterUi(ctx);
+}
+
+/** 絞り込みシートを開く。「n件を表示」で適用された条件だけ受け取る（キャンセルなら何も変えない） */
+async function openFilter(ctx) {
+  if (!ctx.trades || ctx.sheetOpen) return;
+  ctx.sheetOpen = true;
+  let next = null;
+  try {
+    next = await openFilterSheet({ trades: ctx.trades, filter: ctx.filter, nowMs: Date.now(), favorites: getSetting('favoritePairs') });
+  } finally {
+    ctx.sheetOpen = false;
+  }
+  if (next && ctx.alive) setFilter(ctx, next);
+}
+
+/** 日本時間の日付（'2026-10-15'）。日が変わったかの判定に使う */
+function jstDayKey(ms) {
+  const p = jstParts(new Date(ms));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
+ * アプリが前面に戻ったとき、日付が変わっていたら「今日」「今月」などの範囲を今の日付で計算し直す（analytics 4.4.2）。
+ * 開きっぱなしのまま日をまたいでも、古い日付の範囲で絞り込んだままにならないようにするため。位置はそのまま。
+ */
+function onBecameVisible(ctx) {
+  if (document.visibilityState !== 'visible' || !ctx.alive || !ctx.ready || !ctx.trades) return;
+  if (jstDayKey(Date.now()) === jstDayKey(ctx.now.getTime())) return;
+  renderList(ctx, ctx.trades, { scrollY: window.scrollY, rows: ctx.shownRows });
+}
+
 /**
  * 読み込んだ記録で一覧を描き直す。
  * @param {object} ctx
@@ -271,16 +390,35 @@ function emptyNode() {
  */
 function renderList(ctx, trades, position) {
   if (ctx.observer) ctx.observer.disconnect();
-  ctx.now = new Date(); // 「今年」の判定に使う（日時の整形は Date を受け取る）
-  ctx.view = buildListView(trades, ctx.now.getTime());
+  ctx.trades = trades;
+  ctx.now = new Date(); // 「今年」の判定と、「今日」「今月」の範囲に使う（日時の整形は Date を受け取る）
+  ctx.view = buildListView(trades, ctx.filter, ctx.now.getTime());
   ctx.entries = flattenView(ctx.view);
   ctx.next = 0;
   ctx.shownRows = 0;
   ctx.body = null;
+  ctx.listEl = null;
 
-  if (ctx.view.total === 0) {
+  if (ctx.view.recordCount === 0) {
+    // 記録が1件もない：絞り込む相手がいないので、残っていた条件は初期値に戻す（あとで記録を足したとき、見えない条件で隠れないように）
+    if (describeFilter(ctx.filter, ctx.now.getTime()).length > 0) {
+      ctx.filter = defaultFilter();
+      currentFilter = ctx.filter;
+      persistFilter(ctx.filter);
+    }
     ctx.content.replaceChildren(emptyNode());
     ctx.ready = true;
+    syncFilterUi(ctx);
+    return;
+  }
+  syncFilterUi(ctx);
+
+  if (ctx.view.total === 0) {
+    // 記録はあるが、条件に合うものが0件（design 14.3.9）。件数の「0件」と空状態を出す。チップは syncFilterUi が出したまま
+    takeRowFlash(); // 預かっていたハイライトは、この描画では使えないので捨てる（あとの描画で急に光らないように）
+    ctx.content.replaceChildren(h('p', { class: 'list-count num' }, '0件'), noMatchNode(ctx));
+    ctx.ready = true;
+    window.scrollTo(0, position.scrollY);
     return;
   }
 
@@ -488,23 +626,31 @@ export default {
 
   mount(root, { nav }) {
     const notices = h('div', { class: 'list-notices' });
+    const chipsEl = h('div', { class: 'filter-chips' });
     const content = h('div', { class: 'screen__body list-content' });
+    const filterButton = createFilterButton(() => openFilter(ctx));
     root.append(
-      largeTitle('一覧'),
+      largeTitle('一覧', filterButton.el),
       notices,
+      chipsEl,
       content,
       // ＋新規エントリーボタン：右下・タブバーの上に浮かぶ（design.md 9.10。部品は ui/bars.js）
       newEntryButton(),
     );
 
     const ctx = {
-      alive: true, nav, notices, content,
+      alive: true, nav, notices, content, chipsEl, filterButton,
       ready: false, loading: false, dirty: false, loadError: false, draftItems: [], staleKinds: [], toastChecked: false,
+      filter: getCurrentFilter(), trades: null, sheetOpen: false,
       view: null, entries: [], next: 0, shownRows: 0, now: new Date(),
       listEl: null, body: null, sentinel: null, observer: null,
-      stopWatching: null,
+      stopWatching: null, onVisible: null,
     };
     current = ctx;
+    syncFilterUi(ctx); // 記録を読み込む前から、復元した条件のチップを出しておく（読み込み後に急に現れて内容が動かないように）
+
+    ctx.onVisible = () => onBecameVisible(ctx);
+    document.addEventListener('visibilitychange', ctx.onVisible);
 
     // 他の画面で記録が変わったとき（例：削除の取り消しのトーストから「取り消す」を押した）は、今の位置のまま描き直す
     ctx.stopWatching = on(TRADES_CHANGED, () => {
@@ -525,6 +671,8 @@ export default {
     ctx.alive = false;
     if (ctx.observer) ctx.observer.disconnect();
     if (ctx.stopWatching) ctx.stopWatching();
+    document.removeEventListener('visibilitychange', ctx.onVisible);
+    if (ctx.sheetOpen) closeOpenDialog(); // 絞り込みシートが開いたまま次の画面に残らないように
   },
 
   hasUnsavedChanges() {

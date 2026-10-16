@@ -149,6 +149,60 @@
   margin-top: var(--sp-2);
 }
 
+/* 大タイトル右の絞り込みボタン：線画のじょうごと、条件があるときだけ条件の数（15px・600・アクセント色。design 14.3.1）。
+   押せる範囲は 44px 以上。右端は画面の左右の余白（16px）にアイコンの縁をそろえる */
+.filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  margin-right: calc(var(--sp-2) * -1);
+  color: var(--color-accent);
+  font-size: var(--fs-subhead);
+  font-weight: var(--fw-semibold);
+}
+.filter-button:active {
+  opacity: var(--opacity-pressed);
+}
+.filter-button:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+/* 適用中の条件チップ（design 14.3.7）：大タイトル・お知らせ行の下、サマリーの上。折り返して並べる（横スクロールにしない） */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-3);
+}
+.filter-chips:empty {
+  display: none;
+}
+/* 選択用のチップ（枠線あり）と見分けがつくよう、枠線なしの淡い塗りにする。タップでその条件だけ外れる */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: 100%;
+  min-height: var(--control-h);
+  padding: 0 var(--chip-pad-x);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-size: var(--fs-subhead);
+  line-height: var(--lh-tight);
+}
+.filter-chip:active {
+  opacity: var(--opacity-pressed);
+}
+.filter-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 全体の件数「11件」（デモと本番が混在のときだけ、サマリーの上に出す：design 14.3.6） */
 .list-count {
   margin: 0 var(--sp-4) var(--sp-2);

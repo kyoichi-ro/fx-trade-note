@@ -551,6 +551,39 @@ button.list-row:active {
   white-space: nowrap;
 }
 
+/* 絞り込みシートの格子（T-23：期間＝4列×2段、勝敗・通貨ペア＝3列）。形は通貨ペアの格子と同じで、列の数だけ違う（design 14.3.10）。
+   期間の4列は 375px 幅で1つ約74px。選択中の「✓ 全期間」が収まるよう、左右の余白は通貨ペアの格子（上）と同じく詰める */
+.chips--grid-3,
+.chips--grid-4 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.chips--grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.chips--grid-3 .chip,
+.chips--grid-4 .chip {
+  justify-content: center;
+  min-width: 0;
+  padding: 0 var(--sp-1);
+  white-space: nowrap;
+}
+/* 4列は選択中の「✓ 全期間」（✓16px＋間4px＋文字45px＋枠2px）が約74pxの中に収まるよう、左右の余白をさらに詰める */
+.chips--grid-4 .chip {
+  padding: 0 2px;
+}
+.chips--grid-3 .chip > span,
+.chips--grid-4 .chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 押せないチップ（勝敗：状態が「保有中」のとき）は薄く表示する */
+.chip:disabled {
+  opacity: var(--opacity-disabled);
+}
+
 /* 「＋追加」：枠線のみ・アクセント色の文字 */
 .chip--add {
   color: var(--color-accent);
@@ -1280,6 +1313,67 @@ body:has(.fab) #toast-area {
 .sheet-search__input::placeholder {
   color: var(--color-text-sub);
   opacity: 1;
+}
+
+/* 検索欄の右端の「入力を消す」×（押せる範囲は 44×44px。見た目は 16px の線画） */
+.sheet-search__clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: calc(var(--sp-3) * -1);
+  color: var(--color-text-sub);
+}
+.sheet-search__input::-webkit-search-cancel-button {
+  -webkit-appearance: none; /* ブラウザ標準の × は使わず、上の × にそろえる */
+  appearance: none;
+}
+
+/* 下部に固定する主要ボタン（絞り込みシートの「12件を表示」）。本文だけがスクロールする。
+   キーボードが出ている間は隠す（キーボードの裏に回って押せないため：design 14.3.10・8.4）。入力欄の「検索」キーが代わりになる */
+.sheet__footer {
+  flex-shrink: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: var(--hairline) solid var(--color-separator);
+  background: var(--color-bg);
+}
+.keyboard-open .sheet__footer {
+  display: none;
+}
+
+/* 絞り込みシートの1項目：白いまとまりの中の余白（チップの格子・セグメントがまとまりの端に付かないように） */
+.filter-group {
+  margin-bottom: var(--sp-4);
+}
+.filter-row {
+  padding: var(--sp-2) var(--sp-3);
+}
+
+/* 期間「指定」の日付の行：見えているのは「開始日　10/13(火)」。本物の日付欄は透明にして行いっぱいに重ねる（どこを押しても選択が開く） */
+.date-row {
+  position: relative;
+  justify-content: space-between;
+}
+.date-row__value {
+  margin-left: auto;
+  color: var(--color-text);
+}
+.date-row__value.is-empty {
+  color: var(--color-text-sub);
+}
+.date-row__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.date-row__clear {
+  position: relative; /* 透明な日付欄より手前に出して、押せるようにする */
+  z-index: 1;
+  margin-right: calc(var(--sp-2) * -1);
 }
 
 @media (prefers-reduced-motion: reduce) {

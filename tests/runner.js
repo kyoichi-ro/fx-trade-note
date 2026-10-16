@@ -38,7 +38,7 @@ export function collectAllTests() {
     ...collectSettingsStoreTests(), // 設定の保存（ST）※ブラウザのみ（T-15）
     ...collectDatetimeTests(), // 日時（DT）15件（T-17。architecture 13.2「日時」・13.3 #4）。Node.js でも実行する
     ...collectFormatTests(),   // 表示の整形（FM）18件（T-19 の15件＋T-20 の保有時間・数量・値幅 pips・確認シート用の日時）。Node.js でも実行する
-    ...collectFilterTests(),   // 一覧の集計（LV）25件（T-19。並び順・日付見出し・サマリー・日計・続き読み込み：analytics 4.6・4.7・4.11）。Node.js でも実行する
+    ...collectFilterTests(),   // 一覧（LV）25件（T-19。並び順・日付見出し・サマリー・日計・続き読み込み）＋T-23 の60件（L-01〜L-27・D-01〜D-09・N-01〜N-02 の38件＋条件の扱い LF 22件：analytics 4.2〜4.11）。Node.js でも実行する
     ...collectDetailViewTests(), // 詳細画面の表示内容（DV）30件（T-20。全項目・未入力の「—」・保有時間・数量・RR の 2 行目・出し分け：design 14.4）。Node.js でも実行する
     ...collectCloseFormTests(),  // 決済画面（CL・FL）28件（T-21。入力チェック・損益の即時計算・符号付きの貼り付け・決済/取り消しの組み立て・ハイライトの受け渡し：design 14.2）。Node.js でも実行する
     ...collectEntryFormTests(),  // エントリー画面（EF）36件（T-18。セッションの自動判定と手動の優先・下書きの読み直し・RR の表示と W-01 などの警告・損切り幅/利確幅・保存時の再計算・タグの追加の判断：design 14.1）。Node.js でも実行する

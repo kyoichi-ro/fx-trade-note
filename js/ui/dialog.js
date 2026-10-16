@@ -153,6 +153,14 @@ export function alertSettingsWriteFailed() {
 }
 
 /**
+ * 今開いているシート・確認・アラートを「何もしない」で閉じる（画面を離れるときの後片付け用）。
+ * 一覧を離れたときに絞り込みシートが次の画面の上に残らないようにするため（T-23）。開いていなければ何もしない。
+ */
+export function closeOpenDialog() {
+  if (openEntry) openEntry.finish(openEntry.cancelValue);
+}
+
+/**
  * ボトムシート（ui/sheet.js）も、アクションシート・アラートと同じ「同時に1つだけ・閉じたらフォーカスを戻す・背後を止める」
  * 仕組みで開くため、共通部分 open() を部品の中だけで使える名前で出す（T-17 で追加）。画面からは直接使わない。
  */

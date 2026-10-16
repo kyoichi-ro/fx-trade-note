@@ -267,7 +267,7 @@ flowchart LR
 | `js/trades.js` | 記録の業務処理：新規作成（ID・日時・`lotUnitSize` コピー・`syncStatus`）、自動計算値の再計算、決済、決済取消、編集、論理削除・取消。変更通知を出す（8章）。**T-12 で「保存の土台」を作成済み**（6.12：ID・日時・`syncStatus` の自動付与、32項目へのそろえ、記録の保存＋下書きの削除、論理削除・削除の取り消し）。各タスクはこのファイルに機能を足す。**T-21 で追加**：`computeClose(trade, input)`（決済価格から pips と損益〔円〕を求める。計算は `calc.js` に任せる。決済画面の即時表示と保存で同じ関数を使う）、`buildClosedTrade(stored, input)`・`buildReopenedTrade(stored)`（決済した記録・決済を取り消した記録を組み立てる。DB に触れない）、`closeTrade(id, input, { draftKey })`・`reopenTrade(id)`（保存されている最新の記録を読み直してから組み立てて `saveTrade` で保存。すでに決済済みなら `ALREADY_CLOSED`、すでに保有中の取り消しは何も変えない）。**T-22 で追加**：`saveTrade(trade, { draftKey, expectedUpdatedAt })`（編集を始めたあとに別の画面で変更されていたら `CONFLICT` で何も保存しない：6.12） | db, datetime, util, events, calc, master, settings-store | T-12（土台）, T-17, T-21, T-22 |
 | `js/drafts.js` | 下書きの保存（デバウンス＋閉じる直前の即時保存）・復元・破棄（9章）。**T-12 で「保存の土台」を作成済み**（6.12：保存・取得・全件取得・下書きと追加画像の一括破棄、下書きキーの作成 `draftKeyOf()`）。T-17 で自動保存 `createDraftAutosaver()`（0.5秒のデバウンス・閉じる直前の即時保存）と、起動時に自動で開く下書きを選ぶ `pickLaunchDraft()`（30分以内でいちばん新しいもの）を追加。**対象の記録を見て続きを開いてよいかの判定は `draft-notice.js`**（9.3） | db, util, datetime, config | T-12（土台）, T-17, T-21, T-22 |
 | `js/images.js` | 画像の読み込み・縮小・JPEG圧縮・保存・表示用URLの発行と解放・孤立画像の掃除（11章）。**T-12 で「保存の土台」を作成済み**（6.12：保存（ID・作成日時の自動付与）・取得・トレード単位の取得・物理削除） | db, util, datetime（T-24 で config を追加） | T-12（土台）, T-24 |
-| `js/filter.js` | 一覧の絞り込み・キーワード検索・並び順・日付グループ・件数/合計損益（`analytics.md` 4.10 の `buildListView` などと同じ結果）。勝敗は `calc.judgeResult` を使う。純粋な関数。T-19 では並び順・日付グループ・件数/合計損益・日計・約50件ずつの切り出し（`buildListView(trades, nowMs)`）までを実装し、条件を渡す形（analytics 4.10 の `buildListView(trades, filter, nowMs)`）は T-23 で足す。「決済済みか」の判定 `isClosedTrade()` は一覧・詳細・決済・下書きの判定が共通で使う | datetime, format（勝敗判定のために T-23 で calc を追加） | T-19, T-23 |
+| `js/filter.js` | 一覧の絞り込み・キーワード検索・並び順・日付グループ・件数/合計損益（`analytics.md` 4.10 の `buildListView` などと同じ結果）。勝敗は `calc.judgeResult` を使う。純粋な関数。T-19 で並び順・日付グループ・件数/合計損益・日計・約50件ずつの切り出しを、**T-23 で絞り込み条件（デモ/本番・状態・通貨ペア・売買方向・期間・勝敗・キーワード）を渡す形 `buildListView(trades, filter, nowMs)` を実装済み**。「決済済みか」の判定 `isClosedTrade()` は一覧・詳細・決済・下書きの判定が共通で使う | datetime, format（勝敗判定のために T-23 で calc を追加） | T-19, T-23 |
 | `js/detail-view.js` | S-04 詳細の表示内容の組み立て：`buildDetailView(trade, now)`（全項目の並びと未入力の「—」）、`describeTrade()`（削除の確認シートに出す要約）、`holdingMinutes()`。pips・損益・RR・セッション・算出方法は**保存済みの値**、数量（`calcQuantity`）・保有時間・RR の2行目（損切り幅/利確幅）・手入力時の「自動計算（参考）」は**表示のたびに計算**する。画面に依存しない関数だけ | calc, master, datetime, format, filter | T-20 |
 | `js/entry-form.js` | S-02 の画面に依存しない部分：必須項目の確認 `checkRequiredFields()`、セッションの自動判定と手動優先 `autoSession()`・`nextSession()`、下書きからの読み直し `fieldsFromEntryDraft()`、変更の検出 `isEntryChanged()`、任意項目の「入力済み」の要約 `entryDetailsSummary()`、SL/TP・RR の表示と警告 W-01・W-03 `evaluateLevels()`、保存する任意項目の組み立て `buildOptionalInput()`。編集画面（S-05）も同じ関数を使う | validate, calc, master, datetime, format | T-18 |
 | `js/close-form.js` | S-03 の画面に依存しない部分：入力欄の初期値 `defaultCloseFields()`、入力チェックと pips・損益の即時計算 `evaluateClose()`、損益欄に出す内容 `describeProfit()`、確定損益に貼り付けた符号付きの値の読み方 `splitSignedAmount()`（貼り付け・入力のたびに先頭の符号で＋/−切替を合わせ、金額欄には数字だけを残す。符号が重なる値は E-09：design 14.2.9）、保存する入力の組み立て `closeInputFromEvaluation()`。pips・損益の計算は `trades.js` の `computeClose` に任せる（式はここに書かない）。編集画面も同じ関数を使う | validate, datetime, master, format, trades | T-21 |
@@ -285,7 +285,7 @@ flowchart LR
 | `js/ui/toast.js` | トースト（design 9.6・14.7.5）：`showToast(message, { action, duration, iconName })`・`hideToast()`。成功3秒、「取り消す」付き6秒、同時に1つだけ。押している間・フォーカスがある間はカウントを止める。**`syncToastWithRoute()`：「取り消す」付きのトーストは、出したときと違う画面に移ったら消す**（`router.js` が画面を表示し終えるたびに呼ぶ。成功だけのトーストは残す）。そのため削除の「取り消す」付きトーストは、一覧の表示が終わってから出す（roadmap T-22） | ui/dom, ui/icons | T-11 |
 | `js/ui/dialog.js` | `actionSheet()`・`confirmAction()`（確認：design 9.7・14.7.4）と `showAlert()`（失敗の知らせ：9.15 ③・14.7.3）。HTML 標準の `<dialog>` と `showModal()` で作り、閉じたら元の場所へフォーカスを戻す。開いている間は背後をスクロールさせない（`.is-modal-open`） | ui/dom | T-11 |
 | `js/ui/notice.js` | お知らせ行（design 9.16）：`createNotice()`・`renderNotices()`（画面の中に置く。S-01 は大タイトルの下、入力画面は口座色の線の下）と、`showAppNotice(key, opts)`・`hideAppNotice(key)`（アプリ全体の問題を `#notice-area` に出す。同じ種類は1つだけ）。`app.js` の想定外のエラー・DB を開けないときの表示はこれを使う（T-11 で置き換え済み） | ui/dom, ui/icons | T-11 |
-| `js/ui/sheet.js` | ボトムシート（design 9.8）：`openSheet({ title, cancelLabel, content })`。**T-17 で作成済み**（予定の T-23 より早く。エントリー画面の「その他の通貨ペア」〔design 14.1.6〕で必要になり、「選ぶだけで閉じるシート」の形を先に作った）。開閉・フォーカスの戻し・背後のスクロール止めは `dialog.js` の `openModal` と共通。絞り込みシートは T-23 で、この部品に「すべて解除」と下部の主要ボタンを足して使う | ui/dom, ui/dialog | T-17, T-23 |
+| `js/ui/sheet.js` | ボトムシート（design 9.8）：`openSheet({ title, cancelLabel, content })`。**T-17 で作成済み**（予定の T-23 より早く。エントリー画面の「その他の通貨ペア」〔design 14.1.6〕で必要になり、「選ぶだけで閉じるシート」の形を先に作った）。開閉・フォーカスの戻し・背後のスクロール止めは `dialog.js` の `openModal` と共通。**T-23 で拡張済み**（上部右 `headerRight` と下部固定 `footer` を足せる。従来の呼び方もそのまま使える）。絞り込みシートは `ui/filter-sheet.js`、絞り込みボタンと適用中のチップは `ui/filter-chips.js`。`ui/dialog.js` に `closeOpenDialog()` を追加（一覧を離れたときにシートが残らないようにする） | ui/dom, ui/dialog | T-17, T-23 |
 | `js/ui/pair-chooser.js` | 「その他の通貨ペア」のボトムシート `choosePair(favorites, selected)`（design 14.1.6）。エントリー画面と編集画面で共用（T-22 で `entry.js` から移した。中身は変えていない） | ui/dom, ui/icons, ui/sheet, master | T-17, T-22 |
 | `js/ui/tag-picker.js` | タグの選択と「＋追加」の部品 `tagPicker()`。追加した名前は設定のタグの選択肢にも加える（名前のチェックは `choice-list.js`）。エントリー・決済・編集の3画面で共用 | ui/dom, ui/icons, ui/fields, ui/parts, ui/dialog, settings-store, choice-list, config, util | T-18 |
 | `js/ui/sortable.js` | ≡ をドラッグして行を並べ替える部品 `attachDragSort()`（2つのグループをまたげる・↑↓キー・端に近づくと自動スクロール）。並べ替えの保存は呼び出し側。行き先の計算は `choice-list.js` の `dropIndex` | choice-list | T-16 |
@@ -1009,7 +1009,7 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 
 - テストIDは資料ごとの番号なので、**テストページでは分類名を付けて表示**する（例：「セッション S-01」「通貨ペア P-01」）。セッションの S-xx は画面ID（S-01 一覧など）とは無関係。analytics の期間テストは fx-rules の P-xx と重ならないよう D-xx に改番済み。
 - テストページの表示：各ケースの分類・ID・期待値・実際の値・合否を表にし、最上部に「全N件中N件合格」のように集計を出す。不合格の行は赤字＋「×」（色だけに頼らない）。
-- **現在の件数（2026-10-16・T-22 完了時点）**：**Node.js 383件**、**ブラウザのテストページ 439件**（Node 383件＋ブラウザだけで動かす保存処理 37件・設定の保存 19件＝56件）。すべて合格。Node 383件の内訳は、計算 58・入力チェック 32・通貨ペア 35・セッション 44（ここまでの169件が fx-rules 9・10.8・11.8・14.1 の資料由来。T-18 の Y-08〜Y-13 を含む）、日時 15、表示の整形 18、一覧 25、詳細画面 30、決済画面 28、エントリー画面 36、編集・削除 27、選択肢の編集 35（`node tests/run-node.mjs` の分類名と同じ）。今後の増加：一覧の絞り込み 38件（T-23）、リリース確認（T-28）。
+- **現在の件数（2026-10-16・T-23 完了時点）**：**Node.js 443件**、**ブラウザのテストページ 499件**（Node 443件＋ブラウザだけで動かす保存処理 37件・設定の保存 19件＝56件）。すべて合格。Node 383件の内訳は、計算 58・入力チェック 32・通貨ペア 35・セッション 44（ここまでの169件が fx-rules 9・10.8・11.8・14.1 の資料由来。T-18 の Y-08〜Y-13 を含む）、日時 15、表示の整形 18、一覧・絞り込み 85（T-23 で analytics 4.11 の L・D・N 38件と条件の扱い LF 22件を追加）、詳細画面 30、決済画面 28、エントリー画面 36、編集・削除 27、選択肢の編集 35（`node tests/run-node.mjs` の分類名と同じ）。今後の増加：リリース確認（T-28）。
 - 件数は実装のたびに増えるので、正しい数は `node tests/run-node.mjs` の最後の行（「全N件中N件合格」）とテストページの最上部で確かめる。
 - 共通部品の確認用ページ（`tests/components.html`：4.2）は目で確かめるページで、上の件数には入らない。
 - テストケースのデータ（`tests/cases.js`）は fx-rules.md 9・10.8・11.8・14.1 章と analytics.md 4.11 を書き写す。元の資料が更新されたら `cases.js` も更新する（計算・通貨ペア・セッションは T-14 で fx-expert が照合。一覧のテストは T-23 の完了条件）。
@@ -1214,8 +1214,8 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 
 | 方法 | 手順 |
 |---|---|
-| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-16 の T-22 完了時点で439件） |
-| Node.js | 上のフォルダで `node tests/run-node.mjs`（383件。IndexedDB・localStorage を使うテスト 56件はスキップ） |
+| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-16 の T-23 完了時点で499件） |
+| Node.js | 上のフォルダで `node tests/run-node.mjs`（443件。IndexedDB・localStorage を使うテスト 56件はスキップ） |
 | 共通部品の確認 | `http://localhost:8000/tests/components.html`（テストページの上部のリンクからも開ける）。ライト/ダークを切り替えて見た目を確かめる |
 
 ---
