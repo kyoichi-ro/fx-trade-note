@@ -108,10 +108,70 @@
 }
 
 /* =========================================================
-   S-01 一覧（T-17 の時点は、入力途中のお知らせ行と件数の行だけ）
+   S-01 一覧（T-17：お知らせ行。T-19：サマリー・グループの見出し・続き読み込み）
    ========================================================= */
 .list-notices.notice-list {
   margin-top: var(--sp-2);
+}
+
+/* 全体の件数「11件」（デモと本番が混在のときだけ、サマリーの上に出す：design 14.3.6） */
+.list-count {
+  margin: 0 var(--sp-4) var(--sp-2);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+/* サマリーの1行：1行目＝［口座］合計損益、2行目＝件数と合計 pips。数値は右揃え（design 14.3.6） */
+.summary-row {
+  padding: var(--sp-3) var(--sp-4);
+}
+.summary-row__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.summary-row__line--sub {
+  margin-top: 2px;
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+/* 混在のときは2行とも主役にしないよう、トレード行と同じ 17px・600 */
+.summary-row__amount {
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+  text-align: right;
+}
+/* 1口座だけのときは合計損益を大きく（22px・700） */
+.summary-row--single .summary-row__amount {
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+.summary-row__pips {
+  text-align: right;
+}
+
+/* グループ（保有中・決済日ごと）：一覧では日付の見出しの間を少し詰めて、1画面に多くの行が見えるようにする */
+.trade-list .trade-group {
+  margin-bottom: var(--sp-4);
+}
+/* 決済日の見出し：左に日付、右に日計（1口座のときだけ。13px・600） */
+.trade-group .list-group__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.trade-group__total {
+  flex-shrink: 0;
+  font-weight: var(--fw-semibold);
+}
+
+/* 一覧の下端の「続きを読み込み中」（回転アイコン）。最後まで描いたら取り除く */
+.list-more {
+  padding: var(--sp-4) 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

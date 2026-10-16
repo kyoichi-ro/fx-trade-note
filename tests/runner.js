@@ -19,6 +19,8 @@ import { collectPairTests } from './pairs.test.js';
 import { collectDbTests } from './db.test.js';
 import { collectSettingsStoreTests } from './settings-store.test.js';
 import { collectDatetimeTests } from './datetime.test.js';
+import { collectFormatTests } from './format.test.js';
+import { collectFilterTests } from './filter.test.js';
 
 /** すべてのテストの定義を、表示する順番（architecture 13.2 の表の順）で集める */
 export function collectAllTests() {
@@ -30,6 +32,8 @@ export function collectAllTests() {
     ...collectDbTests(),       // 保存処理（DB・SV）※ブラウザのみ
     ...collectSettingsStoreTests(), // 設定の保存（ST）※ブラウザのみ（T-15）
     ...collectDatetimeTests(), // 日時（DT）15件（T-17。architecture 13.2「日時」・13.3 #4）。Node.js でも実行する
+    ...collectFormatTests(),   // 表示の整形（FM）15件（T-19。円・pips・ロット・日時の表示：design 6.3）。Node.js でも実行する
+    ...collectFilterTests(),   // 一覧の集計（LV）25件（T-19。並び順・日付見出し・サマリー・日計・続き読み込み：analytics 4.6・4.7・4.11）。Node.js でも実行する
   ];
 }
 

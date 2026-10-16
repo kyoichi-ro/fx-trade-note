@@ -29,7 +29,8 @@ import { PAIR_MASTER, getPairSpec } from '../master.js';
 import { parsePrice, parseLots, isOutOfPriceRange, isLargeQuantity, normalizeNumberText } from '../validate.js';
 import { saveNewTrade } from '../trades.js';
 import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } from '../drafts.js';
-import { nowInputValue, fromInputValue, jstParts } from '../datetime.js';
+import { nowInputValue, fromInputValue } from '../datetime.js';
+import { formatDraftTime } from '../format.js';
 import { newId, isAppError } from '../util.js';
 
 /** 新規エントリーの下書きキー（drafts.js の約束：'new'） */
@@ -86,14 +87,10 @@ function fieldsFromDraft(draft, defaults) {
   return out;
 }
 
-/** 「21:32 の下書き」（今日でなければ「10/14 21:32 の下書き」）：design 14.1.10 */
+/** 「21:32 の下書き」（今日でなければ「10/14 21:32 の下書き」）：design 14.1.10。時刻の書き方は format.js にまとめている */
 function draftTimeText(updatedAt) {
-  const p = jstParts(updatedAt);
-  if (!p) return '';
-  const today = jstParts(new Date());
-  const time = `${p.hour}:${String(p.minute).padStart(2, '0')}`;
-  const sameDay = today && today.year === p.year && today.month === p.month && today.day === p.day;
-  return sameDay ? `${time} の下書き` : `${p.month}/${p.day} ${time} の下書き`;
+  const time = formatDraftTime(updatedAt);
+  return time ? `${time} の下書き` : '';
 }
 
 /** 価格の見本：JPYペア「0.000」、非JPYペア「0.00000」（入力できる桁数に合わせる：design 14.1.5） */

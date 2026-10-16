@@ -868,6 +868,133 @@ body:has(.fab) #toast-area {
 }
 
 /* =========================================================
+   利益/損失/ゼロの色（design 5.1・6.3）
+   必ず「＋」「−」「±」の記号と一緒に使う（色だけで伝えない）。値がない「—」は灰色（none）
+   ========================================================= */
+.tone-profit {
+  color: var(--color-profit);
+}
+.tone-loss {
+  color: var(--color-loss);
+}
+.tone-even,
+.tone-none {
+  color: var(--color-even);
+}
+
+/* =========================================================
+   トレード行（design 9.12・14.3.4。一覧の1件）
+   行のカード・影は使わず、行の間はヘアライン（.list-group__body の仕組みを使う）。
+   全体のリンク（詳細へ）と右端の［決済］は別のリンクにして、押せる範囲を重ねない（design 8.1）
+   ========================================================= */
+.trade-row {
+  display: flex;
+  align-items: center;
+}
+
+/* 行全体が詳細へのリンク。上下 12px の余白で、2行で約 60px の高さになる */
+.trade-row__link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--color-text);
+}
+.trade-row__link:active {
+  background: var(--color-fill);
+}
+/* 保有中の行は右に［決済］が続くので、リンクの右側の余白は小さくする（2行目の日時・ロット・価格を1行に収めるため。
+   収まらないときは価格が3行目に折り返す：design 14.3.4） */
+.trade-row--open .trade-row__link {
+  padding-right: var(--sp-1);
+}
+
+.trade-row__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.trade-row__line--sub {
+  align-items: baseline;
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
+}
+
+/* 1行目の左：［本番］USD/JPY ▲買い。幅が足りなければ折り返す（省略記号で切らない） */
+.trade-row__title {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--sp-2);
+  font-size: var(--fs-headline);
+  line-height: 1.3; /* design 6.2：headline の行の高さ */
+}
+.trade-row__pair {
+  font-weight: var(--fw-semibold);
+}
+/* 一覧の売買方向は 15px の文字だけ（色の塗りは付けない：design 9.5・14.3.4） */
+.trade-row .badge--buy,
+.trade-row .badge--sell {
+  height: auto;
+  font-size: var(--fs-subhead);
+}
+
+/* 損益（円）：17px・600。右端にそろえる */
+.trade-row__amount {
+  flex-shrink: 0;
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+  text-align: right;
+}
+.trade-row__pips {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* 2行目の左：日時・ロット・価格。項目ごとに折り返し、1項目の途中では切らない。
+   間隔は gap で取る（margin だと最後の項目の右にも余白が残り、1行に収まるのに折り返してしまうため） */
+.trade-row__meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--sp-2);
+}
+.trade-row__meta-item {
+  white-space: nowrap;
+}
+
+/* ［決済］：見た目は高さ 32px・幅 64px 以上の副ボタン型、押せる範囲は行の高さいっぱい（44px 以上）。
+   押せる範囲（<a>）と見た目（中の span）を分けているのは、見た目を小さく保ったまま指で押しやすくするため */
+.trade-row__action {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--sp-4) 0 var(--sp-1);
+}
+.trade-row__action-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--row-button-min-w);
+  height: var(--row-button-h);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  color: var(--color-accent);
+  font-size: var(--fs-subhead);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+}
+.trade-row__action:active .trade-row__action-label {
+  opacity: var(--opacity-pressed);
+}
+
+/* =========================================================
    ＋新規エントリーボタン（design 9.10）
    右下・タブバーの上 16px に浮かぶカプセル型。平らな塗り＋細く小さい影だけ（大きなぼかし影は使わない）。
    PC では画面の右端ではなく、中身の列（560px）の右端に合わせる。

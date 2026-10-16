@@ -23,6 +23,9 @@ const CATEGORY_INFO = {
     + '本物の設定（fxnote:）には触れず、テスト用の接頭辞（fxnote-test:）で読み書きして、終わったら消す',
   '日時': 'architecture 6.6・13.2「日時」・13.3 #4（DT＝datetime.js）。保存形式の生成・入力欄（datetime-local）との変換・'
     + '端末のタイムゾーンが日本以外でも日本時間になること',
+  '表示の整形': 'design 6.3・14.3.4・14.3.8（FM＝format.js）。円（＋2,500円・−1,885円・±0円）・pips・ロット・日時・下書きの時刻の表示',
+  '一覧': 'analytics 4.6・4.7・4.11、design 14.3.4〜14.3.6（LV＝filter.js）。並び順・決済日の見出し・本番/デモ別のサマリー・日計・'
+    + '「最初の約50件→続き」の切り出し。絞り込み条件つきの L-02〜L-27 は T-23 で足す',
 };
 
 function renderSummary(el, { total, passed, failed }) {

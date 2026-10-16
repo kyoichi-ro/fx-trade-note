@@ -44,4 +44,7 @@ export const IMAGE_MAX_BYTES = 250 * 1024;
 export const DRAFT_RESTORE_MINUTES = 30;
 export const LIST_FILTER_RESTORE_MINUTES = 30;
 
+/** 一覧で最初に描く行数と、下までスクロールするたびに足す行数（analytics 4.9 #5。重ければ T-31 の計測で調整する） */
+export const LIST_PAGE_SIZE = 50;
+
 // Chart.js の URL（バージョン完全固定）は Phase 3 の T-55 着手時に決めてここに書く（architecture.md 16.1）。
