@@ -52,7 +52,7 @@ import {
 } from '../close-form.js';
 import {
   EDIT_DISCARD_TITLE, EDIT_SAVED_TOAST, LOT_UNIT_NOTE, editFieldsFromTrade, fieldsFromEditDraft, cloneEditFields, isEditChanged,
-  isSameTradeContent, evaluateEdit, buildEditedTrade, rebaseEditFields,
+  isSameTradeContent, evaluateEdit, buildEditedTrade, rebaseEditFields, rateAfterPairChange, hasCloseChanges,
 } from '../edit-form.js';
 
 /** 今表示しているこの画面の操作の係（unmount・hasUnsavedChanges から使う） */
@@ -151,6 +151,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   const shown = new Set();   // エラー・警告の文を出してよい欄（欄から離れた・保存を押した欄：design 14.1.8）
   let signTapUntil = 0;      // この時刻までは、金額欄が空で外れても自動計算に戻さない（＋/− 切替を押している最中）
   let renderedKey = '';      // 損益グループに今並べている行の種類（変わったときだけ並べ直す）
+  let rateReset = false;     // 通貨ペアを変えて決済通貨が変わったので、円換算レート欄を空にした（入れ直しの案内を出す）
 
   const isChanged = () => isEditChanged(initial, fields);
   const evaluate = () => evaluateEdit(base, fields, calcCtx);
@@ -416,7 +417,9 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     rate.row.hidden = jpy;
     const quote = fields.pair && !jpy ? getPairSpec(fields.pair).quoteToJpyPair : null;
     rateLabel.textContent = quote ? `円換算レート ${quote}` : '円換算レート';
-    exitNote.textContent = jpy ? '' : `決済時点の${quote}を入れると損益（円）を自動計算します。空欄なら確定損益を入力してください。`;
+    const guide = `決済時点の${quote}を入れると損益（円）を自動計算します。空欄なら確定損益を入力してください。`;
+    // 通貨ペアを変えて決済通貨が変わったときは、古いレートを消したことを中立な文で伝える（レートを入れ直す案内。評価・助言はしない）
+    exitNote.textContent = jpy ? '' : (rateReset && fields.quoteToJpyRate === '' ? `通貨ペアを変えたので、円換算レートを入れ直してください。${guide}` : guide);
     exitNote.hidden = jpy;
     exitPrice.input.setAttribute('enterkeyhint', jpy ? 'done' : 'next');
   }
@@ -515,6 +518,12 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   }
 
   function onPairChange(pair) {
+    // 決済通貨が変わるときは円換算レート欄を空にする（古いレートは別の通貨のレートになり、損益（円）が誤るため。fx-rules 4.5）。
+    // 決済通貨が同じペア同士なら残し、記録を開いたときのペアに戻したら記録のレートに戻す。手入力の損益は変わらない
+    const prevRate = fields.quoteToJpyRate;
+    fields.quoteToJpyRate = rateAfterPairChange(initial, fields, pair);
+    rateReset = fields.quoteToJpyRate === '' && prevRate !== '';
+    rate.input.value = fields.quoteToJpyRate;
     fields.pair = pair;
     renderPair();
     // 入力済みの価格の桁数を新しいペアの上限でその場で再チェックする（design 14.1.8）
@@ -721,6 +730,16 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     if (!latest || latest.deletedAt != null) {
       await discardAll();
       renderMissing(root, nav);
+      return;
+    }
+    // 別の画面で決済が取り消され（最新が保有中）、自分が決済の項目を直しているときは、重ねる先がなく黙って落ちてしまう。
+    // 保存せず知らせる（入力内容と下書きは残す）
+    if (judgeStatus(latest) !== 'closed' && hasCloseChanges(initial, fields)) {
+      setSaving(false);
+      await showAlert({
+        title: '反映できませんでした',
+        message: '最新の記録は決済が取り消されて保有中に戻っているため、決済の入力は反映できません。入力内容はこの画面に残っています。',
+      });
       return;
     }
     const merged = rebaseEditFields(initial, fields, editFieldsFromTrade(latest));

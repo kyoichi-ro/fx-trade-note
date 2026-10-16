@@ -370,13 +370,51 @@ export function buildEditedTrade(stored, fields, { getLotUnitSize }) {
 }
 
 /* ---------------------------------------------------------
+   通貨ペアを変えたときの円換算レート（fx-rules 4.5「編集で通貨ペアを変え、決済通貨が変わるとき」の推奨案）
+   --------------------------------------------------------- */
+
+/** 円換算ペア（決済通貨/JPY）。JPYペアは null（円換算レートを使わない）。通貨ペアが空・書式違いでも例外にしない */
+function quoteToJpyPairOf(pair) {
+  return pair ? getPairSpec(pair).quoteToJpyPair : null;
+}
+
+/**
+ * 通貨ペアを変えたあとの、円換算レート欄の値を決める。
+ * 円換算レートは「決済通貨/JPY」のレートなので、決済通貨が変わる（EUR/USD の USD/JPY → EUR/GBP の GBP/JPY など）と、
+ * 古い値は別の通貨のレートになり、そのまま自動計算に使うと損益（円）が誤る。そこで次のように決める：
+ *   ・円換算ペアが変わらない（EUR/USD → GBP/USD など、決済通貨が同じ）→ 今の値を残す
+ *   ・変わるが、記録を開いたときのペアの円換算ペアに戻った → 記録の値に戻す（押し間違いを元どおりにする。口座区分の 1lot と同じ考え方）
+ *   ・それ以外（決済通貨が変わる・JPYペアにした）→ 空にする。自動計算の記録は保存時に E-11 で入力を促す。
+ *     手入力（manual）の損益は円換算レートに関係なく変わらない
+ * JPYペア→非JPYペアも、前のペアが円換算ペアを持たないので「変わる」側（記録が JPY のときは元々空）。
+ * @param {{ pair: string, quoteToJpyRate: string }} initial 記録を開いたときの入力欄の値
+ * @param {{ pair: string, quoteToJpyRate: string }} prev 変える前の入力欄の値
+ * @param {string} nextPair 変えたあとの通貨ペア
+ * @returns {string}
+ */
+export function rateAfterPairChange(initial, prev, nextPair) {
+  const next = quoteToJpyPairOf(nextPair);
+  if (next === quoteToJpyPairOf(prev.pair)) return prev.quoteToJpyRate;
+  if (next !== null && next === quoteToJpyPairOf(initial.pair)) return initial.quoteToJpyRate;
+  return '';
+}
+
+/* ---------------------------------------------------------
    別の画面で先に記録が変更されたとき（architecture 6.12・15.1、trades.js の CONFLICT）
    --------------------------------------------------------- */
+
+/** 配列は選んだ順ではなく中身で比べる（isEditChanged と同じ。順番だけの違いは「変更」とみなさない） */
+function sameValue(a, b) {
+  const norm = (v) => (Array.isArray(v) ? JSON.stringify([...v].sort()) : JSON.stringify(v));
+  return norm(a) === norm(b);
+}
 
 /**
  * 「最新の記録に、自分が変えた項目だけを重ねる」ための入力欄の値を作る。
  * 編集を始めたときの値（initial）と今の値（mine）で違う項目だけを、最新の記録の値（latest）に上書きする。
  * 自分が触っていない項目は最新の記録の値のまま＝別の画面での変更を失わない。
+ * 通貨ペアを自分が変えていて円換算レートは触っていないときは、最新の記録のレートが別の通貨のものになるので、
+ * rateAfterPairChange で決め直す（最新のペアを「変える前」として扱う）。
  * @param {object} initial 編集を始めたときの入力欄の値
  * @param {object} mine 今の入力欄の値
  * @param {object} latest editFieldsFromTrade(最新の記録)
@@ -384,9 +422,19 @@ export function buildEditedTrade(stored, fields, { getLotUnitSize }) {
 export function rebaseEditFields(initial, mine, latest) {
   const out = cloneEditFields(latest);
   for (const k of EDIT_FIELD_KEYS) {
-    if (JSON.stringify(initial[k]) !== JSON.stringify(mine[k])) {
-      out[k] = Array.isArray(mine[k]) ? [...mine[k]] : mine[k];
-    }
+    if (!sameValue(initial[k], mine[k])) out[k] = Array.isArray(mine[k]) ? [...mine[k]] : mine[k];
+  }
+  if (sameValue(initial.quoteToJpyRate, mine.quoteToJpyRate) && out.pair !== latest.pair) {
+    out.quoteToJpyRate = rateAfterPairChange(latest, latest, out.pair);
   }
   return out;
+}
+
+/**
+ * 自分が決済の項目（決済価格・円換算レート・決済日時・損益の手入力・決済理由・決済時の感情）を変えているか。
+ * 別の画面で決済が取り消された（最新が保有中）とき、これらは重ねる先がなく黙って落ちるので、保存せず知らせるために使う。
+ */
+export function hasCloseChanges(initial, mine) {
+  return ['exitPrice', 'quoteToJpyRate', 'exitAt', 'exitReason', 'exitEmotion'].some((k) => initial[k] !== mine[k])
+    || manualKey(initial) !== manualKey(mine);
 }

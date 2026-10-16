@@ -12,7 +12,7 @@
    ========================================================= */
 import {
   editFieldsFromTrade, fieldsFromEditDraft, isEditChanged, isSameTradeContent, lotUnitSizeFor, editSaveLabel, describeLotUnit,
-  evaluateEdit, buildEditedTrade, rebaseEditFields, LOT_UNIT_NOTE, EDIT_FIELD_KEYS, cloneEditFields,
+  evaluateEdit, buildEditedTrade, rebaseEditFields, rateAfterPairChange, hasCloseChanges, LOT_UNIT_NOTE, EDIT_FIELD_KEYS, cloneEditFields,
 } from '../js/edit-form.js';
 import { nextSession } from '../js/entry-form.js';
 import { describeProfit } from '../js/close-form.js';
@@ -402,6 +402,70 @@ export function collectEditFormTests() {
           ['別の画面で変わった項目は最新', r.exitPrice === '150.4' && r.tags.join() === '別の画面', `${r.exitPrice}/${r.tags}`],
           ['何も触っていなければ最新そのもの', EDIT_FIELD_KEYS.every((k) => JSON.stringify(untouched[k]) === JSON.stringify(latest[k]))],
           ['配列は別のもの', r.tags !== latest.tags],
+        ]);
+      }),
+
+    t('ED-21', '通貨ペアを変えたときの円換算レート：決済通貨が変わるなら空にする（fx-rules 4.5 の推奨案）', 'EUR/USD（レート 149.85）を EUR/GBP／GBP/USD／USD/JPY に。戻す操作も',
+      'EUR/GBP（決済通貨 GBP）は空。GBP/USD（決済通貨 USD のまま）は残す。USD/JPY（JPYペア）は空。EUR/GBP から EUR/USD に戻したら記録のレート 149.85 に戻る。自分で入れたレートは、決済通貨が同じ間は残る',
+      () => {
+        const init = editFieldsFromTrade(closedEur());
+        const at = (prev, next) => rateAfterPairChange(init, prev, next);
+        const gbp = at(init, 'EUR/GBP');
+        const afterGbp = { ...init, pair: 'EUR/GBP', quoteToJpyRate: gbp };
+        return verdict([
+          ['EUR/USD → EUR/GBP は空', gbp === '', gbp],
+          ['EUR/USD → GBP/USD（決済通貨は同じ USD）は残す', at(init, 'GBP/USD') === '149.85', at(init, 'GBP/USD')],
+          ['EUR/USD → USD/JPY（JPYペア）は空', at(init, 'USD/JPY') === '', at(init, 'USD/JPY')],
+          ['EUR/GBP から EUR/USD に戻すと記録のレート', at(afterGbp, 'EUR/USD') === '149.85', at(afterGbp, 'EUR/USD')],
+          ['EUR/GBP で入れたレートも、決済通貨が変われば（EUR/CHF＝CHF）空', at({ ...afterGbp, quoteToJpyRate: '190.5' }, 'EUR/CHF') === '', at({ ...afterGbp, quoteToJpyRate: '190.5' }, 'EUR/CHF')],
+          ['決済通貨が同じ GBP の間は（EUR/GBP → AUD/GBP）入れたレートを残す', at({ ...afterGbp, quoteToJpyRate: '190.5' }, 'AUD/GBP') === '190.5', at({ ...afterGbp, quoteToJpyRate: '190.5' }, 'AUD/GBP')],
+          ['JPYの記録を非JPYにしても空（元から空）', rateAfterPairChange(editFieldsFromTrade(closedAuto()), editFieldsFromTrade(closedAuto()), 'EUR/USD') === ''],
+          ['JPY → 別の JPY ペアは何も起きない（空のまま）', rateAfterPairChange(editFieldsFromTrade(closedAuto()), editFieldsFromTrade(closedAuto()), 'EUR/JPY') === ''],
+        ]);
+      }),
+
+    t('ED-22', '通貨ペア変更後：自動計算の記録は E-11 で止まり、手入力の損益は変えない。保存でも古いレートは使われない', 'EUR/USD の決済済み（自動・3,746円）／手入力（−500円）を EUR/GBP に',
+      '自動：レート空・円は「—」・profitNeed の error。手入力：エラーなし・保存の profitJpy −500（manual）・quoteToJpyRate は null。レートを入れ直せば自動計算（GBP 建て）',
+      () => {
+        const change = (tr, extra = {}) => {
+          const f = editFieldsFromTrade(tr);
+          return { ...f, pair: 'EUR/GBP', quoteToJpyRate: rateAfterPairChange(f, f, 'EUR/GBP'), ...extra };
+        };
+        const auto = evaluateEdit(closedEur(), change(closedEur()), ctx);
+        const manualTr = closedEur({ profitJpy: -500, profitSource: 'manual' });
+        const manual = evaluateEdit(manualTr, change(manualTr), ctx);
+        const built = buildEditedTrade(manualTr, change(manualTr), ctx);
+        const reentered = buildEditedTrade(closedEur(), change(closedEur(), { quoteToJpyRate: '190.456' }), ctx);
+        return verdict([
+          ['自動：レートは空', change(closedEur()).quoteToJpyRate === ''],
+          ['自動：E-11（profitNeed）', issueKeys(auto, 'error').includes('profitNeed/error'), issueKeys(auto).join()],
+          ['自動：円は計算されない', auto.close.profitJpy === null, auto.close.profitJpy],
+          ['手入力：エラーなし', !manual.hasError, issueKeys(manual).join()],
+          ['手入力：保存の損益は −500・manual・pips は価格から', built.profitJpy === -500 && built.profitSource === 'manual' && built.pair === 'EUR/GBP', `${built.profitJpy}/${built.profitSource}/${built.pair}`],
+          ['手入力：古いレートは保存されない', built.quoteToJpyRate === null, built.quoteToJpyRate],
+          ['レートを入れ直すと自動計算（25pips × 1lot × 1万 × 190.456 ÷ 10000 = 4,761円）', reentered.profitSource === 'auto' && reentered.quoteToJpyRate === 190.456 && reentered.profitJpy === 4761, `${reentered.profitJpy}/${reentered.quoteToJpyRate}`],
+        ]);
+      }),
+
+    t('ED-23', '別の画面で先に変更されたとき：決済の取り消しと衝突する入力は検出し、通貨ペア変更のレートも重ねで古くならない', '自分が決済価格を直した／決済は触っていない／通貨ペアだけ変えた／タグの順番だけ変えた',
+      '決済項目の変更ありを検出（手入力の金額も）。触っていなければ検出しない。ペアだけ変えると最新のレートは決済通貨が変わるなら空。タグの順番だけの違いは重ねない',
+      () => {
+        const init = editFieldsFromTrade(closedEur());
+        const mine = (over) => ({ ...cloneEditFields(init), ...over });
+        const latest = editFieldsFromTrade(closedEur({ quoteToJpyRate: 150.5, tags: ['a', 'b'], memo: '最新' }));
+        const swapped = rebaseEditFields(editFieldsFromTrade(closedEur({ tags: ['a', 'b'] })), mine({ tags: ['b', 'a'] }), latest);
+        const pairOnly = rebaseEditFields(init, mine({ pair: 'EUR/GBP', quoteToJpyRate: '' }), latest);
+        const pairKeepRate = rebaseEditFields(init, mine({ pair: 'GBP/USD' }), latest);
+        return verdict([
+          ['決済価格を変えた', hasCloseChanges(init, mine({ exitPrice: '1.09' })) === true],
+          ['手入力の金額を変えた', hasCloseChanges(init, mine({ profitMode: 'manual', manualAmount: '100' })) === true],
+          ['決済理由を変えた', hasCloseChanges(init, mine({ exitReason: 'sl' })) === true],
+          ['メモだけ変えた', hasCloseChanges(init, mine({ memo: 'x' })) === false],
+          ['確定損益を開いただけ（金額が空）', hasCloseChanges(init, mine({ profitMode: 'manual' })) === false],
+          ['タグの順番だけの違いは重ねない（最新の順番のまま）', swapped.tags.join() === 'a,b', swapped.tags.join()],
+          ['ペア変更＋レートを空にした → 重ねても空・ペアは自分の値', pairOnly.pair === 'EUR/GBP' && pairOnly.quoteToJpyRate === '', `${pairOnly.pair}/${pairOnly.quoteToJpyRate}`],
+          ['ペアだけ変えた（レートは触っていない）：最新のレート 150.5 は決済通貨が同じ GBP/USD なら残る', pairKeepRate.pair === 'GBP/USD' && pairKeepRate.quoteToJpyRate === '150.5', `${pairKeepRate.pair}/${pairKeepRate.quoteToJpyRate}`],
+          ['ペアだけ変えた（EUR/GBP）：最新のレートは使わず空', rebaseEditFields(init, mine({ pair: 'EUR/GBP' }), latest).quoteToJpyRate === ''],
         ]);
       }),
 
