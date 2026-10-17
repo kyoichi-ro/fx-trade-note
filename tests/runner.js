@@ -29,6 +29,7 @@ import { collectEditFormTests } from './edit-form.test.js';
 import { collectImageTests } from './images.test.js';
 import { collectCsvTests } from './csv.test.js';
 import { collectDataProtectionTests } from './data-protection.test.js';
+import { collectReleaseTests } from './release.test.js';
 
 /** すべてのテストの定義を、表示する順番（architecture 13.2 の表の順）で集める */
 export function collectAllTests() {
@@ -50,6 +51,7 @@ export function collectAllTests() {
     ...collectCsvTests(),        // CSVエクスポート（CS）T-25。BOM・列の見出しと順・エスケープ・配列の区切り・CSVインジェクション対策・論理削除の含める/除く・ファイル名・1000件・読み戻し・共有シートの使い分け：architecture 14.2・design 14.6.5。Node.js でも実行する
     ...collectDataProtectionTests(), // データ保護（DP）15件 T-29。ホーム画面版・iPhone の判定・お知らせ行を出す条件・今の状態の文言・永続化リクエスト（保護済みなら頼まない・1回の起動で1回）・データの保護の値と説明文・使用量の表示：architecture 12.5・design 14.3.8・14.6.1・14.6.2・14.6.6。Node.js でも実行する
     ...collectChoiceListTests(), // 選択肢の編集（CH）35件（T-16。名前のチェック・追加/削除/並び替え・通貨ペアの追加 E-12〜E-16・W-07・初期値の master.js への移動・保存の読み直し：design 14.6.3・14.6.4）。Node.js でも実行する
+    ...collectReleaseTests(),    // リリース確認（RL・SU）8件 T-28。sw.js と config.js のバージョンの一致・キャッシュの一覧（SHELL_FILES）の書き忘れ／消し忘れ・Service Worker を登録するかの判定と更新の確認の間隔：architecture 12章・13.2・18.4。Node.js でも実行する（ブラウザでは fetch でファイルを読む）
   ];
 }
 

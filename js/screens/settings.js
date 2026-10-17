@@ -15,8 +15,10 @@
    【T-29 で足した範囲】
    ・このアプリについて：データの保護（有効／ブラウザ任せ）・使用量と、説明文「記録はこの端末の中だけに保存されています。…」
      （判定と文言は js/data-protection.js。ホーム画面への追加方法の画面の中身は screens/install-guide.js）
+   【T-28 で足した範囲】
+   ・このアプリについて：新しい版が待機中のとき、「バージョン」の行の下に「新しいバージョンに更新」（アクセント色の文字）。
+     押すと一覧のお知らせ行の［更新］と同じ（js/sw-update.js の applyUpdate：切り替えて再読み込み）。design 14.6.1
    【まだ作らないもの（担当タスク）】
-   ・新しいバージョンに更新（バージョンの行の下）… T-28
    ・スプレッドシート同期 … Phase 2（T-40）
    ========================================================= */
 import { h } from '../ui/dom.js';
@@ -33,6 +35,8 @@ import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
 import { dataGroup } from './settings-data.js';
 import { readPersisted, readUsage, protectionLabel, protectionNote, formatUsage } from '../data-protection.js';
+import { isUpdateWaiting, applyUpdate, UPDATE_READY } from '../sw-update.js';
+import { on } from '../events.js';
 
 /**
  * E-07 の画面の文言（design 14.6.2。2026-10-16 オーナー決定）。
@@ -205,10 +209,18 @@ function aboutGroup() {
   usageRow.hidden = true;
   const note = h('p', {}, protectionNote(null));
 
+  // 新しいバージョンに更新：待機中の版があるときだけ見せる。設定を開いている間に見つかったときも出す（UPDATE_READY）。
+  // 設定の画面には入力途中の内容がない（値はその場で保存済み）ので、押したらすぐ再読み込みしてよい
+  const updateRow = h('button', { type: 'button', class: 'list-row action-row', onClick: () => applyUpdate() },
+    h('span', { class: 'list-row__label' }, '新しいバージョンに更新'));
+  updateRow.hidden = !isUpdateWaiting();
+  const stopUpdateWatch = on(UPDATE_READY, () => { updateRow.hidden = false; });
+
   const group = listGroup({
     header: 'このアプリについて',
     rows: [
       listRow({ label: 'バージョン', value: APP_VERSION, numeric: true }),
+      updateRow,
       protectionRow,
       usageRow,
       listRow({ label: 'ホーム画面への追加方法', href: '#/settings/install' }),
@@ -233,6 +245,7 @@ function aboutGroup() {
     group,
     dispose() {
       alive = false;
+      stopUpdateWatch();
     },
   };
 }

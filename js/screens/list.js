@@ -31,6 +31,9 @@
    【T-29】お知らせ行「ホーム画面に追加すると、データが消えにくくなります［方法］」（design 14.3.8 の優先4）。
      iPhone・iPad をホーム画面版でなくブラウザで開いているときだけ出す（判定は js/data-protection.js）。［方法］→ #/settings/install。
      × は「次に起動するまで出さない」。
+   【T-28】お知らせ行「新しいバージョンがあります［更新］」（design 14.3.8 の優先3）。新しい版が待機中のときだけ出す
+     （判定と切り替えは js/sw-update.js）。［更新］→ 新しい版に切り替えて再読み込み。× は「次に起動するまで出さない」。
+     一覧には入力中の内容がないので、ここから再読み込みしても入力は消えない（入力画面では出さない）。
    詳細・決済画面は T-20・T-21。
    集計・並び順・日付のまとめは js/filter.js（画面に依存しない純粋な関数）、文字の整形は js/format.js。
    ========================================================= */
@@ -57,12 +60,16 @@ import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, forma
 import { LIST_PAGE_SIZE } from '../config.js';
 import { takeRowFlash, requestRowFlash, FLASH_DURATION_MS } from '../row-flash.js';
 import { isIos, isStandalone, shouldShowInstallNotice, INSTALL_NOTICE } from '../data-protection.js';
+import { isUpdateWaiting, applyUpdate, UPDATE_READY } from '../sw-update.js';
 
 /** お知らせ行を × で閉じたか（次に起動するまで出さない：design 14.3.8。アプリを開き直すと元に戻る） */
 let draftNoticeClosed = false;
 
 /** 「ホーム画面に追加すると、データが消えにくくなります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
 let installNoticeClosed = false;
+
+/** 「新しいバージョンがあります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
+let updateNoticeClosed = false;
 
 /**
  * 一覧を離れたときのスクロール位置と、そこまでに描いていた行数。
@@ -461,7 +468,7 @@ function renderList(ctx, trades, position) {
 
 /**
  * お知らせ行を並べ直す。優先順は 読み込みエラー → 元の記録が変わったため破棄した下書きの知らせ → 入力途中の下書き
- * → ホーム画面に未追加（design 14.3.8。同時に最大2行。破棄の知らせは一度きりの知らせなので、続きを開ける案内より先に出す）。
+ * → 新しいバージョン → ホーム画面に未追加（design 14.3.8。同時に最大2行。破棄の知らせは一度きりの知らせなので、続きを開ける案内より先に出す）。
  * 入力途中の下書きの文言は draft-notice.js の buildDraftNotice（1件＝［続ける］、2件以上＝［選ぶ］）。
  */
 function refreshNotices(ctx) {
@@ -495,7 +502,15 @@ function refreshNotices(ctx) {
       onClose: () => { draftNoticeClosed = true; refreshNotices(ctx); },
     });
   }
-  // （優先3「新しいバージョンがあります［更新］」は T-28 で、この位置に足す）
+  // 優先3：新しい版が待機中（js/sw-update.js）。［更新］で切り替えて再読み込み（architecture 12.3）
+  if (!updateNoticeClosed && isUpdateWaiting()) {
+    items.push({
+      iconName: 'sync',
+      text: '新しいバージョンがあります',
+      action: { label: '更新', onClick: () => applyUpdate() },
+      onClose: () => { updateNoticeClosed = true; refreshNotices(ctx); },
+    });
+  }
   // 優先4：iPhone をホーム画面版でなくブラウザで開いている（7日間使わないと記録が消えることがある：architecture 12.5）。
   // 判定は data-protection.js。× は「次に起動するまで出さない」（design 14.3.8）
   if (shouldShowInstallNotice({ ios: isIos(), standalone: isStandalone(), dismissed: installNoticeClosed })) {
@@ -662,7 +677,7 @@ export default {
       filter: getCurrentFilter(), trades: null, sheetOpen: false,
       view: null, entries: [], next: 0, shownRows: 0, now: new Date(),
       listEl: null, body: null, sentinel: null, observer: null,
-      stopWatching: null, onVisible: null,
+      stopWatching: null, stopUpdateWatch: null, onVisible: null,
     };
     current = ctx;
     syncFilterUi(ctx); // 記録を読み込む前から、復元した条件のチップを出しておく（読み込み後に急に現れて内容が動かないように）
@@ -674,6 +689,9 @@ export default {
     ctx.stopWatching = on(TRADES_CHANGED, () => {
       load(ctx, ctx.ready ? { scrollY: window.scrollY, rows: ctx.shownRows } : savedPosition);
     });
+
+    // 一覧を開いている間に新しい版が待機中になったら、お知らせ行を出し直す
+    ctx.stopUpdateWatch = on(UPDATE_READY, () => { if (ctx.alive) refreshNotices(ctx); });
 
     // 読み込みは待たずに画面を出す（DB が開くのを待っている間も画面が真っ白にならないように）
     load(ctx, savedPosition);
@@ -689,6 +707,7 @@ export default {
     ctx.alive = false;
     if (ctx.observer) ctx.observer.disconnect();
     if (ctx.stopWatching) ctx.stopWatching();
+    if (ctx.stopUpdateWatch) ctx.stopUpdateWatch();
     document.removeEventListener('visibilitychange', ctx.onVisible);
     if (ctx.sheetOpen) closeOpenDialog(); // 絞り込みシートが開いたまま次の画面に残らないように
   },

@@ -12,7 +12,7 @@
      ⑦ 下書きの確認（30分以内なら入力画面を自動で開く） ← T-17（drafts.js）
      ⑧ ルーター開始                 ← T-10
      ⑨ 孤立画像の掃除（画面の表示が終わったあと） ← T-24（images.js の sweepOrphans：architecture 11.6）
-   いまは ①・②・③・④・⑥・⑦・⑧・⑨ を行う（⑤ は T-28）。他の処理は各タスクで、この順番どおりに足していく。
+   ①〜⑨ をすべて行う（⑤ は T-28 で追加）。
    T-11：お知らせ行を共通部品 ui/notice.js（#notice-area に出す showAppNotice）に置き換えた（design 9.16）。
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
    T-17：⑦ 下書きの確認を追加（30分以内の新規エントリーの下書きがあれば、一覧 → 入力画面の順に履歴を作って入力画面を開く）。
@@ -21,6 +21,7 @@
    T-22：⑦ に編集の下書きも加えた。決済・編集の下書きは、対象の記録を見て judgeDraftTarget（draft-notice.js）で判定する
    （対象が無い・削除済み・決済済みの決済 → 黙って消す／元の記録が下書きのあとに変わっていた → 自動では開かず、消さずに一覧のお知らせ行へ任せる）。
    T-29：⑥ 永続化リクエストを追加（記録が1件以上あるときだけ。画面の表示を始めたあとに行う）。
+   T-28：⑤ Service Worker の登録を追加（中身は sw-update.js。localhost では ?sw=1 のときだけ登録：architecture 18.4）。
    ========================================================= */
 import { startRouter } from './router.js';
 import { openDb, setHandlers } from './db.js';
@@ -33,6 +34,7 @@ import { getTrade, getAllTrades } from './trades.js';
 import { requestPersistenceOnce } from './data-protection.js';
 import { judgeDraftTarget, draftTargetHash } from './draft-notice.js';
 import { sweepOrphans } from './images.js';
+import { startServiceWorker } from './sw-update.js';
 
 /**
  * アプリ全体の問題を、画面上部の #notice-area にお知らせ行として出す（architecture 4.5・15.1、design 9.16）。
@@ -72,6 +74,15 @@ function showUnexpectedErrorNotice() {
 }
 
 /**
+ * 別の画面（タブ）でアプリが新しい版になったとき（DB の版が上がった／Service Worker が切り替わった）。
+ * どちらも同じ文言なので、同じ種類のお知らせとして1行だけ出す（両方が同時に起きても2行にしない）。
+ * この画面を勝手に再読み込みしないのは、入力の途中かもしれないため（再読み込みは利用者がボタンで行う）。
+ */
+function showUpdatedElsewhere() {
+  showAppProblem('updated-elsewhere', 'アプリが別の画面で更新されました。再読み込みしてください。', '再読み込み');
+}
+
+/**
  * ② DB を開く（architecture 6.10・6.11・15.1）。
  * ・開けない（DB_OPEN）・古いアプリで新しい DB を開いた（VERSION）は、消えないお知らせ行で知らせる。
  * ・他の画面が古い版の DB を開いたまま（onBlocked）、他の画面で新しい版が開かれた（onVersionChange）ときも知らせる。
@@ -81,7 +92,7 @@ function showUnexpectedErrorNotice() {
 function openDatabase() {
   setHandlers({
     onBlocked: () => showAppProblem('db-blocked', 'アプリを開いている他の画面を閉じてください。', null),
-    onVersionChange: () => showAppProblem('db-version-change', 'アプリが別の画面で更新されました。再読み込みしてください。', '再読み込み'),
+    onVersionChange: showUpdatedElsewhere,
   });
   openDb().catch((err) => {
     console.error('DB を開けませんでした', err);
@@ -208,6 +219,9 @@ async function main() {
   // ④ キーボード表示の監視（入力画面の下部の保存ボタンを隠す：design 8.4）と、Tab キー操作の判定（フォーカス枠）
   startKeyboardWatch();
   startInputModalityWatch();
+
+  // ⑤ Service Worker の登録（オフライン対応・新しい版の確認）。待たずに先へ進む（起動を遅らせない。失敗してもアプリは動く）
+  startServiceWorker({ onUpdatedElsewhere: showUpdatedElsewhere });
 
   // ⑦ 下書きの確認（30分以内なら入力画面を自動で開く）
   await openRecentDraft();
