@@ -2,11 +2,11 @@
 
 | 項目 | 内容 |
 |---|---|
-| 版 | v1.6（T-16〜T-22 の実装結果と申し送りを反映する資料のまとめ反映（2026-10-16）：4.1・4.2 に実装済みで未記載だったファイルを追記し `ui/sheet.js` の「未作成」を訂正、6.12 に `computeClose`・`closeTrade`・`reopenTrade`・`saveTrade` の `expectedUpdatedAt` を追記、9.3 に起動時の自動復元の細部、15.1 に `ALREADY_CLOSED`・`CONFLICT` を追記し `NOT_FOUND` の決済・編集画面での扱いを実態に訂正、13.2・18.6 のテスト件数を Node 383件・ブラウザ439件に、Phase 2 の注意（同期は `updatedAt` を変えない）を 3.3 に追記）。v1.5（T-15 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/theme.js`・`checkRows()` の追記、`setGroupMessages()` の出し方の変更、壊れた設定値を読むときに消さない方針（7.1）、根拠・感情・タグの初期値は T-16 で `master.js` へ移す、テスト件数を212件に更新）。v1.4（T-11 の実装結果と申し送りのオーナー決定（2026-10-16）を反映：`js/ui/` の部品ファイル・確認用ページをファイル構成に追記、`innerHTML` を一切使わない方針に変更、テスト件数を更新） |
+| 版 | v1.7（T-25・T-27・T-28・T-29 の実装結果と申し送りを反映する資料のまとめ反映〔2026-10-17〕。4.1・4.2・4.5・12.3・12.5・13.2・18.6・19.1） |
 | 作成日 | 2026-10-15 |
 | 作成 | engineer |
 | 対応タスク | T-08「技術設計（ファイル構成・IndexedDBスキーマ）」。T-10（プロジェクト雛形）の実装結果を v1.1、T-13（計算）を v1.2、T-12（保存処理）を v1.3、T-11（共通CSS・共通部品）を v1.4、T-15（設定画面①）を v1.5、T-16〜T-22（選択肢の編集・エントリー任意項目・一覧・詳細・決済・編集と削除）を v1.6 で反映 |
-| 前提 | `docs/requirements.md` v1.6（5章 機能、6章 データ項目、8章 非機能要件）、`docs/fx-rules.md` v1.9（4.5 再計算と空の値・通貨ペア変更時の円換算レート、6章 誤差対策・参照実装、8章 入力チェック、9章 テストケース、10章 通貨ペアマスタ、11章 セッション判定、14.1 追加テストケース）、`docs/analytics.md` v1.2（4章 一覧画面）、`docs/design.md` v1.10（4章 画面遷移・URL、8.4 キーボード、9章 部品、12章 CSS変数、14章 ワイヤーフレーム）、`docs/roadmap.md` v1.13（Phase 1） |
+| 前提 | `docs/requirements.md` v1.6（5章 機能、6章 データ項目、8章 非機能要件）、`docs/fx-rules.md` v1.9（4.5 再計算と空の値・通貨ペア変更時の円換算レート、6章 誤差対策・参照実装、8章 入力チェック、9章 テストケース、10章 通貨ペアマスタ、11章 セッション判定、14.1 追加テストケース）、`docs/analytics.md` v1.2（4章 一覧画面）、`docs/design.md` v1.11（4章 画面遷移・URL、8.4 キーボード、9章 部品、12章 CSS変数、14章 ワイヤーフレーム）、`docs/roadmap.md` v1.16（Phase 1） |
 | 主な読み手 | engineer（T-10〜T-29 の実装根拠）、reviewer（T-30・T-31 の確認基準）、sheets-integrator（Phase 2 の接続点）、pm（T-09 の整合チェック） |
 
 > **このドキュメントの位置づけ**
@@ -187,6 +187,8 @@ flowchart LR
 │   ├── row-flash.js        … 一覧に戻った直後の行の1秒ハイライトの受け渡し（画面をまたぐ変数）。T-21 で作成
 │   ├── deleted-toast.js    … 「削除しました［取り消す］」を一覧の表示後に出すための受け渡し（画面をまたぐ変数）。T-22 で作成
 │   ├── csv.js              … CSVエクスポート（Phase 2 でインポート）
+│   ├── data-protection.js  … データ保護の判定と文言（ホーム画面版か・iPhone/iPad か・永続化リクエスト・使用量の表示）。T-29 で作成
+│   ├── sw-update.js        … Service Worker の登録と「新しいバージョンがあります［更新］」の仕組み。T-28 で作成
 │   ├── sync.js             … （Phase 2）スプレッドシート同期
 │   ├── analytics.js        … （Phase 3）分析の集計
 │   ├── ui/
@@ -225,6 +227,8 @@ flowchart LR
 │   ├── cases.js            … fx-rules.md 9・10.8・11.8・14.1 章と analytics.md 4.11 のテストケース（データ）
 │   ├── calc.test.js / pairs.test.js / validate.test.js / datetime.test.js / format.test.js / filter.test.js
 │   ├── detail-view.test.js / entry-form.test.js / close-form.test.js / edit-form.test.js / choice-list.test.js … 画面に依存しない関数のテスト（T-16〜T-22）
+│   ├── data-protection.test.js … データ保護の判定・文言のテスト（T-29。env を差し替えて iPhone／ホーム画面版／古いブラウザを再現するので Node.js でも実行できる）
+│   ├── release.test.js     … 「リリース確認」のテスト（T-28。`config.js` と `sw.js` の `APP_VERSION` の一致、`SHELL_FILES` の書き忘れ・消し忘れなど8件）
 │   ├── settings-store.test.js … 設定の保存のテスト（ブラウザのテストページだけで実行。Node.js には localStorage がない）
 │   ├── db.test.js          … 保存処理のテスト（T-12。ブラウザのテストページだけで実行：13.2）
 │   ├── helpers.js / test-page.js / tests.css … テストページの道具・表示（T-13・T-12）
@@ -277,6 +281,8 @@ flowchart LR
 | `js/row-flash.js` | 一覧に戻った直後の行の1秒ハイライトの受け渡し：入力画面が `requestRowFlash(id)` で預け、一覧が表示を終えたところで `takeRowFlash()` で受け取る（アプリの中の変数で渡す。URL に入れない。預けて4秒を過ぎたものは受け取れない）。決済・編集の保存、削除の取り消しで使う。DOM に触れない | なし | T-21 |
 | `js/deleted-toast.js` | 「削除しました［取り消す］」のトーストを一覧の表示後に出すための受け渡し（`requestDeletedToast`／`takeDeletedToast`。`row-flash.js` と同じ作り。預けて5秒を過ぎたものは受け取れない）。`ui/toast.js` は「取り消す」付きのトーストを画面を移ったときに消すため、詳細画面で先に出せない。DOM に触れない | なし | T-22 |
 | `js/csv.js` | CSV の作成（BOM付きUTF-8。列・エスケープ・配列の区切り・CSVインジェクション対策＝14.2）と保存（iPhone は共有シート経由、PC はダウンロード：17章 #17）。**DB や画面には触れない純粋な関数中心**で（記録の読み込みは画面側が `trades.js` で行って渡す）、Node.js のテストで1000件まで確かめられる（`tests/csv.test.js`）。**T-25 で作成済み**。`settings-store.js` は使わず（`lastExportAt` の記録は画面側）、依存は `db`（項目名 `TRADE_KEYS` だけ）・`datetime`・`format`。Phase 2 の T-44 は、ここに取り込み側（`unguardFormula`・`splitList` の約束は用意済み）を足す | db, datetime, format | T-25 |
+| `js/data-protection.js` | データ保護まわりの判定と文言（T-29）：ホーム画面版か（`navigator.standalone`／`display-mode: standalone`）・iPhone／iPad か・一覧のお知らせ行「ホーム画面に追加すると…［方法］」を出すか・永続化リクエスト（12.5）とその結果の表示（「有効」／「ブラウザ任せ」）・使用量の表示（1 MB＝1,000,000 バイト）。ブラウザの機能は引数 `env` で差し替えられ、Node.js のテストでも再現できる。画面（`list.js`・`settings.js`・`install-guide.js`）は結果を表示するだけ | なし | T-29 |
+| `js/sw-update.js` | Service Worker の登録（開発中は `?sw=1` のときだけ：18.4）と更新の仕組み（T-28）：前面に戻ったとき（1時間に1回まで）の更新確認、待機中の版を見つけたら通知 `UPDATE_READY`（events.js）、［更新］で `applyUpdate()` が切り替えを頼み、切り替わったら1回だけ再読み込み。判定だけの関数（`swMode`・`isUpdateCheckDue`）は Node.js でもテストできる | `js/events.js` | T-28 |
 | `js/ui/dom.js` | `h('div', {class:'x'}, '文字')` のように要素を作る道具。文字は必ず `textContent`（テキストノード）で入れる。`style` 属性・`javascript:` の URL・文字列のイベント属性は受け付けない。要素を空にする `clear()`（`innerHTML = ''` の代わり）、読み上げ用の id を作る・付け外しする `uniqueId()`・`addIdRef()`・`removeIdRef()`（T-11 で追加） | なし | T-10（最低限の `h()`・`clear()`）、T-11 |
 | `js/ui/bars.js` | 画面の骨組みの部品：`largeTitle()`（型Aの大タイトル）、`navbar()`（型B・Cのナビゲーションバー）、`backButton()`（‹ 戻る。「‹」は線画アイコン）、`textButton()`（「キャンセル」「保存」）、`actionBar()`（下部操作バー）、`newEntryButton()`（S-01 の新規エントリーボタン。「＋」は線画アイコン：design 9.10）。見た目は `css/layout.css`・`css/components.css`（design 9章冒頭の表） | ui/dom, ui/icons | T-10 で追加、T-11 で線画アイコン化と `newEntryButton()` を追加 |
 | `js/ui/icons.js` | design 9.17 の線画アイコン。**形は線の座標のデータ（`path`・`circle`・`rect`）として持ち、`icon(name, { size, className, label })` が `createElementNS` で要素を1つずつ組み立てる**（`innerHTML` は使わない：14.1）。使えるアイコン名の一覧 `ICON_NAMES`。タブバー（`index.html`）のアイコンと同じ形 | なし | T-11 |
@@ -350,6 +356,8 @@ flowchart LR
   <title>FXトレードノート</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="FXノート">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -373,7 +381,8 @@ flowchart LR
 </html>
 ```
 
-- **T-10 の実装との違い**：`manifest.json` と `apple-touch-icon` の `<link>` は、ファイルがないうちに書くと毎回「見つからない（404）」エラーになるため、ファイルを置く T-27 で追加する。タブバーは画面の型が決まるまで `hidden` にしておく（入力画面を開いた瞬間にタブバーが一瞬見えるのを防ぐ）。タブのリンクには `data-nav="replace"` を付け、履歴を増やさない移動にする（5.3）。
+- **T-10 の実装との違い**：`manifest.json` と `apple-touch-icon` の `<link>` は、ファイルがないうちに書くと毎回「見つからない（404）」エラーになるため、ファイルを置く T-27 で追加した（2026-10-17 実装済み）。タブバーは画面の型が決まるまで `hidden` にしておく（入力画面を開いた瞬間にタブバーが一瞬見えるのを防ぐ）。タブのリンクには `data-nav="replace"` を付け、履歴を増やさない移動にする（5.3）。
+- **favicon と meta の決定（2026-10-17 オーナー決定・T-27 で実装済み）**：favicon（PC のタブに出る小さなアイコン）は `icons/icon-192.png` を流用し、`favicon.ico` は作らない（design 15.4）。`<meta name="mobile-web-app-capable" content="yes">` を `apple-mobile-web-app-capable` と並べて書く（新しい Chrome が前者だけを見て「非推奨」の警告を出すため、標準名も併記）。ステータスバーは `black-translucent` で確定（design 8.3）。マスター SVG はリポジトリに置かない（正本は design 15.3）。
 - `#notice-area` は**アプリ全体の問題**（予期しない問題・`DB_OPEN`・`VERSION`）専用。S-01 の下書き・新しいバージョンなどのお知らせは各画面の中に出す（design 9.16）。
 - CSS は `@import` を使わず `<link>` を並べる（`@import` は順番待ちで読み込みが遅くなるため）。
 - ホーム画面のアイコン名（`apple-mobile-web-app-title`）はアイコンの下に表示される短い名前。正式名は「FXトレードノート」、短い名前は「FXノート」で確定（2026-10-16、design 15章）。
@@ -929,7 +938,8 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 ② アプリ起動時・前面に戻ったとき（1時間に1回まで）に registration.update() で新しい sw.js を確認
 ③ 新しい sw.js がインストール（新しいキャッシュを作成）→「待機中」になる
 ④ アプリが待機中を見つけたら、お知らせ行「新しいバージョンがあります［更新］」を表示
-⑤［更新］→ 下書きを即時保存 → 待機中の SW に切り替えを指示（skipWaiting）→ 切り替わったら画面を再読み込み
+⑤［更新］→ 待機中の SW に切り替えを指示（skipWaiting）→ 切り替わったら画面を再読み込み
+   （当初の案にあった「［更新］の前に下書きを即時保存」は実装しない：［更新］は一覧と設定画面にしか出ず、入力画面では押せない。入力中の下書きは入力のたびに自動保存されている〔9章〕ため、2026-10-17 オーナー決定）
 ⑥ 新しい SW が有効になったとき、古い fxnote- のキャッシュを削除
 ```
 
@@ -940,7 +950,7 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | 古いキャッシュの削除は **`fxnote-` で始まる自分のものだけ** | `ユーザー名.github.io` は同じアカウントの他のリポジトリと Cache Storage を共有している。他のアプリのキャッシュを消さないため |
 | 再読み込みは1回だけ | 切り替え通知で再読み込みが繰り返されないよう目印を付ける |
 
-**公開のたびにやること（リリース手順）**：`config.js` と `sw.js` の `APP_VERSION` を同じ値に上げる → 新しいファイルを足したら `SHELL_FILES` にも足す → テストページで「バージョン一致チェック」（`config.js` と `sw.js` の値が同じか）を確認 → 公開。
+**公開のたびにやること（リリース手順）**：`config.js` と `sw.js` の `APP_VERSION` を同じ値に上げる → ファイルを増やした・減らしたら `sw.js` の `SHELL_FILES` も直す → `node tests/run-node.mjs`（またはテストページ）で「リリース確認」の8件が合格することを確かめる → 公開。オーナー向けの手順は19章。
 
 **バージョン番号の付け方**（T-10 で決定）：公開前（開発中）は `0.x.x`（現在 `0.1.0`）。最初の公開（T-34）で `1.0.0` にする。以後は、不具合の修正だけなら3つ目（`1.0.1`）、機能の追加なら2つ目（`1.1.0`）を上げる。設定画面の「バージョン」（design 14.6.1）はこの値を表示する。
 
@@ -953,7 +963,7 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 
 | 項目 | 内容 |
 |---|---|
-| いつ | 最初の記録を保存した直後（既に記録があれば起動時）。一部のブラウザ（PC の Firefox）は確認画面を出すため、意味が伝わる場面で行う |
+| いつ | 「記録がある状態での起動時」と「最初の記録を保存した直後」。**1回の起動で1回だけ**（2026-10-17 オーナー決定。T-29 で実装済み）。一部のブラウザ（PC の Firefox）は確認画面を出すため、意味が伝わる場面で行う |
 | どうやって | `navigator.storage.persisted()` で既に許可済みか確認 → 未許可なら `persist()`。機能がないブラウザでは何もしない |
 | 結果の扱い | 設定画面の「このアプリについて」に「データの保護：有効／ブラウザ任せ」を表示。拒否されても繰り返し求めない |
 | 容量の表示 | `navigator.storage.estimate()` が使える環境では、設定画面に使用量（例「12MB 使用中」）を表示 |
@@ -1005,11 +1015,13 @@ T-12 で engineer が `db.js` と、その一つ上の層の「保存の土台�
 | 編集・削除 | `tests/edit-form.test.js`：変更の検出・口座変更時の `lotUnitSize`・再計算・重ね合わせ・通貨ペア変更時のレート・下書きの判定 `judgeDraftTarget` | 27 | T-22 |
 | 選択肢の編集 | `tests/choice-list.test.js`：追加・削除・並び替え・名前のチェック・通貨ペア追加 E-12〜E-16・W-07・保存と読み直し | 35 | T-16 |
 | 設定の保存 | `tests/settings-store.test.js`（ST-01〜ST-19：初期値・壊れた値の補い方・書き込み失敗 `SETTINGS_WRITE` など）。**ブラウザのテストページだけで実行**（Node.js には localStorage がない） | 19 | T-15 |
-| リリース確認 | `config.js` と `sw.js` の `APP_VERSION` が一致しているか | 1 | T-28 |
+| データ保護 | `tests/data-protection.test.js`：ホーム画面版・iPhone／iPad の判定、お知らせ行を出す条件、永続化リクエスト、使用量の表示 | （実行結果の最後の行を参照） | T-29 |
+| リリース確認 | `tests/release.test.js`：`config.js` と `sw.js` の `APP_VERSION` の一致、`SHELL_FILES` の書き忘れ・消し忘れ、`manifest.json` との整合など | 8 | T-28 |
 
 - テストIDは資料ごとの番号なので、**テストページでは分類名を付けて表示**する（例：「セッション S-01」「通貨ペア P-01」）。セッションの S-xx は画面ID（S-01 一覧など）とは無関係。analytics の期間テストは fx-rules の P-xx と重ならないよう D-xx に改番済み。
 - テストページの表示：各ケースの分類・ID・期待値・実際の値・合否を表にし、最上部に「全N件中N件合格」のように集計を出す。不合格の行は赤字＋「×」（色だけに頼らない）。
 - **現在の件数（2026-10-16・T-23 完了時点）**：**Node.js 443件**、**ブラウザのテストページ 499件**（Node 443件＋ブラウザだけで動かす保存処理 37件・設定の保存 19件＝56件）。すべて合格。Node 383件の内訳は、計算 58・入力チェック 32・通貨ペア 35・セッション 44（ここまでの169件が fx-rules 9・10.8・11.8・14.1 の資料由来。T-18 の Y-08〜Y-13 を含む）、日時 15、表示の整形 18、一覧・絞り込み 85（T-23 で analytics 4.11 の L・D・N 38件と条件の扱い LF 22件を追加）、詳細画面 30、決済画面 28、エントリー画面 36、編集・削除 27、選択肢の編集 35（`node tests/run-node.mjs` の分類名と同じ）。今後の増加：リリース確認（T-28）。
+- **現在の件数（2026-10-17・T-28 完了時点）**：**Node.js 511件**、**ブラウザのテストページ 578件**（Node 511件＋ブラウザだけで動かす保存処理・設定の保存など67件）。すべて合格。「リリース確認」は8件。
 - 件数は実装のたびに増えるので、正しい数は `node tests/run-node.mjs` の最後の行（「全N件中N件合格」）とテストページの最上部で確かめる。
 - 共通部品の確認用ページ（`tests/components.html`：4.2）は目で確かめるページで、上の件数には入らない。
 - テストケースのデータ（`tests/cases.js`）は fx-rules.md 9・10.8・11.8・14.1 章と analytics.md 4.11 を書き写す。元の資料が更新されたら `cases.js` も更新する（計算・通貨ペア・セッションは T-14 で fx-expert が照合。一覧のテストは T-23 の完了条件）。
@@ -1233,8 +1245,8 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 
 | 方法 | 手順 |
 |---|---|
-| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-16 の T-23 完了時点で499件） |
-| Node.js | 上のフォルダで `node tests/run-node.mjs`（443件。IndexedDB・localStorage を使うテスト 56件はスキップ） |
+| ブラウザ | サーバーを起動して `http://localhost:8000/tests/` を開く（2026-10-17 の T-28 完了時点で578件） |
+| Node.js | 上のフォルダで `node tests/run-node.mjs`（511件。IndexedDB・localStorage を使うテスト 67件はスキップ） |
 | 共通部品の確認 | `http://localhost:8000/tests/components.html`（テストページの上部のリンクからも開ける）。ライト/ダークを切り替えて見た目を確かめる |
 
 ---
@@ -1250,6 +1262,18 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 | キャッシュ | GitHub Pages はファイルを約10分ブラウザに覚えさせる。sw.js のインストール時に `cache: 'reload'` で取得して対策済み（12.2） |
 | OneDrive 上のフォルダ | プロジェクトが OneDrive の同期フォルダにある。Git の作業で同期の衝突が起きる場合は、OneDrive の外のフォルダへ移すことを検討する（今は問題なし） |
 
+
+### 19.1 公開・更新の手順（オーナー向け・T-28 で確定。2026-10-17）
+
+アプリを直して公開し直すときは、次の順で行います（`sw.js` の冒頭のコメントにも同じ内容が書いてあります）。これを忘れると、利用者のスマホに古い版が残ったり、新しい版に切り替わらなかったりします。
+
+1. **バージョン番号を上げる**：`js/config.js` と `sw.js` の両方の `APP_VERSION` を、同じ新しい値にする（例 `1.0.0` → `1.0.1`。付け方は 12.3）。値が変わると「新しい版」として扱われ、利用者に「新しいバージョンがあります［更新］」が出る。
+2. **ファイルを増やした・減らしたときだけ**：`sw.js` の `SHELL_FILES`（オフラインで使うために保存するファイルの一覧）も直す。
+3. **自動テストで確かめる**：プロジェクトのフォルダで `node tests/run-node.mjs` を実行し、「リリース確認」の8件がすべて合格することを確かめる（バージョンの一致・`SHELL_FILES` の書き忘れや消し忘れを自動で見つけてくれる）。
+4. **公開する**：GitHub に反映する（T-34 で手順を案内する）。
+5. **スマホで更新を確かめる**：公開の数分後にアプリを開き、一覧の「新しいバージョンがあります［更新］」を押して、設定画面の「バージョン」が新しい値になれば成功。
+
+開発中にパソコンでオフライン動作・更新通知を試すときは、アドレスの末尾に `?sw=1` を付ける（18.4）。
 ---
 
 ## 20. 確定事項（2026-10-15 オーナー決定）・他ドキュメントへの申し送り
@@ -1309,3 +1333,4 @@ Service Worker はファイルをキャッシュするため、**開発中はフ
 | 2026-10-16 | v1.4 | T-11 の実装結果と engineer の申し送りを 2026-10-16 オーナー決定（推奨案）で反映。4.1：`css/components.css` のクラス一覧を実際のコードに合わせ、`js/ui/` に `parts.js`（T-11 で追加した表示の部品）を追加し `icons.js`・`fields.js`・`toast.js`・`dialog.js`・`notice.js`・`keyboard.js` の説明を実態に合わせる、`sheet.js` は未作成（T-23 で作る）と明記、`tests/components.html`・`components.js`・`components.css`（共通部品の確認用ページ）を追加、T-11 で作成・修正したファイルを明記、`variables.css` の注記は design v1.7 で確定。4.2：`router.js`（`syncToastWithRoute()`・依存先に ui/toast）、`ui/dom.js`（id の道具）、`ui/bars.js`（`newEntryButton()`・依存先に ui/icons）、`ui/icons.js`（座標データから組み立て）を更新し、`toast.js`・`dialog.js`・`notice.js`・`sheet.js` を1行ずつに分け、`parts.js`・確認用ページの行を追加、`fields.js` の依存先を「ui/dom, format」から「ui/dom, ui/icons」に、`dialog.js` の依存先を「ui/dom」に訂正。13.2：現在の件数（Node 163件・ブラウザ193件）と今後の増加を明記。**14.1：`innerHTML` を一切使わない方針に変更**（アイコンの例外を削除）。18.6 に件数と確認用ページ、20.2 に T-11 の申し送り（寸法変数は T-15 の最初、削除のトーストは一覧の表示後、空のエントリー価格の RR は fx-expert）を追記 | pm |
 | 2026-10-16 | v1.5 | T-15 の実装結果と申し送りを 2026-10-16 オーナー決定（推奨案）で反映。4.1・4.2：新しいファイル `js/ui/theme.js`（テーマの適用と `theme-color` の切り替え）、`fields.js` の `checkRows()`（チェックの行）、`setGroupMessages()` がエラー文・注意文を説明文より上に出す変更と `targets` を追記。7.1：壊れた設定値は読むときに消さず初期値で補って返し、次の正しい保存で上書きする方針、根拠・感情・タグの初期値は T-15 では `settings-store.js` に仮置きで T-16 で `master.js` へ移すことを追記。13.2・18.6：テストページを212件（Node 163件）に更新 | pm |
 | 2026-10-16 | v1.6 | T-16〜T-22 の実装済みの内容に資料を合わせる、まとめ反映（コードは変更していない。roadmap 7.14）。**4.1**：実装済みで未記載だった `js/detail-view.js`・`entry-form.js`・`close-form.js`・`edit-form.js`・`draft-notice.js`・`choice-list.js`・`row-flash.js`・`deleted-toast.js`・`js/ui/pair-chooser.js`・`tag-picker.js`・`sortable.js` とテストのファイル、`filter.js` の説明を追記。`ui/sheet.js` の「未作成（T-23 で作る）」を「T-17 で作成済み」に訂正。予定していた `screens/trade-form.js` は作らなかったと明記。**4.2**：上の各ファイルの行を追加し、`app.js`（下書きの確認）・`router.js`（`discardTitle`）・`config.js`（`LIST_PAGE_SIZE` ほか）・`master.js`（日本語名の表・`DEFAULT_CHOICES`・選択肢の種類）・`calc.js`（`calcQuantity`・`calcSlTpPips`）・`format.js`（保有時間 ほか）・`settings-store.js`・`trades.js`・`drafts.js`・`filter.js` の行を実態に合わせる。**4.3**：画面向けの純粋な関数の置き場所を層の図に追記。**5.2**：画面部品の形に `discardChanges`・`discardTitle`。**3.3**：Phase 2 の注意「同期は `updatedAt` を変えない」（roadmap 7.13 #3）。**6.12**：`saveTrade` の `expectedUpdatedAt`／`CONFLICT`、`closeTrade`・`reopenTrade`・`computeClose`・`buildClosedTrade`・`buildReopenedTrade` を追記。**8章**：編集の保存の競合の扱いと通貨ペア変更時の円換算レート。**9.3**：起動時の自動復元の細部（元の記録が変わった下書きは自動で開かず一覧のお知らせ行へ、削除済み・決済済みの決済下書きは黙って消す）と、決済の下書きの照合。**13.2・18.6**：テスト件数を Node 383件・ブラウザ439件に更新し、分類別の件数を追記（追加テストは Y-08〜Y-13 で50件）。**15.1**：`ALREADY_CLOSED`・`CONFLICT` を追加し、`NOT_FOUND` の決済・編集画面での扱いを「入力内容も下書きも消えて『この記録は見つかりません』」に訂正（実装に合わせた）。冒頭の「前提」の参照版を最新に | pm |
+| 2026-10-17 | v1.7 | T-25・T-27・T-28・T-29 の engineer の申し送りを 2026-10-17 オーナー決定（すべて推奨案）で反映（roadmap 7.17）。**4.1・4.2**：新しいファイル `js/data-protection.js`・`js/sw-update.js`、`tests/data-protection.test.js`・`tests/release.test.js` を追加。**4.5**：`<link rel="icon">`（`icons/icon-192.png` を流用、`favicon.ico` は作らない）と `<meta name="mobile-web-app-capable">` を骨組みに追加、ステータスバーは `black-translucent` で確定、マスター SVG はリポジトリに置かない。**12.3**：［更新］の前の下書きの即時保存は実装しない（実態に合わせた）。リリース手順を現状の形に。**12.5**：永続化リクエストは「記録がある起動時」と「最初の記録の保存直後」、1回の起動で1回だけ。**13.2・18.6**：リリース確認は8件、データ保護の行を追加、件数を Node 511件・ブラウザ578件に。**19.1 を新設**：オーナー向けの公開・更新手順（両方の `APP_VERSION` を上げる → `SHELL_FILES` を直す → `node tests/run-node.mjs` で「リリース確認」が合格 → 公開 → スマホで確認）。冒頭の「前提」の参照版を最新に | pm |
