@@ -15,12 +15,26 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>FXトレードノート</title>
   <!--
-    manifest.json と apple-touch-icon は T-27（アイコンは T-26）で追加する。
-    ファイルがない今の段階で <link> だけ書くと、毎回「ファイルが見つからない（404）」エラーが出るため、まだ書かない。
+    ホーム画面に追加するための設定（T-27・design.md 15章）。パスは GitHub Pages のサブパスで動くよう相対パス。
+    manifest.json：アプリ名・アイコン・全画面表示（主に Android / Chrome が読む）。
+    apple-touch-icon：iPhone のホーム画面のアイコン（180×180 の1サイズだけなので sizes は付けない）。
+    icon：PC のブラウザのタブに出る小さなアイコン。書かないとブラウザが自動で favicon.ico を探して 404 になるため、
+          新しいファイルは増やさず既存の 192px アイコンを使う（ブラウザが縮小して表示する）。
   -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <!--
+    全画面表示の指定。apple-… は古い iPhone 向けに残す。Chrome は apple-… だけだと
+    「非推奨。mobile-web-app-capable も書いて」と警告を出すため、標準名のものも並べて書く。
+  -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="FXノート">
-  <!-- ステータスバー（時刻・電池）をアプリの背景色の上に重ねる方式（design.md 8.3。最終判断は T-27） -->
+  <!--
+    ステータスバー（時刻・電池）をアプリの背景色の上に重ねる方式（design.md 8.3）。
+    T-27 で black-translucent に決定：ライト/ダークどちらでも背景と一体に見え、上端の余白は CSS の env(safe-area-inset-top) で確保済み。
+  -->
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
