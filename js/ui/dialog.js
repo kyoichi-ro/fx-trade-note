@@ -162,6 +162,26 @@ export function alertSettingsWriteFailed() {
 }
 
 /**
+ * CSV を作成できなかったときのアラート（design 14.7.3「CSVの作成」。自動で消えない。T-25）。
+ * @returns {Promise<*>}
+ */
+export function alertCsvCreateFailed() {
+  return showAlert({
+    title: 'CSVを作成できませんでした',
+    message: 'もう一度試してください。続けて失敗するときは、端末の空き容量を確認してください。',
+  });
+}
+
+/**
+ * CSV を保存・共有できなかったときのアラート（design 14.7.3「CSVの共有」。キャンセルは失敗ではないのでここには来ない。T-25）。
+ * @param {string} [message] 省略すると共有シートが開けなかった場合の文言。ダウンロードの失敗では別の文を渡す
+ * @returns {Promise<*>}
+ */
+export function alertCsvSaveFailed(message = '共有の画面を開けませんでした。もう一度「保存する」を押してください。') {
+  return showAlert({ title: 'CSVを保存できませんでした', message });
+}
+
+/**
  * 今開いているシート・確認・アラートを「何もしない」で閉じる（画面を離れるときの後片付け用）。
  * 一覧を離れたときに絞り込みシートが次の画面の上に残らないようにするため（T-23）。開いていなければ何もしない。
  */

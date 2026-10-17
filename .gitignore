@@ -3,3 +3,5 @@ Thumbs.db
 desktop.ini
 # Claude Code の個人設定（共有しない）
 .claude/settings.local.json
+# 書き出したCSV（実際のトレード記録が入るため共有しない）
+/fx-trade-note_*.csv

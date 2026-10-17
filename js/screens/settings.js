@@ -10,8 +10,9 @@
    ・このアプリについて：バージョン
    【T-16 で足した範囲】
    ・選択肢（よく使う通貨ペア・エントリー根拠・感情・タグ）の各行の右に登録数を表示（編集画面の中身は screens/choices.js）
+   【T-25 で足した範囲】
+   ・データ：CSVを書き出す・削除済みの記録も含める・記録の件数・最終書き出し（中身は screens/settings-data.js）
    【まだ作らないもの（担当タスク）】
-   ・データ（CSVを書き出す・削除済みの記録も含める・記録の件数・最終書き出し）… T-25
    ・このアプリについての「データの保護」「使用量」と説明文、ホーム画面への追加方法の画面の中身 … T-29
    ・スプレッドシート同期 … Phase 2（T-40）
    ========================================================= */
@@ -27,6 +28,7 @@ import { CHOICE_KINDS, CHOICE_KIND_LABELS } from '../master.js';
 import { parseLotUnitSize } from '../validate.js';
 import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
+import { dataGroup } from './settings-data.js';
 
 /**
  * E-07 の画面の文言（design 14.6.2。2026-10-16 オーナー決定）。
@@ -182,6 +184,7 @@ function choiceCount(kind) {
    --------------------------------------------------------- */
 
 let lotUnit = null;
+let data = null;
 
 export default {
   layout: 'tab',
@@ -190,6 +193,7 @@ export default {
 
   mount(root) {
     lotUnit = lotUnitGroup();
+    data = dataGroup();
     root.append(
       largeTitle('設定'),
       h('div', { class: 'screen__body' },
@@ -211,7 +215,8 @@ export default {
         // ③ テーマ
         themeGroup(),
 
-        // ④ データ（CSV の書き出しなど）は T-25 で、この位置に足す
+        // ④ データ（CSV の書き出し：T-25。design 14.6.1 の並び＝テーマの次、「このアプリについて」の前）
+        data.group,
 
         // ⑥ このアプリについて（「データの保護」「使用量」と説明文は T-29 で足す）
         listGroup({
@@ -228,6 +233,8 @@ export default {
   unmount() {
     if (lotUnit) lotUnit.commitFocused();
     lotUnit = null;
+    if (data) data.dispose();
+    data = null;
   },
 
   // 設定はその場で保存するので「保存していない変更」はない（誤った値は保存済みの値に戻す：design 14.6.2）
