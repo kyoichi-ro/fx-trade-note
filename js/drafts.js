@@ -105,14 +105,25 @@ export function createDraftService({ db = appDb, now = nowJst } = {}) {
      * 下書きを破棄する（「入力内容を破棄」・変更なしのキャンセル：architecture 9.4）。
      * 下書きと、その addedImageIds の画像を1つのトランザクションで削除する。
      * removedImageIds の画像は消さない（編集のキャンセルでは元に戻るため：6.5）。
+     * alsoImageIds（T-24）：画面がまだ下書きに書き込めていない（0.5秒の待ちの途中など）追加済みの画像の ID。
+     *   下書きがなくても、これらの画像は消す（画像だけが孤立して残るのを防ぐ）。下書きにも書かれていれば二重に消すだけで害はない
+     * 【安全策】どれかの記録の imageIds に載っている画像は、下書きの addedImageIds にあっても消さない。
+     *   記録の保存は済んでいたのに下書きだけが残っていた場合（二重保存の DUPLICATE のあとなど）に、保存済みの記録の画像を
+     *   下書きの後片付けで道連れに消してしまう事故を防ぐため。
      * @param {string} key
+     * @param {{alsoImageIds?: string[]}} [opts]
      * @returns {Promise<boolean>} 下書きがあって消したら true、もともとなければ false
      */
-    async discardDraft(key) {
-      return db.runTx([STORE.DRAFTS, STORE.IMAGES], async (ops) => {
+    async discardDraft(key, { alsoImageIds = [] } = {}) {
+      return db.runTx([STORE.DRAFTS, STORE.IMAGES, STORE.TRADES], async (ops) => {
         const stored = await ops.get(STORE.DRAFTS, key);
+        const ids = new Set([...(stored ? stored.addedImageIds || [] : []), ...alsoImageIds]);
+        if (ids.size > 0) {
+          const used = new Set();
+          for (const trade of await ops.getAll(STORE.TRADES)) for (const id of trade.imageIds || []) used.add(id);
+          for (const id of ids) if (!used.has(id)) await ops.delete(STORE.IMAGES, id);
+        }
         if (!stored) return false;
-        for (const id of stored.addedImageIds || []) await ops.delete(STORE.IMAGES, id);
         await ops.delete(STORE.DRAFTS, key);
         return true;
       });

@@ -197,14 +197,17 @@ export function isEntryChanged(initial, fields) {
   return key(initial) !== key(fields);
 }
 
-/** 「詳細（任意）」の中身の一覧（開いているとき・何も入っていないとき）。画像は T-24 で入力欄を作ったときに足す */
-export const ENTRY_DETAILS_LIST = 'SL・TP、根拠、感情、タグ、メモ';
+/** 「詳細（任意）」の中身の一覧（開いているとき・何も入っていないとき：design 14.1.4。画像は T-24 で足した） */
+export const ENTRY_DETAILS_LIST = 'SL・TP、根拠、感情、タグ、メモ、画像';
 
 /**
  * 「詳細（任意）」を閉じているときの2行目。値が入っている項目名を出す（design 14.1.4）。例「SL・TP、メモ 入力済み」。
  * セッションは日時から自動で入っているので数えない（手で選び直したときだけ数える）。何も入っていなければ中身の一覧。
+ * 画像は入力欄の文字（fields）には入らない（IndexedDB の images にある）ので、追加した枚数を imageCount で受け取る（T-24）。
+ * @param {object} f
+ * @param {number} [imageCount] この入力で追加した画像の枚数
  */
-export function entryDetailsSummary(f) {
+export function entryDetailsSummary(f, imageCount = 0) {
   const filled = [];
   if (f.slPrice !== '' || f.tpPrice !== '') filled.push('SL・TP');
   if (f.entryReasons.length > 0) filled.push('根拠');
@@ -213,6 +216,7 @@ export function entryDetailsSummary(f) {
   if (f.emotion) filled.push('感情');
   if (f.tags.length > 0) filled.push('タグ');
   if (f.memo !== '') filled.push('メモ');
+  if (imageCount > 0) filled.push('画像');
   return filled.length > 0 ? `${filled.join('、')} 入力済み` : ENTRY_DETAILS_LIST;
 }
 

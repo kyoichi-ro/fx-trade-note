@@ -320,6 +320,29 @@ export function createDb({ name, version, migrations, factory = globalThis.index
       add: (store, value) => promisify(tx.objectStore(store).add(value)),
       put: (store, value) => promisify(tx.objectStore(store).put(value)),
       delete: (store, key) => promisify(tx.objectStore(store).delete(key)),
+      /**
+       * ストアの全件を1件ずつ fn に渡す（カーソル）。getAll と違い、全件を一度にメモリへ持たない。
+       * 画像のように 1 件が大きいストアを、中身（Blob）を持ち続けずに調べるときに使う（孤立画像の掃除：T-24）。
+       * fn が受け取った値は、この呼び出しの間だけ使う（必要な項目だけコピーして取っておく）。
+       */
+      eachRecord: (store, fn) => new Promise((resolve, reject) => {
+        const request = tx.objectStore(store).openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve();
+            return;
+          }
+          try {
+            fn(cursor.value);
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error);
+      }),
     };
   }
 
@@ -446,7 +469,7 @@ export function createDb({ name, version, migrations, factory = globalThis.index
 
     /**
      * 複数のストアを1つのトランザクションでまとめて書く（例：記録の保存＋下書きの削除。architecture 6.10・8章）。
-     * fn(ops) の ops：get / getAll / getAllByIndex / add / put / delete（どれも Promise）。
+     * fn(ops) の ops：get / getAll / getAllByIndex / add / put / delete / eachRecord（どれも Promise）。
      * 全部成功したら fn の戻り値を返し、1つでも失敗したら全部を取り消して AppError を返す。
      * @param {string[]} storeNames
      * @param {(ops: object) => any} fn

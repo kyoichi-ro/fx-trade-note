@@ -27,6 +27,15 @@ function lockScroll(on) {
 }
 
 /**
+ * 背後の画面のスクロールの止め／戻しを、dialog.js の外から行う（T-24）。
+ * 画像の拡大表示（ui/image-viewer.js）の上に確認シートを重ねると、シートを閉じたときに背後のスクロール止めが解けてしまう。
+ * 拡大表示は閉じていないので、シートが閉じた直後に止め直すために使う。
+ */
+export function setPageScrollLock(on) {
+  lockScroll(on);
+}
+
+/**
  * <dialog> を開いて、閉じられたときの値を Promise で返す共通部分。
  * @param {HTMLDialogElement} dlg
  * @param {HTMLElement} initialFocus 最初にフォーカスを置くボタン

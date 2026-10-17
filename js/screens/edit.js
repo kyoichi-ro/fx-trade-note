@@ -5,7 +5,10 @@
    【T-22】記録の全項目を、エントリー画面（S-02）・決済画面（S-03）と同じ部品・同じ並びで直せる画面。
    ・上から「エントリー」（口座・通貨ペア・売買方向・価格・ロット・日時・1lotの通貨数〔読み取り専用〕）、決済済みなら「決済」「損益」、
      「損切り・利確」、根拠・時間足・セッション・感情、決済済みなら決済理由・決済時の感情、タグ、メモ。詳細（任意）の折りたたみはなく、
-     すべて展開して並べる（design 14.5.1）。画像は T-24 で足す（保存しても imageIds は変わらない）。
+     すべて展開して並べる（design 14.5.1）。
+   ・【T-24】最後に画像（最大4枚）。エントリー時・決済時のすべての画像に × があり、外した画像は「変更を保存」で物理削除する
+     （キャンセルなら元に戻る：architecture 11.4）。この編集で追加した画像は × で確認なしに消す。保存では imageIds を組み立て直し
+     （buildImageIds：最新の記録の imageIds から外した分を除き、追加した分を足す）、外した画像の削除を記録の保存と同じトランザクションで行う。
    ・値を変えると、その場で pips・損益・RR を計算し直して見せる（計算は edit-form.js → close-form.js / entry-form.js → trades.js・calc.js。独自の式は持たない）。
    ・口座区分（デモ/本番）を変えたら、1lotの通貨数を変更先の今の設定値に取り直して損益を計算し直す。手入力（manual）の損益は変えない。
      保存ボタンは「デモに変更して保存」など。元の口座に戻したら 1lot も記録時の値に戻る（design 14.5.3。判断は edit-form.js）。
@@ -28,6 +31,8 @@ import {
   numberRow, dateTimeRow, accountSegment, sideSegment, segment, chips, textareaRow, setGroupMessages,
 } from '../ui/fields.js';
 import { tagPicker } from '../ui/tag-picker.js';
+import { imageField } from '../ui/image-field.js';
+import { buildImageIds, IMAGE_TEXT } from '../images.js';
 import { icon } from '../ui/icons.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
@@ -153,7 +158,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   let renderedKey = '';      // 損益グループに今並べている行の種類（変わったときだけ並べ直す）
   let rateReset = false;     // 通貨ペアを変えて決済通貨が変わったので、円換算レート欄を空にした（入れ直しの案内を出す）
 
-  const isChanged = () => isEditChanged(initial, fields);
+  // 画像は入力欄の文字（fields）には入らない。追加した・外した画像があれば「変更あり」
+  const isChanged = () => isEditChanged(initial, fields) || images.isChanged();
   const evaluate = () => evaluateEdit(base, fields, calcCtx);
   const isJpy = () => !fields.pair || getPairSpec(fields.pair).isJpyPair;
 
@@ -333,6 +339,20 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   });
   memo.row.querySelector('.form-row__label').classList.add('visually-hidden');
 
+  // 画像（最大4枚）。保存済みの画像にも × がある（外した分は保存のとき物理削除）。この編集で追加する画像の種類は、保有中なら entry・決済済みなら exit
+  const images = imageField({
+    tradeId: trade.id, kind: closed ? 'exit' : 'entry', removableExisting: true,
+    existingIds: Array.isArray(trade.imageIds) ? trade.imageIds : [],
+    addedIds: draft && Array.isArray(draft.addedImageIds) ? draft.addedImageIds : [],
+    removedIds: draft && Array.isArray(draft.removedImageIds) ? draft.removedImageIds : [],
+    onChange: () => onInput(),
+    onBeforePick: () => { if (!finished) autosaver.flush(); },
+    onAdded: () => { if (!finished) autosaver.flush(); },
+  });
+
+  /** 保存する記録の imageIds：最新の記録（base）の imageIds から外した画像を除き、追加した画像を足す */
+  const withImages = (built) => ({ ...built, imageIds: buildImageIds(base.imageIds, images.getAddedIds(), images.getRemovedIds()) });
+
   const topSave = textButton('保存', { strong: true, onClick: () => save() });
   const cancelBtn = textButton('キャンセル', { onClick: () => nav.back(detailHash) });
   const saveBtn = button('変更を保存', { variant: 'primary', block: true, onClick: () => save() });
@@ -353,7 +373,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       closed ? listGroup({ header: '決済理由', rows: [h('div', { class: 'field-row' }, exitReasonChips.el)] }) : null,
       closed ? listGroup({ header: '決済時の感情', rows: [h('div', { class: 'field-row' }, exitEmotionChips.el, choices.emotions.length === 0 && !fields.exitEmotion ? emptyHint('感情') : null)] }) : null,
       tags.el,
-      listGroup({ header: 'メモ', rows: [memo.row] })),
+      listGroup({ header: 'メモ', rows: [memo.row] }),
+      images.el),
     actionBar(saveBtn),
   );
 
@@ -363,7 +384,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     hasStored: restored,
     isChanged,
     build: () => ({
-      kind: DRAFT_KIND.EDIT, tradeId: trade.id, fields: cloneEditFields(fields), uiState: {}, addedImageIds: [], removedImageIds: [],
+      kind: DRAFT_KIND.EDIT, tradeId: trade.id, fields: cloneEditFields(fields), uiState: {},
+      addedImageIds: images.getAddedIds(), removedImageIds: images.getRemovedIds(),
       baseUpdatedAt: trade.updatedAt,
     }),
     onStatus: (ok) => { if (draftFailed === ok) { draftFailed = !ok; renderNoticeRows(); } },
@@ -620,6 +642,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   function leaveToDetail(toast) {
     finished = true;
     autosaver.dispose();
+    images.dispose();
     if (toast) {
       requestRowFlash(base.id); // 一覧に戻る場合に、この行を 1 秒だけ目立たせる（design 14.3.4。詳細へ戻るなら使われず期限で消える）
       showToast(toast);
@@ -638,11 +661,13 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       return;
     }
     setSaving(true);
+    // 画像の縮小・保存の途中なら、終わるのを待ってから保存する（ボタンは「保存中」のまま：design 14.1.9）
+    await images.whenIdle();
     // 自動保存を止め、保存中の下書きが書き終わるのを待つ（後から下書きが作り直されないように）
     await autosaver.stop();
     let built;
     try {
-      built = buildEditedTrade(base, fields, calcCtx);
+      built = withImages(buildEditedTrade(base, fields, calcCtx));
     } catch (e) {
       // 画面の検査をすり抜けた誤り（プログラムの誤り）。記録は変更しない
       console.error('保存する記録を組み立てられませんでした', e);
@@ -669,7 +694,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   /** 記録を保存する（saveTrade）。別の画面で変更されていたら CONFLICT（expected と保存されている updatedAt が違う） */
   async function commit(built, expected) {
     try {
-      await saveTrade(built, { draftKey, expectedUpdatedAt: expected });
+      // 外した画像の物理削除は、記録の保存と同じトランザクションで行う（片方だけ成功しない：architecture 8章）
+      await saveTrade(built, { draftKey, expectedUpdatedAt: expected, deleteImageIds: images.getRemovedIds() });
     } catch (e) {
       await onSaveFailed(e);
       return;
@@ -689,6 +715,13 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     // 下書きは残す（もう一度保存できるよう、自動保存を再開して今の内容をすぐ書いておく：design 14.1.6）
     autosaver.resume();
     autosaver.flush();
+    if (isAppError(e, 'IMAGE_MISSING')) {
+      // 追加した画像が images から消えていた：画面の一覧からも外して知らせる（編集は保存していない）
+      await images.pruneMissing();
+      autosaver.flush();
+      await showAlert({ title: '保存できませんでした', message: '追加した画像の一部が見つかりませんでした。画像を追加し直してください。入力内容はこの画面に残っています。' });
+      return;
+    }
     if (isAppError(e, 'CONFLICT')) {
       const choice = await showAlert({
         title: '記録が変更されています',
@@ -752,8 +785,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       });
       return;
     }
-    const built = buildEditedTrade(latest, merged, calcCtx);
-    base = latest; // 以降の保存は、最新の記録を土台にする
+    base = latest; // 以降の保存は、最新の記録を土台にする（画像も、最新の imageIds を土台に組み立て直す）
+    const built = withImages(buildEditedTrade(latest, merged, calcCtx));
     await autosaver.stop();
     if (isSameTradeContent(latest, built)) {
       await noChange();
@@ -766,6 +799,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   async function onDiscardRestored() {
     const ok = await actionSheet({
       title: '入力途中の内容を破棄しますか？',
+      message: images.addedCount() > 0 ? IMAGE_TEXT.discardNote : '',
       actions: [{ label: '入力内容を破棄', value: true, danger: true }],
     });
     if (ok !== true || finished) return;
@@ -774,12 +808,17 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     ctrl = buildScreen(root, nav, base, null);
   }
 
-  /** 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄・変更なし・対象が無くなったときに使う） */
+  /**
+   * 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄・変更なし・対象が無くなったときに使う）。
+   * この編集で追加した画像も一緒に消す（孤立画像を残さない）。外しただけの画像は消さない（キャンセルなら元に戻る：architecture 9.4）。
+   */
   async function discardAll() {
     finished = true;
+    const added = images.getAddedIds();
+    images.dispose();
     await autosaver.stop();
     autosaver.dispose();
-    await discardDraft(draftKey);
+    await discardDraft(draftKey, { alsoImageIds: added });
   }
 
   refresh();
@@ -791,11 +830,14 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
 
   return {
     hasUnsavedChanges: () => !finished && isChanged(),
+    /** 「入力内容を破棄」の確認の説明。画像を追加していたら「追加した画像も削除されます。」を添える（design 14.7.4） */
+    discardMessage: () => (images.addedCount() > 0 ? IMAGE_TEXT.discardNote : ''),
     discardChanges: () => discardAll(),
     /** 画面を離れる：保存も破棄もしていなければ、待たずに下書きを保存する（architecture 9.2） */
     leave() {
       if (!finished) autosaver.flush();
       autosaver.dispose();
+      images.dispose(); // 表示用 URL の解放（architecture 11.3）。縮小中の画像は保存せずに捨てる
     },
   };
 }
@@ -881,6 +923,10 @@ const screen = {
 
   hasUnsavedChanges() {
     return Boolean(ctrl && ctrl.hasUnsavedChanges());
+  },
+
+  discardMessage() {
+    return ctrl ? ctrl.discardMessage() : '';
   },
 
   discardChanges() {

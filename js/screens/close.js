@@ -18,7 +18,9 @@
 
    表示の組み立て・入力チェック・符号の貼り付けの解釈は js/close-form.js（画面に依存しない純粋な関数。テストあり）。
    タグは「＋追加」で、この画面の中で新しい名前を追加できる（設定の選択肢にも加わる。T-18：design 14.2.6 ⑥。ui/tag-picker.js）。
-   画像の添付（T-24）は、まだ作っていない。
+   【T-24】「詳細（任意）」の最後に画像。エントリー時の画像を先に並べ（この画面では削除できない：× を出さない）、
+   続けて決済時に追加した画像（kind＝exit。× で確認なしに削除できる）。合わせて最大4枚。追加した画像の ID は下書き（addedImageIds）と
+   決済の保存（trades.js の closeTrade の addImageIds：保存されている最新の imageIds に足す）で持つ。破棄・対象が無くなったときは追加した画像も消す。
    文字はすべて ui/dom.js の h() を通す（innerHTML は使わない：architecture 14.1）。
    ========================================================= */
 import { h, uniqueId } from '../ui/dom.js';
@@ -27,6 +29,8 @@ import { button, badge, listGroup, emptyState, setBusy, showLoadingAfter } from 
 import { numberRow, dateTimeRow, segment, chips, textareaRow, setGroupMessages } from '../ui/fields.js';
 import { icon } from '../ui/icons.js';
 import { tagPicker } from '../ui/tag-picker.js';
+import { imageField } from '../ui/image-field.js';
+import { IMAGE_TEXT } from '../images.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
@@ -44,7 +48,7 @@ import { withSelected } from '../choice-list.js'; // 設定から消された選
 import {
   EXIT_REASONS, defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
   initialManualSign, splitSignedAmount, formatAmountText, tidyAmount, evaluateClose, describeProfit, speakProfit,
-  closeInputFromEvaluation,
+  closeInputFromEvaluation, CLOSE_DETAILS_LIST,
 } from '../close-form.js';
 
 /** 今表示しているこの画面の操作の係（unmount・hasUnsavedChanges から使う） */
@@ -151,7 +155,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   let signTapUntil = 0;      // この時刻までは、金額欄が空で外れても自動計算に戻さない（＋/− 切替を押している最中）
   let renderedKey = '';      // 損益グループに今並べている行の種類（変わったときだけ並べ直す）
 
-  const isChanged = () => isCloseFormChanged(initial, fields);
+  // 画像は入力欄の文字（fields）には入らない。この画面で追加した画像があれば「変更あり」
+  const isChanged = () => isCloseFormChanged(initial, fields) || images.isChanged();
   const evaluate = () => evaluateClose(trade, fields, { now });
 
   /* ----- 決済グループ ----- */
@@ -250,12 +255,23 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   // 見出し「メモ」があるので、行の中のラベルは画面には出さず読み上げ用に残す
   memo.row.querySelector('.form-row__label').classList.add('visually-hidden');
 
+  // 画像（エントリー時の画像＋この画面で追加する画像で最大4枚。エントリー時の画像は削除できない：design 14.2.10）
+  const images = imageField({
+    tradeId: trade.id, kind: 'exit', header: '画像（最大4枚・エントリーと合わせて）',
+    existingIds: Array.isArray(trade.imageIds) ? trade.imageIds : [],
+    addedIds: draft && Array.isArray(draft.addedImageIds) ? draft.addedImageIds : [],
+    onChange: () => onDetailsChanged(),
+    onBeforePick: () => { if (!finished) autosaver.flush(); },
+    onAdded: () => { if (!finished) autosaver.flush(); },
+  });
+
   const detailsId = uniqueId('details');
   const detailsBody = h('div', { class: 'close-details__body', id: detailsId },
     listGroup({ header: '決済理由', rows: [h('div', { class: 'field-row' }, reasonChips.el)] }),
     listGroup({ header: '決済時の感情', rows: [h('div', { class: 'field-row' }, emotionChips.el)] }),
     tags.el,
-    listGroup({ header: 'メモ', rows: [memo.row], footer: 'エントリー時のメモに続けて書けます。' }));
+    listGroup({ header: 'メモ', rows: [memo.row], footer: 'エントリー時のメモに続けて書けます。' }),
+    images.el);
   const detailsSub = h('span', { class: 'entry-details__sub' });
   const detailsToggle = h('button', {
     type: 'button', class: 'list-row entry-details__toggle', 'aria-controls': detailsId, onClick: () => toggleDetails(),
@@ -286,7 +302,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     isChanged,
     build: () => ({
       kind: DRAFT_KIND.CLOSE, tradeId: trade.id, fields: { ...fields, tags: [...fields.tags] }, uiState: { ...ui },
-      addedImageIds: [], removedImageIds: [], baseUpdatedAt: trade.updatedAt,
+      addedImageIds: images.getAddedIds(), removedImageIds: [], baseUpdatedAt: trade.updatedAt,
     }),
     onStatus: (ok) => { if (draftFailed === ok) { draftFailed = !ok; renderNoticeRows(); } },
   });
@@ -346,7 +362,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     detailsToggle.setAttribute('aria-expanded', ui.detailsOpen ? 'true' : 'false');
     detailsBody.hidden = !ui.detailsOpen;
     // 閉じているとき、値が入っている項目名を 2 行目に出す（閉じても消えていないことが分かるように：design 14.1.4）
-    detailsSub.textContent = ui.detailsOpen ? '決済理由、感情、タグ、メモ' : detailsSummary(fields);
+    detailsSub.textContent = ui.detailsOpen ? CLOSE_DETAILS_LIST : detailsSummary(fields, images.addedCount());
   }
 
   function renderNoticeRows() {
@@ -489,17 +505,21 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       return;
     }
     setSaving(true);
+    // 画像の縮小・保存の途中なら、終わるのを待ってから保存する（ボタンは「保存中」のまま：design 14.1.9）
+    await images.whenIdle();
     // 自動保存を止め、保存中の下書きが書き終わるのを待つ（後から下書きが作り直されないように）
     await autosaver.stop();
     let saved;
     try {
-      saved = await closeTrade(trade.id, closeInputFromEvaluation(ev, fields), { draftKey });
+      // 追加した画像は保存済み（images）。保存されている最新の imageIds の後ろに足す（addImageIds）
+      saved = await closeTrade(trade.id, { ...closeInputFromEvaluation(ev, fields), addImageIds: images.getAddedIds() }, { draftKey });
     } catch (e) {
       await onSaveFailed(e);
       return;
     }
     finished = true;
     autosaver.dispose();
+    images.dispose();
     requestRowFlash(trade.id); // 一覧に戻ったら、この行を 1 秒だけ目立たせる（design 14.3.4）
     showToast(closeToastText(saved.profitJpy));
     nav.back('#/');
@@ -518,6 +538,14 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       // 別の画面で先に決済された。上書きせず、下書きを黙って消して詳細を開く（design 14.2.10）
       await discardAll();
       nav.replace(base);
+      return;
+    }
+    if (isAppError(e, 'IMAGE_MISSING')) {
+      // 追加した画像が images から消えていた：画面の一覧からも外して知らせる（決済は保存していない）
+      await images.pruneMissing();
+      autosaver.resume();
+      autosaver.flush();
+      await showAlert({ title: '保存できませんでした', message: '追加した画像の一部が見つかりませんでした。画像を追加し直してください。入力内容はこの画面に残っています。' });
       return;
     }
     console.error('決済を保存できませんでした', e);
@@ -539,6 +567,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   async function onDiscardRestored() {
     const ok = await actionSheet({
       title: '入力途中の内容を破棄しますか？',
+      message: images.addedCount() > 0 ? IMAGE_TEXT.discardNote : '',
       actions: [{ label: '入力内容を破棄', value: true, danger: true }],
     });
     if (ok !== true || finished) return;
@@ -547,12 +576,17 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     ctrl = buildScreen(root, nav, trade, null);
   }
 
-  /** 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄・対象が無くなったときに使う） */
+  /**
+   * 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄・対象が無くなったときに使う）。
+   * この画面で追加した画像も一緒に消す（孤立画像を残さない）。エントリー時の画像（記録に付いているもの）は消えない。
+   */
   async function discardAll() {
     finished = true;
+    const added = images.getAddedIds();
+    images.dispose();
     await autosaver.stop();
     autosaver.dispose();
-    await discardDraft(draftKey);
+    await discardDraft(draftKey, { alsoImageIds: added });
   }
 
   refresh();
@@ -567,11 +601,14 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
 
   return {
     hasUnsavedChanges: () => !finished && isChanged(),
+    /** 「入力内容を破棄」の確認の説明。画像を追加していたら「追加した画像も削除されます。」を添える（design 14.7.4） */
+    discardMessage: () => (images.addedCount() > 0 ? IMAGE_TEXT.discardNote : ''),
     discardChanges: () => discardAll(),
     /** 画面を離れる：保存も破棄もしていなければ、待たずに下書きを保存する（architecture 9.2） */
     leave() {
       if (!finished) autosaver.flush();
       autosaver.dispose();
+      images.dispose(); // 表示用 URL の解放（architecture 11.3）。縮小中の画像は保存せずに捨てる
     },
   };
 }
@@ -663,6 +700,10 @@ const screen = {
 
   hasUnsavedChanges() {
     return Boolean(ctrl && ctrl.hasUnsavedChanges());
+  },
+
+  discardMessage() {
+    return ctrl ? ctrl.discardMessage() : '';
   },
 
   discardChanges() {

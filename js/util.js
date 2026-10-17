@@ -83,7 +83,8 @@ export function debounce(fn, wait) {
  *
  * code の一覧（architecture 15.1）：
  *   VALIDATION / QUOTA / DB_WRITE / DB_READ / DUPLICATE / NOT_FOUND / DB_OPEN / VERSION /
- *   IMAGE_DECODE / SETTINGS_WRITE / ALREADY_CLOSED（T-21） / CONFLICT（T-22：編集の保存で、別の画面が先に記録を変更していた）
+ *   IMAGE_DECODE / SETTINGS_WRITE / ALREADY_CLOSED（T-21） / CONFLICT（T-22：編集の保存で、別の画面が先に記録を変更していた） /
+ *   IMAGE_MISSING（T-24：記録が指す画像が images にない。保存しない）
  */
 export class AppError extends Error {
   /**

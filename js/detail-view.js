@@ -28,6 +28,7 @@ import {
   formatDateTime, formatShortDateTime, toneOf, toTenths, speakYen, speakPips,
 } from './format.js';
 import { isClosedTrade } from './filter.js';
+import { imageGroupHeader } from './images.js';
 
 /** 未入力・計算できないときの表示（design 14.4.4：行は消さずに「—」を出す） */
 export const EMPTY = '—';
@@ -245,6 +246,17 @@ function memoSection(t) {
 }
 
 /**
+ * 画像のグループ（design 14.4.1・14.4.4）。画像が0枚ならグループごと出さない（null）。
+ * 画像本体は IndexedDB の images にあり、ここ（画面に依存しない関数）では読まない。表示する画像の ID の並び（imageIds の順）と見出しだけを決める。
+ * 空・文字でない・重複した ID は除く（壊れた記録でも画面が止まらないように）。
+ * @returns {{header: string, ids: string[]}|null}
+ */
+export function imagesInfo(t) {
+  const ids = Array.isArray(t.imageIds) ? [...new Set(t.imageIds.filter(isText))] : [];
+  return ids.length > 0 ? { header: imageGroupHeader(ids.length), ids } : null;
+}
+
+/**
  * 詳細画面の内容を組み立てる。
  * @param {object} t 記録 1 件（IndexedDB の trades の形）
  * @param {Date} [now] 「保有中の保有時間」「今年かどうか」の基準（テストで固定できる）
@@ -252,6 +264,7 @@ function memoSection(t) {
  *   closed: boolean,
  *   head: object,
  *   sections: {key:string, header:string, rows:object[], footer:(string|null)}[],
+ *   images: ({header: string, ids: string[]}|null),
  *   timestamps: string,
  *   canCancelClose: boolean
  * }}
@@ -268,6 +281,8 @@ export function buildDetailView(t, now = new Date()) {
     closed,
     head: buildHead(t, closed, hold),
     sections,
+    // 画像は「タグ・メモ」グループの次（design 14.4.2）。0枚なら null（グループごと出さない）。中身の読み込みは画面が行う（T-24）
+    images: imagesInfo(t),
     timestamps: `作成 ${formatDateTime(t.createdAt, now)}・更新 ${formatDateTime(t.updatedAt, now)}`,
     // 「決済を取り消す」は決済済みだけ。「この記録を削除」は常に出す（design 14.4.5）
     canCancelClose: closed,

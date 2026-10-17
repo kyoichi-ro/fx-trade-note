@@ -93,14 +93,22 @@ export function isCloseFormChanged(initial, fields) {
   return key(initial) !== key(fields);
 }
 
-/** 「詳細（任意）」を閉じているときの 2 行目。値が入っている項目名を出す（design 14.1.4）。例「タグ、メモ 入力済み」 */
-export function detailsSummary(f) {
+/** 「詳細（任意）」を開いているとき・何も入っていないときの 2 行目（design 14.2.2。画像は T-24 で足した） */
+export const CLOSE_DETAILS_LIST = '決済理由、感情、タグ、メモ、画像';
+
+/**
+ * 「詳細（任意）」を閉じているときの 2 行目。値が入っている項目名を出す（design 14.1.4）。例「タグ、メモ 入力済み」
+ * 画像は入力欄の文字（fields）には入らないので、この入力で追加した枚数を imageCount で受け取る
+ * （エントリー時から付いている画像は「入力済み」に数えない：この画面で入力したものではないため）。
+ */
+export function detailsSummary(f, imageCount = 0) {
   const filled = [];
   if (f.exitReason) filled.push('決済理由');
   if (f.exitEmotion) filled.push('感情');
   if (f.tags.length > 0) filled.push('タグ');
   if (f.memo !== '') filled.push('メモ');
-  return filled.length > 0 ? `${filled.join('、')} 入力済み` : '決済理由、感情、タグ、メモ';
+  if (imageCount > 0) filled.push('画像');
+  return filled.length > 0 ? `${filled.join('、')} 入力済み` : CLOSE_DETAILS_LIST;
 }
 
 /** 下部の保存ボタンの文字（口座を必ず添える：design 14.2.8）。口座が分からないとき（壊れた記録）は雛形の「決済を保存」 */

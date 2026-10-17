@@ -15,7 +15,7 @@ import {
 } from '../js/db.js';
 import { DB_NAME, DB_VERSION } from '../js/config.js';
 import { createTradeService } from '../js/trades.js';
-import { createImageService } from '../js/images.js';
+import { createImageService, prepareImage, createUrlPool, inspectBlob } from '../js/images.js';
 import { createDraftService, draftKeyOf } from '../js/drafts.js';
 import { toJstString, nowJst } from '../js/datetime.js';
 import { on } from '../js/events.js';
@@ -148,6 +148,90 @@ function sampleDraft(over = {}) {
     addedImageIds: [], removedImageIds: [], baseUpdatedAt: null,
     createdAt: '2026-10-15T21:30:00+09:00', updatedAt: '2026-10-15T21:30:05+09:00', ...over,
   };
+}
+
+
+/* ---------------------------------------------------------
+   T-24：本物の画像（Canvas で作る JPEG）。実際の縮小・向き・壊れたファイルの確認に使う（ブラウザのみ）
+   --------------------------------------------------------- */
+
+/** チャートのスクリーンショットに似た画像（線と四角と文字のような模様。ノイズより圧縮しやすい）を Canvas で描く */
+function drawChartLike(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#101820';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#3aa675';
+  ctx.lineWidth = Math.max(2, w / 400);
+  ctx.beginPath();
+  for (let x = 0; x <= w; x += w / 60) ctx.lineTo(x, h / 2 + Math.sin(x / (w / 12)) * h / 5);
+  ctx.stroke();
+  ctx.fillStyle = '#d6dde5';
+  for (let i = 0; i < 12; i += 1) ctx.fillRect((w / 14) * (i + 1), h * 0.8, w / 40, -((i * 37) % 100) * h / 400);
+  return c;
+}
+
+const canvasToBlob = (canvas, type = 'image/jpeg', q = 0.92) => new Promise((resolve) => canvas.toBlob(resolve, type, q));
+
+/** 本物の JPEG の Blob（幅×高さ） */
+async function jpegOf(w, h) {
+  return canvasToBlob(drawChartLike(w, h));
+}
+
+/** ランダムなノイズの画像（圧縮してもほとんど小さくならない。250KB を超える場合の確認用） */
+async function noiseJpegOf(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  const data = ctx.createImageData(w, h);
+  const bytes = new Uint8Array(data.data.buffer);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = (i % 4 === 3) ? 255 : Math.floor(Math.random() * 256);
+  ctx.putImageData(data, 0, 0);
+  return canvasToBlob(c, 'image/jpeg', 0.95);
+}
+
+/**
+ * JPEG に EXIF の「向き」（Orientation）を付ける。6＝右に90度回して表示する写真（iPhone を縦に構えて撮った写真）。
+ * ファイルの先頭（SOI の直後）に APP1 を差し込むだけの小さな実装。画像のピクセルは変えない。
+ */
+async function withExifOrientation(blob, orientation) {
+  const src = new Uint8Array(await blob.arrayBuffer());
+  const exif = new Uint8Array([
+    0xff, 0xe1, 0x00, 0x22,                         // APP1・長さ34
+    0x45, 0x78, 0x69, 0x66, 0x00, 0x00,             // "Exif\0\0"
+    0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, // TIFF ヘッダ（リトルエンディアン・IFD0 は8バイト目）
+    0x01, 0x00,                                     // 項目は1つ
+    0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, orientation, 0x00, 0x00, 0x00, // Orientation（0x0112）・SHORT・1個・値
+    0x00, 0x00, 0x00, 0x00,                         // 次の IFD なし
+  ]);
+  const out = new Uint8Array(src.length + exif.length);
+  out.set(src.subarray(0, 2), 0);
+  out.set(exif, 2);
+  out.set(src.subarray(2), 2 + exif.length);
+  return new Blob([out], { type: 'image/jpeg' });
+}
+
+/** 画像の大きさを <img> で読んで返す（保存した JPEG の幅・高さの確認用） */
+async function sizeOfBlob(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** 実際の JPEG を images に保存して ID を返す */
+async function saveRealImage(images, tradeId, id, over = {}) {
+  const blob = over.blob || (await jpegOf(160, 90));
+  await images.saveImage({ id, tradeId, kind: over.kind || 'entry', blob, width: 160, height: 90 });
+  return id;
 }
 
 /** 'trades-changed' の通知を記録する。終わったら stop() で受け取りをやめる */
@@ -865,8 +949,9 @@ export function collectDbTests() {
         const clock = makeClock();
         const trades = createTradeService({ db, now: clock });
         const images = createImageService({ db, now: clock });
-        await trades.saveNewTrade(entryFields({ id: 'r1', pair: 'EUR/USD', entryPrice: 1.085, imageIds: ['img-r1'], tags: ['ルール違反'], memo: 'メモ' }));
+        // T-24：記録が指す画像は保存時に存在していなければならない（IMAGE_MISSING）ので、画像を先に保存する
         await images.saveImage({ id: 'img-r1', tradeId: 'r1', kind: 'entry', blob: sampleBlob(), width: 100, height: 50 });
+        await trades.saveNewTrade(entryFields({ id: 'r1', pair: 'EUR/USD', entryPrice: 1.085, imageIds: ['img-r1'], tags: ['ルール違反'], memo: 'メモ' }));
         const closed = await trades.closeTrade('r1', {
           exitPrice: 1.0875, exitAt: '2026-10-15T23:05:00+09:00', quoteToJpyRate: 149.85, manualProfitJpy: -500, exitReason: 'sl', exitEmotion: '焦り',
         });
@@ -929,8 +1014,8 @@ export function collectDbTests() {
         const clock = makeClock();
         const trades = createTradeService({ db, now: clock, getLotUnitSize: (a) => (a === 'demo' ? 100000 : 10000) });
         const images = createImageService({ db, now: clock });
-        await trades.saveNewTrade(entryFields({ id: 'e-acc', entryPrice: 150, lots: 1, imageIds: ['img-acc'], tags: ['タグ'], memo: 'メモ' }));
         await images.saveImage({ id: 'img-acc', tradeId: 'e-acc', kind: 'entry', blob: sampleBlob(), width: 10, height: 10 });
+        await trades.saveNewTrade(entryFields({ id: 'e-acc', entryPrice: 150, lots: 1, imageIds: ['img-acc'], tags: ['タグ'], memo: 'メモ' }));
         const closed = await trades.closeTrade('e-acc', { exitPrice: 150.25, exitAt: '2026-10-15T23:05:00+09:00', manualProfitJpy: -500 });
         const ctx = { getLotUnitSize: (a) => (a === 'demo' ? 100000 : 10000) };
         const toDemo = await trades.saveTrade(buildEditedTrade(closed, { ...editFieldsFromTrade(closed), accountType: 'demo' }, ctx), { expectedUpdatedAt: closed.updatedAt });
@@ -970,6 +1055,273 @@ export function collectDbTests() {
           ['古い取り消しで記録は戻らない', stillDeleted.deletedAt === deleted2.deletedAt, stillDeleted.deletedAt],
         ]);
       })),
+
+    /* ===== T-24：チャート画像 ===== */
+
+    t('SV-18', '画像の整合（新規）：記録が指す画像が無ければ保存しない（IMAGE_MISSING）。あれば保存し、下書きも同じトランザクションで消える', 'saveNewTrade(imageIds に存在しない ID)／画像を先に保存して saveNewTrade(draftKey)',
+      '存在しない画像を指す記録は保存されず、下書きも残る。画像がそろっていれば保存でき、下書きは消え、画像はそのまま',
+      () => withTestDb('SV-18', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        const drafts = createDraftService({ db, now: clock });
+        await drafts.saveDraft({ kind: 'new', tradeId: 'n-img', fields: {}, addedImageIds: ['n-img-1'] });
+        const e = await errorOf(() => trades.saveNewTrade(entryFields({ id: 'n-img', imageIds: ['n-img-1'] }), { draftKey: 'new' }));
+        const afterFail = await db.getTrade('n-img');
+        const draftAfterFail = await db.getDraft('new');
+        await saveRealImage(images, 'n-img', 'n-img-1');
+        const saved = await trades.saveNewTrade(entryFields({ id: 'n-img', imageIds: ['n-img-1'] }), { draftKey: 'new' });
+        return verdict([
+          ['画像が無いと IMAGE_MISSING', e instanceof AppError && e.code === 'IMAGE_MISSING', errText(e)],
+          ['記録は保存されていない', afterFail === null],
+          ['下書きは残っている（もう一度保存できる）', draftAfterFail !== null],
+          ['画像がそろえば保存できる', saved.imageIds.length === 1 && saved.imageIds[0] === 'n-img-1', saved.imageIds.join()],
+          ['下書きは同じトランザクションで消えた', (await db.getDraft('new')) === null],
+          ['画像は消えていない', (await db.getImage('n-img-1')) !== null],
+        ]);
+      })),
+
+    t('SV-19', '画像の整合（編集）：新しく指した画像が無ければ保存しない。外した画像は記録の保存と同じトランザクションで物理削除', 'saveTrade(imageIds に存在しない ID)／saveTrade(imageIds から b を外し deleteImageIds: [b, a])',
+      '存在しない画像を足す保存は IMAGE_MISSING で何も変えない。外した b は消え、まだ指している a は deleteImageIds にあっても消えない。下書きも消える。すでに指している画像が壊れていても他の項目は保存できる',
+      () => withTestDb('SV-19', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await saveRealImage(images, 'e-img', 'a');
+        await saveRealImage(images, 'e-img', 'b');
+        await saveRealImage(images, 'e-img', 'c');
+        const first = await trades.saveNewTrade(entryFields({ id: 'e-img', imageIds: ['a', 'b'] }));
+        const missing = await errorOf(() => trades.saveTrade({ ...first, imageIds: ['a', 'b', 'ghost'] }, { deleteImageIds: ['b'] }));
+        const afterMissing = await db.getTrade('e-img');
+        const bStillThere = (await db.getImage('b')) !== null; // 外す予定だった b は、IMAGE_MISSING のときは消えていない（保存と同じトランザクション）
+        await db.putDraft(sampleDraft({ key: 'edit:e-img', kind: 'edit', tradeId: 'e-img', removedImageIds: ['b'], addedImageIds: ['c'] }));
+        const ok = await trades.saveTrade({ ...first, imageIds: ['a', 'c'] }, { draftKey: 'edit:e-img', expectedUpdatedAt: first.updatedAt, deleteImageIds: ['b', 'a'] });
+        // すでに指している画像が見つからない記録（壊れた状態）でも、他の項目の編集は保存できる（新しく足していないので確認しない）
+        await db.deleteImages(['c']);
+        const withGhost = await trades.saveTrade({ ...ok, memo: '画像が壊れていてもメモは保存できる' });
+        return verdict([
+          ['存在しない画像を足すと IMAGE_MISSING', missing instanceof AppError && missing.code === 'IMAGE_MISSING', errText(missing)],
+          ['IMAGE_MISSING のとき何も変えない（imageIds・外す予定だった b の画像）', sameList(afterMissing.imageIds, ['a', 'b']) && bStillThere, afterMissing.imageIds.join()],
+          ['外した b は物理削除', ok.imageIds.join() === 'a,c' && (await db.getImage('b')) === null],
+          ['まだ指している a は deleteImageIds にあっても消えない', (await db.getImage('a')) !== null],
+          ['追加した c は残る（この時点）', ok.imageIds.includes('c')],
+          ['下書きも消えた', (await db.getDraft('edit:e-img')) === null],
+          ['壊れた参照があっても他の項目は保存できる', withGhost.memo === '画像が壊れていてもメモは保存できる' && withGhost.imageIds.join() === 'a,c', withGhost.imageIds.join()],
+        ]);
+      })),
+
+    t('SV-20', '決済で追加した画像は、保存されている最新の imageIds の後ろに足す。画像が無ければ保存しない', 'closeTrade(addImageIds: [x])（別の画面で imageIds が変わったあと）／存在しない ID',
+      '最新の imageIds（a,b）の後ろに x を足して a,b,x。存在しない ID は IMAGE_MISSING で決済も保存されない。追加しない決済は imageIds を変えない',
+      () => withTestDb('SV-20', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await saveRealImage(images, 'c-img', 'a');
+        await saveRealImage(images, 'c-img', 'b');
+        await saveRealImage(images, 'c-img', 'x', { kind: 'exit' });
+        const first = await trades.saveNewTrade(entryFields({ id: 'c-img', imageIds: ['a'] }));
+        await trades.saveTrade({ ...first, imageIds: ['a', 'b'] }); // 決済画面を開いたあとに、別の画面で画像が増えた
+        const ghost = await errorOf(() => trades.closeTrade('c-img', { exitPrice: 150.2, exitAt: '2026-10-15T23:05:00+09:00', addImageIds: ['ghost'] }));
+        const stillOpen = await db.getTrade('c-img');
+        const closed = await trades.closeTrade('c-img', { exitPrice: 150.2, exitAt: '2026-10-15T23:05:00+09:00', addImageIds: ['x'] });
+        await saveRealImage(images, 'c-img2', 'p');
+        await trades.saveNewTrade(entryFields({ id: 'c-img2', imageIds: ['p'] }));
+        const noAdd = await trades.closeTrade('c-img2', { exitPrice: 150.2, exitAt: '2026-10-15T23:05:00+09:00' });
+        return verdict([
+          ['存在しない ID は IMAGE_MISSING', ghost instanceof AppError && ghost.code === 'IMAGE_MISSING', errText(ghost)],
+          ['決済も保存されていない', stillOpen.status === 'open' && stillOpen.exitPrice === null, stillOpen.status],
+          ['最新の imageIds の後ろに足す', closed.imageIds.join() === 'a,b,x', closed.imageIds.join()],
+          ['決済は済んでいる', closed.status === 'closed'],
+          ['追加しない決済は imageIds を変えない', noAdd.imageIds.join() === 'p', noAdd.imageIds.join()],
+        ]);
+      })),
+
+    t('SV-21', '詳細からの画像の個別削除（removeTradeImage）：画像の物理削除と imageIds の更新が1つのトランザクション', '2枚付きの記録から1枚削除／もう一度／取り残された画像／他の記録の画像／削除済みの記録',
+      'imageIds から外れ画像も消える・updatedAt が進み syncStatus＝pending・通知 update。同じ記録の取り残された画像は消せるが、他の記録の画像は消えない。削除済み・ない記録は NOT_FOUND',
+      () => withTestDb('SV-21', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await saveRealImage(images, 'r-img', 'i1');
+        await saveRealImage(images, 'r-img', 'i2');
+        await saveRealImage(images, 'r-img', 'stray');
+        await saveRealImage(images, 'other', 'o1');
+        const first = await trades.saveNewTrade(entryFields({ id: 'r-img', imageIds: ['i1', 'i2'] }));
+        await db.putTrade({ ...first, syncStatus: 'synced' });
+        const ev = recordTradeEvents();
+        try {
+          const after = await trades.removeTradeImage('r-img', 'i1');
+          const stored = await db.getTrade('r-img');
+          const again = await trades.removeTradeImage('r-img', 'i1');
+          const strayRes = await trades.removeTradeImage('r-img', 'stray');
+          const foreign = await trades.removeTradeImage('r-img', 'o1');
+          await trades.deleteTrade('r-img');
+          const deletedErr = await errorOf(() => trades.removeTradeImage('r-img', 'i2'));
+          const missingErr = await errorOf(() => trades.removeTradeImage('no-such', 'i2'));
+          return verdict([
+            ['imageIds から外れる', sameList(after.imageIds, ['i2']) && deepEqual(after, stored), after.imageIds.join()],
+            ['画像も物理削除', (await db.getImage('i1')) === null],
+            ['updatedAt が進み pending', stored.updatedAt > first.updatedAt && stored.syncStatus === 'pending', `${stored.updatedAt}/${stored.syncStatus}`],
+            ['もう1枚は残る', (await db.getImage('i2')) !== null],
+            ['通知 update', ev.list.some((x) => x.type === 'update' && x.id === 'r-img'), JSON.stringify(ev.list.map((x) => x.type))],
+            ['同じ ID をもう一度削除しても記録は変わらない', again.imageIds.join() === 'i2' && again.updatedAt === stored.updatedAt],
+            ['取り残された画像（同じ記録）は消せる', strayRes.imageIds.join() === 'i2' && (await db.getImage('stray')) === null],
+            ['他の記録の画像は消えない', foreign.imageIds.join() === 'i2' && (await db.getImage('o1')) !== null],
+            ['削除済みの記録は NOT_FOUND（画像も消えない）', deletedErr instanceof AppError && deletedErr.code === 'NOT_FOUND' && (await db.getImage('i2')) !== null, errText(deletedErr)],
+            ['ない記録は NOT_FOUND', missingErr instanceof AppError && missingErr.code === 'NOT_FOUND', errText(missingErr)],
+          ]);
+        } finally {
+          ev.stop();
+        }
+      })),
+
+    t('SV-22', '下書きの破棄：記録が使っている画像は、下書きの addedImageIds にあっても消さない。alsoImageIds は下書きが無くても消す', 'discardDraft（addedImageIds に保存済みの記録の画像が混ざる）／discardDraft(key, { alsoImageIds })',
+      '保存済みの記録の画像は残り、使われていない追加画像だけ消える。下書きが無くても alsoImageIds の画像は消え、戻り値は false',
+      () => withTestDb('SV-22', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        const drafts = createDraftService({ db, now: clock });
+        await saveRealImage(images, 'd-img', 'used');
+        await saveRealImage(images, 'd-img', 'unused');
+        await saveRealImage(images, 'd-img', 'late');
+        await trades.saveNewTrade(entryFields({ id: 'd-img', imageIds: ['used'] }));
+        // 二重保存のあとなど、記録は保存済みなのに下書きだけが残った状態（下書きは used も unused も覚えている）
+        await drafts.saveDraft({ kind: 'new', tradeId: 'd-img', fields: {}, addedImageIds: ['used', 'unused'] });
+        const first = await drafts.discardDraft('new');
+        const second = await drafts.discardDraft('new', { alsoImageIds: ['late'] });
+        return verdict([
+          ['下書きは消えた', first === true && (await drafts.getDraft('new')) === null],
+          ['記録が使う画像は残る', (await db.getImage('used')) !== null],
+          ['使われていない追加画像は消える', (await db.getImage('unused')) === null],
+          ['下書きが無くても alsoImageIds の画像は消える', second === false && (await db.getImage('late')) === null],
+        ]);
+      })),
+
+    t('SV-23', '論理削除→取り消しで画像も戻る（画像は消えず、imageIds も変わらない）。読み出せない画像はその1枚だけ「読み込めません」', 'deleteTrade → loadImage → undoDeleteTrade／loadImage（正常・ない・空の Blob・文字の Blob）',
+      '削除中も画像は残り、取り消すと imageIds が元のまま。loadImage は ok／missing／broken／broken を返し、例外にしない（記録全体は壊さない）',
+      () => withTestDb('SV-23', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await saveRealImage(images, 'u-img', 'g1');
+        await saveRealImage(images, 'u-img', 'g2');
+        await db.addImage(sampleImage({ id: 'bad-empty', tradeId: 'u-img', blob: new Blob([], { type: 'image/jpeg' }) }));
+        await db.addImage(sampleImage({ id: 'bad-text', tradeId: 'u-img', blob: new Blob(['これは画像ではありません'], { type: 'image/jpeg' }) }));
+        const first = await trades.saveNewTrade(entryFields({ id: 'u-img', imageIds: ['g1', 'g2', 'bad-empty'] }));
+        const deleted = await trades.deleteTrade('u-img');
+        const whileDeleted = await images.loadImage('g1');
+        const restored = await trades.undoDeleteTrade('u-img', deleted.deletedAt);
+        const results = await Promise.all(['g1', 'g2', 'ghost', 'bad-empty', 'bad-text'].map((id) => images.loadImage(id)));
+        return verdict([
+          ['削除中も画像は読める', whileDeleted.status === 'ok', whileDeleted.status],
+          ['取り消すと imageIds が元のまま', restored !== null && sameList(restored.imageIds, first.imageIds), restored && restored.imageIds.join()],
+          ['取り消したあとも画像は読める', results[0].status === 'ok' && results[1].status === 'ok'],
+          ['ない画像は missing', results[2].status === 'missing' && results[2].image === null, results[2].status],
+          ['空の Blob は broken', results[3].status === 'broken', results[3].status],
+          ['画像でない Blob は broken', results[4].status === 'broken', results[4].status],
+          ['ok のときは画像（Blob つき）を返す', results[0].image && results[0].image.blob instanceof Blob && results[0].id === 'g1'],
+        ]);
+      })),
+
+    t('SV-24', '孤立画像の掃除：記録にも下書きにも使われず、作成から1日以上たった画像だけ消える', 'sweepOrphans（現在 2026-10-16 12:00）。使用中・削除済みの記録・下書き・新しい画像・古い孤立画像',
+      '古い孤立画像だけ消える。記録（削除済みを含む）が使う画像・下書きが覚えている画像・1日未満の画像は残る。戻り値は消した ID',
+      () => withTestDb('SV-24', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        const OLD = '2026-10-14T10:00:00+09:00';
+        const FRESH = '2026-10-16T11:30:00+09:00';
+        for (const [id, createdAt] of [['s-used', OLD], ['s-del', OLD], ['s-draft', OLD], ['s-old', OLD], ['s-fresh', FRESH]]) {
+          await db.addImage(sampleImage({ id, tradeId: 's-trade', createdAt }));
+        }
+        const keep = await trades.saveNewTrade(entryFields({ id: 's-keep', imageIds: ['s-used'] }));
+        await trades.saveNewTrade(entryFields({ id: 's-gone', imageIds: ['s-del'] }));
+        await trades.deleteTrade('s-gone');
+        await db.putDraft(sampleDraft({ key: 'new', tradeId: 's-new', addedImageIds: ['s-draft'] }));
+        const removed = await images.sweepOrphans({ now: new Date('2026-10-16T12:00:00+09:00') });
+        const left = (await images.getImagesByTrade('s-trade')).map((x) => x.id).sort();
+        const again = await images.sweepOrphans({ now: new Date('2026-10-16T12:00:00+09:00') });
+        return verdict([
+          ['消えたのは古い孤立画像だけ', sameList(removed, ['s-old']), removed.join()],
+          ['残る画像', sameList(left, ['s-del', 's-draft', 's-fresh', 's-used']), left.join()],
+          ['記録は変わらない', deepEqual(await db.getTrade('s-keep'), keep)],
+          ['2回目は何も消さない', again.length === 0],
+          ['2日後なら新しい画像も孤立として消える', sameList(await images.sweepOrphans({ now: new Date('2026-10-18T12:00:00+09:00') }), ['s-fresh'])],
+        ]);
+      })),
+
+    t('SV-25', '画像の縮小・JPEG 圧縮（実際の Canvas）：長辺 1280px・縦横比を保つ・拡大しない・250KB 以内', 'prepareImage（横3200x2000・縦2000x3200・小さい800x600）',
+      '横長は 1280x800、縦長は 800x1280、小さい画像は 800x600 のまま。JPEG（image/jpeg）で 250KB 以内。保存した Blob の実際の大きさも一致',
+      async () => {
+        const wide = await prepareImage(await jpegOf(3200, 2000));
+        const tall = await prepareImage(await jpegOf(2000, 3200));
+        const small = await prepareImage(await jpegOf(800, 600));
+        const sized = await sizeOfBlob(wide.blob);
+        const png = await prepareImage(await canvasToBlob(drawChartLike(1600, 900), 'image/png'));
+        return verdict([
+          ['横長 3200x2000 → 1280x800', wide.width === 1280 && wide.height === 800, `${wide.width}x${wide.height}`],
+          ['縦長 2000x3200 → 800x1280', tall.width === 800 && tall.height === 1280, `${tall.width}x${tall.height}`],
+          ['小さい画像は拡大しない', small.width === 800 && small.height === 600, `${small.width}x${small.height}`],
+          ['JPEG になる', wide.blob.type === 'image/jpeg' && (await inspectBlob(wide.blob)) === true, wide.blob.type],
+          ['250KB 以内', wide.blob.size <= 250 * 1024 && tall.blob.size <= 250 * 1024 && small.blob.size <= 250 * 1024, `${wide.blob.size}/${tall.blob.size}/${small.blob.size}`],
+          ['保存した Blob の実際の大きさ＝記録する大きさ', sized.width === wide.width && sized.height === wide.height, `${sized.width}x${sized.height}`],
+          ['PNG も JPEG にして縮小する', png.blob.type === 'image/jpeg' && png.width === 1280 && png.height === 720, `${png.blob.type} ${png.width}x${png.height}`],
+        ]);
+      }),
+
+    t('SV-26', '画像の縮小：ノイズのような大きな画像でもサイズだけを理由に失敗させない（1024px でやり直す）。向き（EXIF）を正しく扱う', 'prepareImage（ランダムノイズ 2400x1600）／向き6の JPEG 300x200',
+      'ノイズは 250KB を超えても例外にならず、長辺 1024px で返る。向き6の 300x200 は縦長の 200x300 になる（横向きにならない）',
+      async () => {
+        const noise = await prepareImage(await noiseJpegOf(2400, 1600));
+        const upright = await jpegOf(300, 200);
+        const rotated = await prepareImage(await withExifOrientation(upright, 6));
+        const plain = await prepareImage(upright);
+        return verdict([
+          ['ノイズでも失敗しない', noise.blob.size > 0 && noise.blob.type === 'image/jpeg'],
+          ['ノイズは 1024px のやり直しまで進む', noise.width === 1024 && noise.height === 683, `${noise.width}x${noise.height}`],
+          ['向きなしの 300x200 はそのまま', plain.width === 300 && plain.height === 200, `${plain.width}x${plain.height}`],
+          ['向き6の 300x200 は縦長 200x300', rotated.width === 200 && rotated.height === 300, `${rotated.width}x${rotated.height}`],
+          ['保存した Blob の実際の向きも縦長', (await sizeOfBlob(rotated.blob)).height === 300, JSON.stringify(await sizeOfBlob(rotated.blob))],
+        ]);
+      }),
+
+    t('SV-27', '読み込めない画像は IMAGE_DECODE（アプリは止まらない）', 'prepareImage（文字のファイル・壊れた JPEG・空のファイル・Blob でない値）',
+      'どれも AppError IMAGE_DECODE（文言は design 14.1.9）',
+      async () => {
+        const text = new File(['hello'], 'a.txt', { type: 'text/plain' });
+        const garbage = new File([new Uint8Array([0xff, 0xd8, 0xff, 0x00, 1, 2, 3, 4, 5, 6])], 'broken.jpg', { type: 'image/jpeg' });
+        const empty = new File([], 'empty.jpg', { type: 'image/jpeg' });
+        const errs = await Promise.all([text, garbage, empty, 'not-a-file'].map((f) => errorOf(() => prepareImage(f))));
+        return verdict([
+          ['文字のファイル', errs[0] instanceof AppError && errs[0].code === 'IMAGE_DECODE', errText(errs[0])],
+          ['壊れた JPEG', errs[1] instanceof AppError && errs[1].code === 'IMAGE_DECODE', errText(errs[1])],
+          ['空のファイル', errs[2] instanceof AppError && errs[2].code === 'IMAGE_DECODE', errText(errs[2])],
+          ['Blob でない値', errs[3] instanceof AppError && errs[3].code === 'IMAGE_DECODE', errText(errs[3])],
+          ['文言は design 14.1.9', errs[0].message === '画像を読み込めませんでした。別の画像を選んでください。', errs[0].message],
+        ]);
+      }),
+
+    t('SV-28', '表示用 URL（Blob URL）の発行と解放：解放した URL はもう読めない', 'createUrlPool().urlOf(blob) → <img> で読む → revokeAll → <img> で読む',
+      '発行した URL は画像として読める。revokeAll のあとは読めない（メモリを手放している）',
+      async () => {
+        // テストページの CSP は fetch で blob: を読めないので、アプリと同じ <img> で確かめる
+        const canLoad = async (url) => {
+          const img = new Image();
+          img.src = url;
+          try { await img.decode(); return img.naturalWidth > 0; } catch (e) { return false; }
+        };
+        const pool = createUrlPool();
+        const urls = [pool.urlOf(await jpegOf(40, 30)), pool.urlOf(await jpegOf(50, 30))];
+        const before = await Promise.all(urls.map(canLoad));
+        pool.revokeAll();
+        const after = await Promise.all(urls.map(canLoad));
+        return verdict([
+          ['発行直後は読める', before.every(Boolean), before.join()],
+          ['解放したあとは読めない', after.every((v) => v === false), after.join()],
+          ['数も 0', pool.size() === 0],
+        ]);
+      }),
   ];
 }
 

@@ -23,6 +23,7 @@
        hasUnsavedChanges() { return false } // 入力画面だけ意味を持つ
        discardChanges() {}                  // 入力画面だけ：「入力内容を破棄」を選んだとき（下書きを消す。T-17）
        discardTitle: '…'                    // 入力画面だけ（省略可）：破棄の確認シートの見出し。省略すると「入力内容を破棄しますか？」（T-21）
+       discardMessage() { return '…' }      // 入力画面だけ（省略可）：破棄の確認シートの説明。画像を追加していたら「追加した画像も削除されます。」（T-24：design 14.7.4）
      };
 
    この層（起動・画面切替）は画面ファイルを読み込むが、画面ファイルからは router.js を import しない。
@@ -154,6 +155,8 @@ export async function back(fallback = HOME) {
     const choice = await actionSheet({
       // 決済画面は「決済の入力内容を破棄しますか？」（design 14.7.4）。画面ごとの見出しがあればそれを使う
       title: screen.discardTitle || '入力内容を破棄しますか？',
+      // 画像を追加していたら「追加した画像も削除されます。」（design 14.7.4）。画面ごとに、追加した画像があるときだけ文を返す
+      message: screen.discardMessage ? screen.discardMessage() : '',
       actions: [{ label: '入力内容を破棄', value: 'discard', danger: true }],
       cancelLabel: '編集を続ける',
     });

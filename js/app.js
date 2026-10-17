@@ -11,11 +11,13 @@
      ⑥ 永続化リクエスト・案内       ← T-29
      ⑦ 下書きの確認（30分以内なら入力画面を自動で開く） ← T-17（drafts.js）
      ⑧ ルーター開始                 ← T-10
+     ⑨ 孤立画像の掃除（画面の表示が終わったあと） ← T-24（images.js の sweepOrphans：architecture 11.6）
    いまは ①・②・③・④・⑦・⑧ を行う。他の処理は各タスクで、この順番どおりに足していく。
    T-11：お知らせ行を共通部品 ui/notice.js（#notice-area に出す showAppNotice）に置き換えた（design 9.16）。
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
    T-17：⑦ 下書きの確認を追加（30分以内の新規エントリーの下書きがあれば、一覧 → 入力画面の順に履歴を作って入力画面を開く）。
    T-21：⑦ に決済の下書きも加えた（対象の記録が削除・決済済みになっていた決済の下書きは、黙って消して次の候補を見る）。
+   T-24：⑨ 孤立画像の掃除を追加（どの記録にも下書きにも使われず、作成から1日以上たった画像を、画面の表示が終わった3秒後に削除する）。
    T-22：⑦ に編集の下書きも加えた。決済・編集の下書きは、対象の記録を見て judgeDraftTarget（draft-notice.js）で判定する
    （対象が無い・削除済み・決済済みの決済 → 黙って消す／元の記録が下書きのあとに変わっていた → 自動では開かず、消さずに一覧のお知らせ行へ任せる）。
    ========================================================= */
@@ -28,6 +30,7 @@ import { applyTheme } from './ui/theme.js';
 import { getAllDrafts, pickLaunchDraft, discardDraft, DRAFT_KIND } from './drafts.js';
 import { getTrade } from './trades.js';
 import { judgeDraftTarget, draftTargetHash } from './draft-notice.js';
+import { sweepOrphans } from './images.js';
 
 /**
  * アプリ全体の問題を、画面上部の #notice-area にお知らせ行として出す（architecture 4.5・15.1、design 9.16）。
@@ -162,6 +165,19 @@ async function openRecentDraft() {
   history.pushState({ fxnoteIdx: 1 }, '', draftTargetHash(draft));
 }
 
+/**
+ * ⑨ 孤立画像の掃除（architecture 11.6）。アプリを開くたびに、画面の表示が終わった少しあとで行う（起動を遅らせないため）。
+ * 保存せずにアプリが閉じられて残った、どの記録にも下書きにも使われていない画像のうち、作成から1日以上たったものだけを消す
+ * （1日未満のものは入力中の画像かもしれないので残す）。失敗しても画面には何も出さない（次に開いたときにもう一度やる）。
+ */
+function scheduleOrphanSweep() {
+  setTimeout(() => {
+    sweepOrphans()
+      .then((removed) => { if (removed.length > 0) console.info(`孤立画像を ${removed.length} 枚削除しました`); })
+      .catch((err) => console.error('孤立画像の掃除に失敗しました', err));
+  }, 3000);
+}
+
 async function main() {
   installGlobalErrorHandlers();
   openDatabase();
@@ -181,6 +197,9 @@ async function main() {
     root: document.getElementById('app'),
     tabbar: document.querySelector('.tabbar'),
   });
+
+  // ⑨ 孤立画像の掃除（画面の表示が終わったあと）
+  scheduleOrphanSweep();
 }
 
 main();

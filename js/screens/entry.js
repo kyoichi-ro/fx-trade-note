@@ -7,7 +7,9 @@
    【T-18 の範囲】「詳細（任意）」の中身：SL・TP（リスクリワードを1文字ごとに表示・方向と矛盾する場合の警告 W-01 など）、根拠（複数選択）、
    時間足、セッション（日時から自動判定・手で変えたら上書きしない）、感情、タグ（画面の中で追加できる。設定の選択肢にも加わる）、メモ。
    詳細は毎回閉じた状態で開く（下書きから復元したときだけ、下書きの開閉状態に戻す：design 14.1.5）。閉じたままでも必須6項目だけで従来どおり保存できる。
-   画像の添付は T-24 で作る。
+   【T-24 の範囲】「詳細（任意）」の最後に画像（最大4枚）。選んだ画像は縮小・JPEG 圧縮して images に先に保存し（architecture 11.5）、
+   その ID を下書き（addedImageIds）と保存する記録（imageIds）に持たせる。キャンセル・破棄したときは追加した画像も消す
+   （孤立画像を残さない）。縮小中に保存を押したら、終わるのを待ってから保存する（design 14.1.9）。
 
    画面の流れ：
    ・開いたとき：下書き（drafts の 'new'）があればその内容で開き、口座色の線の下に「入力途中の内容を復元しました［破棄］」。
@@ -28,6 +30,8 @@ import {
   numberRow, dateTimeRow, accountSegment, sideSegment, segment, chips, textareaRow, setGroupMessages,
 } from '../ui/fields.js';
 import { tagPicker } from '../ui/tag-picker.js';
+import { imageField } from '../ui/image-field.js';
+import { IMAGE_TEXT } from '../images.js';
 import { icon } from '../ui/icons.js';
 import { renderNotices } from '../ui/notice.js';
 import { actionSheet, showAlert } from '../ui/dialog.js';
@@ -143,7 +147,8 @@ function buildScreen(root, nav, draft) {
   let restored = Boolean(draft);
   const shown = new Set();   // エラー・警告の文を出してよい欄（欄から離れた・選んだ・保存を押した欄：design 14.1.8）
 
-  const isChanged = () => isEntryChanged(initial, fields);
+  // 画像は入力欄の文字（fields）には入らない。追加した画像があれば「変更あり」（キャンセルの確認・下書きを作る判定）
+  const isChanged = () => isEntryChanged(initial, fields) || images.isChanged();
 
   /* ----- 部品 ----- */
   const accountLine = h('div', { class: 'account-line', 'aria-hidden': 'true' });
@@ -257,6 +262,15 @@ function buildScreen(root, nav, draft) {
   // 見出し「メモ」があるので、行の中のラベルは画面には出さず読み上げ用に残す
   memo.row.querySelector('.form-row__label').classList.add('visually-hidden');
 
+  // 画像（最大4枚）。追加した画像の ID は下書きに、保存したら記録の imageIds になる（architecture 11.5）
+  const images = imageField({
+    tradeId, kind: 'entry', addedIds: draft && Array.isArray(draft.addedImageIds) ? draft.addedImageIds : [],
+    onChange: () => onDetailsChanged(),
+    // 写真の選択画面・カメラを開く直前と、画像を 1 枚保存した直後に、下書きをすぐ書く（iPhone はカメラ起動でページが再読み込みされることがある：architecture 9.2）
+    onBeforePick: () => { if (!finished) autosaver.flush(); },
+    onAdded: () => { if (!finished) autosaver.flush(); },
+  });
+
   const detailsId = uniqueId('details');
   const detailsBody = h('div', { class: 'entry-details__body', id: detailsId },
     levelsGroup,
@@ -265,7 +279,8 @@ function buildScreen(root, nav, draft) {
     sessionGroup,
     listGroup({ header: '感情', rows: [h('div', { class: 'field-row' }, emotionChips.el, choices.emotions.length === 0 && !fields.emotion ? emptyHint('感情') : null)] }),
     tags.el,
-    listGroup({ header: 'メモ', rows: [memo.row] }));
+    listGroup({ header: 'メモ', rows: [memo.row] }),
+    images.el);
   const detailsSub = h('span', { class: 'entry-details__sub' });
   const detailsToggle = h('button', {
     type: 'button', class: 'list-row entry-details__toggle', 'aria-controls': detailsId, onClick: () => toggleDetails(),
@@ -292,7 +307,7 @@ function buildScreen(root, nav, draft) {
     hasStored: Boolean(draft),
     isChanged,
     build: () => ({
-      kind: DRAFT_KIND.NEW, tradeId, fields: cloneFields(fields), uiState: { ...ui }, addedImageIds: [], removedImageIds: [],
+      kind: DRAFT_KIND.NEW, tradeId, fields: cloneFields(fields), uiState: { ...ui }, addedImageIds: images.getAddedIds(), removedImageIds: [],
     }),
     onStatus: (ok) => { if (draftFailed === ok) { draftFailed = !ok; renderNoticeRows(); } },
   });
@@ -315,7 +330,7 @@ function buildScreen(root, nav, draft) {
     detailsToggle.setAttribute('aria-expanded', ui.detailsOpen ? 'true' : 'false');
     detailsBody.hidden = !ui.detailsOpen;
     // 閉じているとき、値が入っている項目名を2行目に出す（閉じても消えていないことが分かるように：design 14.1.4）
-    detailsSub.textContent = ui.detailsOpen ? ENTRY_DETAILS_LIST : entryDetailsSummary(fields);
+    detailsSub.textContent = ui.detailsOpen ? ENTRY_DETAILS_LIST : entryDetailsSummary(fields, images.addedCount());
     // ロットの次に SL へ進めるのは、詳細を開いているときだけ
     lots.input.setAttribute('enterkeyhint', ui.detailsOpen ? 'next' : 'done');
   }
@@ -474,8 +489,11 @@ function buildScreen(root, nav, draft) {
       return;
     }
     setSaving(true);
+    // 画像の縮小・保存の途中なら、終わるのを待ってから保存する（ボタンは「保存中」のまま：design 14.1.9）
+    await images.whenIdle();
     // 自動保存を止め、保存中の下書きが書き終わるのを待つ（後から下書きが作り直されないように）
     await autosaver.stop();
+    if (finished) return; // 待っている間に「入力内容を破棄」が選ばれた（画像も消えている）。保存しない
     const input = {
       id: tradeId,
       accountType: fields.accountType,
@@ -486,6 +504,8 @@ function buildScreen(root, nav, draft) {
       entryAt: fromInputValue(fields.entryAt),
       // 任意項目（SL・TP・根拠・時間足・セッション・感情・タグ・メモ）。riskReward は保存側が calcRiskReward で決める
       ...buildOptionalInput(fields),
+      // 追加した画像は保存済み（images）。記録には ID だけを持たせる。保存が失敗しても画像は下書きが覚えているので孤立しない
+      imageIds: images.getAddedIds(),
     };
     try {
       await saveNewTrade(input, { draftKey: DRAFT_KEY });
@@ -493,6 +513,14 @@ function buildScreen(root, nav, draft) {
       if (!isAppError(e, 'DUPLICATE')) {
         console.error('記録を保存できませんでした', e);
         setSaving(false);
+        // 追加した画像が images から消えていたとき（別の画面・掃除で消えた）は、画面の一覧からも外して知らせる（記録は保存していない）
+        if (isAppError(e, 'IMAGE_MISSING')) {
+          await images.pruneMissing();
+          autosaver.resume();
+          autosaver.flush();
+          await showAlert({ title: '保存できませんでした', message: '追加した画像の一部が見つかりませんでした。画像を追加し直してください。入力内容はこの画面に残っています。' });
+          return;
+        }
         // 下書きは残す（もう一度保存できるよう、自動保存を再開して今の内容をすぐ書いておく：design 14.1.6）
         autosaver.resume();
         autosaver.flush();
@@ -510,6 +538,7 @@ function buildScreen(root, nav, draft) {
     }
     finished = true;
     autosaver.dispose();
+    images.dispose();
     rememberLastInput(input.accountType, input.pair, normalizeNumberText(fields.lots));
     showToast('保存しました');
     nav.back(ui.returnTo);
@@ -519,6 +548,7 @@ function buildScreen(root, nav, draft) {
   async function onDiscardRestored() {
     const ok = await actionSheet({
       title: '入力途中の内容を破棄しますか？',
+      message: images.addedCount() > 0 ? IMAGE_TEXT.discardNote : '',
       actions: [{ label: '入力内容を破棄', value: true, danger: true }],
     });
     if (ok !== true || finished) return;
@@ -528,12 +558,18 @@ function buildScreen(root, nav, draft) {
     ctrl = buildScreen(root, nav, null);
   }
 
-  /** 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄で使う） */
+  /**
+   * 下書きを消し、この画面ではもう下書きを作らない（キャンセルの破棄・復元の破棄で使う）。
+   * この入力で追加した画像も一緒に消す（孤立画像を残さない：architecture 9.4）。下書きにまだ書けていない画像
+   * （0.5秒の待ちの途中など）も、画面が覚えている ID で確実に消す。縮小中の画像は dispose で捨てる。
+   */
   async function discardAll() {
     finished = true;
+    const added = images.getAddedIds();
+    images.dispose();
     await autosaver.stop();
     autosaver.dispose();
-    await discardDraft(DRAFT_KEY);
+    await discardDraft(DRAFT_KEY, { alsoImageIds: added });
   }
 
   renderAccount();
@@ -545,11 +581,14 @@ function buildScreen(root, nav, draft) {
 
   return {
     hasUnsavedChanges: () => !finished && isChanged(),
+    /** 「入力内容を破棄」の確認の説明。画像を追加していたら「追加した画像も削除されます。」を添える（design 14.7.4） */
+    discardMessage: () => (images.addedCount() > 0 ? IMAGE_TEXT.discardNote : ''),
     discardChanges: () => discardAll(),
     /** 画面を離れる：保存も破棄もしていなければ、待たずに下書きを保存する（architecture 9.2） */
     leave() {
       if (!finished) autosaver.flush();
       autosaver.dispose();
+      images.dispose(); // 表示用 URL の解放（architecture 11.3）。縮小中の画像は保存せずに捨てる
     },
   };
 }
@@ -595,6 +634,10 @@ export default {
 
   hasUnsavedChanges() {
     return Boolean(ctrl && ctrl.hasUnsavedChanges());
+  },
+
+  discardMessage() {
+    return ctrl ? ctrl.discardMessage() : '';
   },
 
   discardChanges() {

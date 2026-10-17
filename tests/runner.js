@@ -26,6 +26,7 @@ import { collectCloseFormTests } from './close-form.test.js';
 import { collectChoiceListTests } from './choice-list.test.js';
 import { collectEntryFormTests } from './entry-form.test.js';
 import { collectEditFormTests } from './edit-form.test.js';
+import { collectImageTests } from './images.test.js';
 
 /** すべてのテストの定義を、表示する順番（architecture 13.2 の表の順）で集める */
 export function collectAllTests() {
@@ -43,6 +44,7 @@ export function collectAllTests() {
     ...collectCloseFormTests(),  // 決済画面（CL・FL）28件（T-21。入力チェック・損益の即時計算・符号付きの貼り付け・決済/取り消しの組み立て・ハイライトの受け渡し：design 14.2）。Node.js でも実行する
     ...collectEntryFormTests(),  // エントリー画面（EF）36件（T-18。セッションの自動判定と手動の優先・下書きの読み直し・RR の表示と W-01 などの警告・損切り幅/利確幅・保存時の再計算・タグの追加の判断：design 14.1）。Node.js でも実行する
     ...collectEditFormTests(),   // 編集・削除（ED・DN・DL）T-22。記録→入力欄・変更の検出・口座区分変更時の1lot・再計算・保存する記録の組み立て・別の画面で変更されたときの重ね合わせ・下書きの対象の判定とお知らせ行・削除トーストの受け渡し：design 14.5・14.3.8・14.7.5。Node.js でも実行する
+    ...collectImageTests(),      // チャート画像（IM）T-24。縮小後の大きさ・JPEG の品質の段階と250KB・サイズが超えても失敗させない・半分ずつ縮める・4枚の判定・imageIds の組み立て・孤立画像の判定・表示用URLの解放・壊れたBlobの見分け・空き容量・決済での画像の追加：architecture 11章・design 14.1.9。Node.js でも実行する
     ...collectChoiceListTests(), // 選択肢の編集（CH）35件（T-16。名前のチェック・追加/削除/並び替え・通貨ペアの追加 E-12〜E-16・W-07・初期値の master.js への移動・保存の読み直し：design 14.6.3・14.6.4）。Node.js でも実行する
   ];
 }

@@ -22,6 +22,15 @@
      ここの computeClose / buildClosedTrade を呼ぶ。保存は saveTrade（expectedUpdatedAt で別画面の変更を検出する）。
    ・削除・削除の取り消し（deleteTrade / undoDeleteTrade）は T-12 から変わらない。画面（詳細・一覧）から呼ぶだけ。
 
+   【T-24：チャート画像】
+   ・記録の保存は、画像が先に images に保存されている前提で、imageIds だけを記録に持たせる（architecture 11.5）。
+     保存と同じトランザクションの中で「新しく指した画像が本当にあるか」を確かめ（IMAGE_MISSING）、
+     「記録が画像を指しているのに画像が無い」状態を作らない。
+   ・編集の保存では、外した画像の物理削除（deleteImageIds）を記録の保存と同じトランザクションで行う（architecture 8章・11.4）。
+   ・決済では、保存されている最新の imageIds に追加した画像を足す（addImageIds）。
+   ・removeTradeImage()：詳細の拡大表示からの個別削除。画像の物理削除と imageIds の更新を1つのトランザクションで行う。
+   論理削除（deleteTrade）は画像を消さない（削除の取り消しで画像も戻すため：architecture 10章）。
+
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
 
@@ -34,6 +43,7 @@ import { emit } from './events.js';
 import { calcRiskReward, calcPips, calcProfitJpy, judgeSession } from './calc.js';
 import { getPairSpec, SESSION_LABELS } from './master.js';
 import { settingsStore } from './settings-store.js';
+import { mergeImageIds, buildImageIds } from './images.js';
 
 /** 未入力のとき null ではなく空の配列にする項目（architecture 6.7） */
 const ARRAY_KEYS = Object.freeze(['entryReasons', 'tags', 'imageIds']);
@@ -58,6 +68,10 @@ export function normalizeTrade(input) {
       if (v == null) out[key] = [];
       else if (Array.isArray(v)) out[key] = [...v];
       else throw new TypeError(`trades：${key} は配列で渡してください`);
+      // 画像 ID は空でない文字列だけ（壊れた ID を持つ記録を保存して、画像が探せなくなるのを防ぐ）
+      if (key === 'imageIds' && out[key].some((id) => typeof id !== 'string' || id === '')) {
+        throw new TypeError('trades：imageIds は空でない文字列の配列で渡してください');
+      }
     } else {
       out[key] = v === undefined ? null : v;
     }
@@ -129,7 +143,7 @@ export function computeClose(trade, { exitPrice, quoteToJpyRate = null, manualPr
  * ・決済理由・決済時の感情・メモ・タグは渡されたものに置き換える（未指定なら記録にあるものをそのまま）。空の文字は null
  * @param {object} stored 保存されている記録
  * @param {{ exitPrice: number, exitAt: string, quoteToJpyRate?: (number|null), manualProfitJpy?: (number|null),
- *   exitReason?: (string|null), exitEmotion?: (string|null), tags?: string[], memo?: (string|null) }} input
+ *   exitReason?: (string|null), exitEmotion?: (string|null), tags?: string[], memo?: (string|null), addImageIds?: string[] }} input
  * @returns {object} 32項目の記録
  */
 export function buildClosedTrade(stored, input) {
@@ -151,6 +165,8 @@ export function buildClosedTrade(stored, input) {
     exitEmotion: input.exitEmotion === undefined ? stored.exitEmotion : orNull(input.exitEmotion),
     tags: input.tags === undefined ? stored.tags : [...input.tags],
     memo: input.memo === undefined ? stored.memo : orNull(input.memo),
+    // 決済時に追加した画像は、保存されている最新の imageIds の後ろに足す（外すことはしない。別の画面での画像の変更を失わない）
+    imageIds: input.addImageIds === undefined ? stored.imageIds : mergeImageIds(stored.imageIds, input.addImageIds),
   };
 }
 
@@ -177,6 +193,21 @@ function assertAccountType(v) {
 /** 記録が見つからない（または削除済み）ときのエラー（architecture 15.1 NOT_FOUND） */
 function notFound() {
   return new AppError('NOT_FOUND', 'この記録は見つかりません。');
+}
+
+/** 記録が指す画像が images にないときのエラー（architecture 15.1 IMAGE_MISSING。記録を保存しない） */
+function imageMissing() {
+  return new AppError('IMAGE_MISSING', '添付した画像が見つかりません。画像を追加し直してください。');
+}
+
+/**
+ * ids の画像がすべて images にあるか確かめる（保存と同じトランザクションの中で呼ぶ）。
+ * 画像が先に保存されている前提（architecture 11.5）が崩れていたら、記録を保存せずに止める。
+ */
+async function assertImagesExist(ops, ids) {
+  for (const id of ids) {
+    if (!(await ops.get(STORE.IMAGES, id))) throw imageMissing();
+  }
 }
 
 /** id が使える文字列か（空文字・数値などを ID として保存しないため） */
@@ -210,18 +241,22 @@ export function createTradeService({
    *   違うとき（編集を始めたあとに別の画面で変更・決済・削除の取り消しなどがあった）は AppError CONFLICT で、何も保存しない。
    *   画面が古い写しを元に組み立てた記録で、新しい変更（決済した値など）を黙って上書きして失わないため。
    *   渡さなければ従来どおり（決済・決済の取り消しは保存されている最新の記録を読み直してから組み立てるので不要）
+   * ・imageIds に、保存されている記録にはなかった ID が増えていたら、その画像が images にあるかを同じトランザクションで確かめ、
+   *   なければ AppError IMAGE_MISSING（何も保存しない。「記録が画像を指しているのに画像が無い」状態を作らない：T-24）
+   * ・deleteImageIds を渡すと（編集で外した画像：T-24）、記録の保存と同じトランザクションで画像を物理削除する
+   *   （記録だけ・画像だけが片方残る状態を作らない：architecture 8章・11.4）。保存する imageIds に残っている ID は消さない
    * 下の closeTrade / reopenTrade からも呼ぶため、メソッドではなくこの関数の中の部品として定義している
    * （tradeService の分割代入 { saveTrade, ... } で取り出しても this に頼らず動くようにするため）。
    * @param {object} trade 32項目（id 必須）
-   * @param {{draftKey?: string, expectedUpdatedAt?: string}} [opts]
+   * @param {{draftKey?: string, expectedUpdatedAt?: string, deleteImageIds?: string[]}} [opts]
    * @returns {Promise<object>} 保存した記録
    */
-  async function saveTrade(trade, { draftKey, expectedUpdatedAt } = {}) {
+  async function saveTrade(trade, { draftKey, expectedUpdatedAt, deleteImageIds } = {}) {
     assertId(trade && trade.id);
     normalizeTrade(trade); // 6.1 にない項目が混ざっていないかを、DB を開く前に確かめる
     const t = now();
     let saved;
-    await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
+    await db.runTx([STORE.TRADES, STORE.DRAFTS, STORE.IMAGES], async (ops) => {
       const stored = await ops.get(STORE.TRADES, trade.id);
       if (!stored || stored.deletedAt != null) throw notFound();
       if (expectedUpdatedAt !== undefined && stored.updatedAt !== expectedUpdatedAt) {
@@ -235,7 +270,11 @@ export function createTradeService({
         syncStatus: 'pending',
         updatedAt: t,
       }));
+      const had = new Set(stored.imageIds || []);
+      await assertImagesExist(ops, saved.imageIds.filter((id) => !had.has(id)));
       await ops.put(STORE.TRADES, saved);
+      const keep = new Set(saved.imageIds);
+      for (const id of deleteImageIds || []) if (!keep.has(id)) await ops.delete(STORE.IMAGES, id);
       if (draftKey) await ops.delete(STORE.DRAFTS, draftKey);
     });
     emit(TRADES_CHANGED, { type: 'update', id: saved.id, trade: saved });
@@ -260,6 +299,7 @@ export function createTradeService({
      * ・status・riskReward・session は recompute() で決める（status は決済情報の有無から自動）
      * ・同じ id がすでにあれば AppError DUPLICATE（二重保存の防止。画面は「保存済み」として扱う：15.1）
      * ・draftKey を渡すと、記録の保存と下書きの削除を1つのトランザクションで行う（片方だけ成功しない）
+     * ・fields.imageIds の画像が images にないときは AppError IMAGE_MISSING（T-24）
      * @param {object} fields requirements 6.1 の項目（一部でよい）
      * @param {{draftKey?: string}} [opts]
      * @returns {Promise<object>} 保存した記録
@@ -276,7 +316,9 @@ export function createTradeService({
         lotUnitSize: getLotUnitSize(fields.accountType),
         syncStatus: 'pending', syncedAt: null, deletedAt: null, createdAt: t, updatedAt: t,
       }));
-      await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
+      await db.runTx([STORE.TRADES, STORE.DRAFTS, STORE.IMAGES], async (ops) => {
+        // 画像は先に保存されている前提（architecture 11.5）。なければ記録を保存しない（T-24）
+        await assertImagesExist(ops, trade.imageIds);
         await ops.add(STORE.TRADES, trade);
         if (draftKey) await ops.delete(STORE.DRAFTS, draftKey);
       });
@@ -314,6 +356,40 @@ export function createTradeService({
       const stored = await readLiveTrade(id);
       if (judgeStatus(stored) !== 'closed') return stored;
       return saveTrade(buildReopenedTrade(stored));
+    },
+
+    /**
+     * 画像を1枚、物理削除する（詳細の拡大表示の「削除」：design 14.4.6、architecture 11.4）。
+     * 記録の imageIds から外す更新（updatedAt ＝今、syncStatus ＝ 'pending'）と、images からの削除を、1つのトランザクションで行う
+     * （片方だけ成功して、画像のない ID や、どの記録にも属さない画像が残らないように）。
+     * ・記録が imageIds に持っていない画像は、画像の tradeId がこの記録のときだけ（取り残された画像）削除する。他の記録の画像は消さない
+     * ・記録がない・削除済みなら NOT_FOUND
+     * @param {string} tradeId
+     * @param {string} imageId
+     * @returns {Promise<object>} 更新後の記録
+     */
+    async removeTradeImage(tradeId, imageId) {
+      assertId(tradeId);
+      assertId(imageId);
+      const t = now();
+      let result;
+      let changed = false;
+      await db.runTx([STORE.TRADES, STORE.IMAGES], async (ops) => {
+        const stored = await ops.get(STORE.TRADES, tradeId);
+        if (!stored || stored.deletedAt != null) throw notFound();
+        result = stored;
+        if ((stored.imageIds || []).includes(imageId)) {
+          result = { ...stored, imageIds: buildImageIds(stored.imageIds, [], [imageId]), updatedAt: t, syncStatus: 'pending' };
+          changed = true;
+          await ops.put(STORE.TRADES, result);
+          await ops.delete(STORE.IMAGES, imageId);
+          return;
+        }
+        const image = await ops.get(STORE.IMAGES, imageId);
+        if (image && image.tradeId === tradeId) await ops.delete(STORE.IMAGES, imageId);
+      });
+      if (changed) emit(TRADES_CHANGED, { type: 'update', id: tradeId, trade: result });
+      return result;
     },
 
     /** 1件取得。見つからなければ null（削除済みもそのまま返す。表示するかは呼び出し側が deletedAt で判断） */
@@ -378,5 +454,5 @@ export function createTradeService({
 export const tradeService = createTradeService();
 
 export const {
-  saveNewTrade, saveTrade, closeTrade, reopenTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade,
+  saveNewTrade, saveTrade, closeTrade, reopenTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade, removeTradeImage,
 } = tradeService;

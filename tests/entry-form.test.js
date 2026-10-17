@@ -187,6 +187,7 @@ export function collectEntryFormTests() {
       () => verdict([
         ['何もなし', entryDetailsSummary(fieldsOf()) === ENTRY_DETAILS_LIST, entryDetailsSummary(fieldsOf())],
         ['SL・TP とメモ', entryDetailsSummary(fieldsOf({ slPrice: '149.8', memo: 'x' })) === 'SL・TP、メモ 入力済み', entryDetailsSummary(fieldsOf({ slPrice: '149.8', memo: 'x' }))],
+        ['画像だけ（T-24：枚数は fields の外から渡す）', entryDetailsSummary(fieldsOf(), 1) === '画像 入力済み' && entryDetailsSummary(fieldsOf({ memo: 'x' }), 2) === 'メモ、画像 入力済み', entryDetailsSummary(fieldsOf(), 1)],
         ['TP だけでも SL・TP', entryDetailsSummary(fieldsOf({ tpPrice: '150.4' })) === 'SL・TP 入力済み', entryDetailsSummary(fieldsOf({ tpPrice: '150.4' }))],
         ['全部', entryDetailsSummary(fieldsOf({ slPrice: '1', entryReasons: ['a'], timeframe: 'M5', session: 'tokyo', emotion: 'b', tags: ['c'], memo: 'd' })) === 'SL・TP、根拠、時間足、セッション、感情、タグ、メモ 入力済み',
           entryDetailsSummary(fieldsOf({ slPrice: '1', entryReasons: ['a'], timeframe: 'M5', session: 'tokyo', emotion: 'b', tags: ['c'], memo: 'd' }))],

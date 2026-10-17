@@ -31,7 +31,7 @@ export const LS_PREFIX = 'fxnote:';
 export const MAX_IMAGES_PER_TRADE = 4;
 
 /**
- * 画像の縮小・圧縮の目安（architecture.md 11.1）。実際の処理は images.js（T-24）で作る。
+ * 画像の縮小・圧縮の目安（architecture.md 11.1）。実際の処理は images.js（T-24）。
  * ・長辺が 1280px を超えるときだけ縮小する
  * ・JPEG の品質を 0.82 から始め、250KB を超えたら段階的に下げる。それでも超えたら長辺 1024px でやり直す
  */
@@ -39,6 +39,15 @@ export const IMAGE_MAX_EDGE = 1280;
 export const IMAGE_FALLBACK_EDGE = 1024;
 export const IMAGE_QUALITY_STEPS = [0.82, 0.72, 0.62, 0.5];
 export const IMAGE_MAX_BYTES = 250 * 1024;
+
+/**
+ * 孤立画像の掃除（architecture.md 11.6）：どの記録にも下書きにも使われていない画像のうち、作成から
+ * この分数以上たったものだけ削除する（1日）。入力中の画像を誤って消さないための安全策。
+ */
+export const IMAGE_ORPHAN_MIN_AGE_MINUTES = 24 * 60;
+
+/** 端末の空きがこれ未満のとき、画像の追加時に注意を出す（バイト。architecture.md 15.1「残り10MB未満」） */
+export const LOW_STORAGE_BYTES = 10 * 1024 * 1024;
 
 /** 下書き・一覧の絞り込み条件を、開き直したときに復元する期限（分）（architecture.md 5.5・9.3、2026-10-15 決定） */
 export const DRAFT_RESTORE_MINUTES = 30;

@@ -19,7 +19,13 @@
    一覧の表示が終わってからトースト「削除しました［取り消す］」を6秒出す：design 14.4.5・14.7.5）。
    「取り消す」付きのトーストは画面を移ると消えるので、ここでは出さず、js/deleted-toast.js に預けて一覧に出してもらう。
    「編集」（右上・決済済みの下部）は T-20 から実画面（#/trades/{id}/edit）へのリンク。
-   画像のサムネイル・拡大表示（design 14.4.6）は T-24 で作る。画像のグループは、画像を表示できるようになる T-24 で足す。
+
+   【T-24】画像（design 14.4.1・14.4.6）：「タグ・メモ」グループの次に「画像（N枚）」のグループ（0枚ならグループごと出さない）。
+   画像以外の項目を先に描き、サムネイルは枠（回転アイコン）を出してから 1 枚ずつ読み込んで差し替える（design 14.7.7）。
+   サムネイルを押すと拡大表示（ui/image-viewer.js。左右スワイプ・「削除」：この詳細から開いたときだけ）。「削除」は確認のうえ
+   images から物理削除し、記録の imageIds からも外す（trades.js の removeTradeImage：1つのトランザクション）。
+   保存した画像が読み出せない・見つからないときは、その1枚だけ「読み込めません」にして、記録の表示は壊さない（architecture 17章 #11）。
+   表示用 URL（Blob URL）は描き直すとき・画面を離れるときに解放する（architecture 11.3）。
    ========================================================= */
 import { h } from '../ui/dom.js';
 import { navbar, backButton, actionBar } from '../ui/bars.js';
@@ -27,7 +33,10 @@ import { badge, button, listGroup, dangerRow, emptyState, showLoadingAfter } fro
 import { renderNotices } from '../ui/notice.js';
 import { confirmAction, showAlert } from '../ui/dialog.js';
 import { showToast } from '../ui/toast.js';
-import { getTrade, reopenTrade, deleteTrade, TRADES_CHANGED } from '../trades.js';
+import { getTrade, reopenTrade, deleteTrade, removeTradeImage, TRADES_CHANGED } from '../trades.js';
+import { loadImage, createUrlPool } from '../images.js';
+import { imageThumb, loadingThumb, brokenThumb } from '../ui/image-field.js';
+import { openImageViewer, closeImageViewer } from '../ui/image-viewer.js';
 import { requestDeletedToast } from '../deleted-toast.js';
 import { isAppError } from '../util.js';
 import { on } from '../events.js';
@@ -86,6 +95,55 @@ function memoNode(r) {
 /** 「エントリー」「決済」「タグ・メモ」のグループ */
 function sectionNode(s) {
   return listGroup({ header: s.header, footer: s.footer, rows: s.rows.map(rowNode), className: `detail-group detail-group--${s.key}` });
+}
+
+/* ---------------------------------------------------------
+   画像（T-24）
+   --------------------------------------------------------- */
+
+/**
+ * 拡大表示を開く。「削除」はこの詳細から開いたときだけ付ける（design 14.4.6）。
+ * 削除は trades.js の removeTradeImage（画像の物理削除と imageIds の更新を1つのトランザクションで）。
+ * 成功すると記録の保存の通知（TRADES_CHANGED）で詳細が描き直され、サムネイルが減る（0枚ならグループごと消える）。
+ */
+function openViewerFor(ctx, ready, index) {
+  openImageViewer({
+    items: ready.map((r) => ({ id: r.image.id, kind: r.image.kind, blob: r.image.blob })),
+    index,
+    onDelete: async (item) => {
+      try {
+        await removeTradeImage(ctx.id, item.id);
+      } catch (e) {
+        if (ctx.alive && isAppError(e, 'NOT_FOUND')) load(ctx); // 別の画面で記録が消えていた：「見つかりません」の表示に変わる
+        throw e;
+      }
+    },
+  });
+}
+
+/**
+ * 画像のグループ。枠（回転アイコン）を先に出し、読み込めた画像から順に差し替える（画像以外の項目は先に表示済み）。
+ * 読み出せない・見つからない画像は、その1枚だけ「読み込めません」にする。
+ */
+function imagesNode(ctx, info) {
+  const grid = h('div', { class: 'img-grid' }, info.ids.map(() => loadingThumb()));
+  const token = ctx.imageToken;
+  Promise.all(info.ids.map((id) => loadImage(id))).then((results) => {
+    // 読み込んでいる間に描き直された・画面を離れた場合は、古い結果を捨てる
+    if (!ctx.alive || ctx.imageToken !== token) return;
+    const ready = results.filter((r) => r.status === 'ok');
+    grid.replaceChildren(...results.map((r) => {
+      if (r.status !== 'ok') return brokenThumb();
+      const index = ready.indexOf(r);
+      const thumb = imageThumb({
+        url: ctx.urls.urlOf(r.image.blob), kind: r.image.kind, index, total: ready.length,
+        onOpen: () => openViewerFor(ctx, ready, index),
+        onBroken: () => thumb.replaceWith(brokenThumb()), // <img> が読めなかったとき
+      });
+      return thumb;
+    }));
+  }).catch((e) => console.error('画像を表示できませんでした', e));
+  return listGroup({ header: info.header, className: 'detail-images', rows: [grid] });
 }
 
 /* ---------------------------------------------------------
@@ -184,6 +242,9 @@ function navNode(ctx, withEdit) {
 function renderFound(ctx, trade) {
   const view = buildDetailView(trade, new Date());
   ctx.trade = trade;
+  // 前の描画の画像の表示用 URL を解放してから描き直す。読み込み中の古い結果は token で捨てる（architecture 11.3）
+  ctx.urls.revokeAll();
+  ctx.imageToken += 1;
   // 下部：保有中は主要ボタン「決済する」、決済済みは副ボタン「編集」（design 14.4.5・14.7.9 ①）
   const bottom = view.closed
     ? button('編集', { variant: 'secondary', block: true, href: `${ctx.base}/edit` })
@@ -193,6 +254,7 @@ function renderFound(ctx, trade) {
     h('div', { class: 'screen__body detail' },
       headNode(view.head),
       view.sections.map(sectionNode),
+      view.images ? imagesNode(ctx, view.images) : null,
       h('p', { class: 'detail-timestamps' }, view.timestamps),
       dangerNode(ctx, view),
     ),
@@ -286,6 +348,7 @@ export default {
       // URL に戻すときは encodeURIComponent で符号化する（ID に / や # などが混ざっていても URL が壊れないように）
       base: `#/trades/${encodeURIComponent(params.id)}`,
       trade: null, busy: false, dirty: false, rendered: false, loading: null, stopWatching: null, leaving: false,
+      urls: createUrlPool(), imageToken: 0,
     };
     current = ctx;
     renderLoading(ctx);
@@ -304,7 +367,10 @@ export default {
     ctx.alive = false;
     if (ctx.loading) ctx.loading.stop();
     if (ctx.stopWatching) ctx.stopWatching();
-    // T-24 で画像の表示用URLの解放（architecture.md 11.3）をここに足す
+    // 画像の拡大表示を閉じ、サムネイルの表示用 URL を解放する（解放し忘れるとメモリを使い続ける：architecture 11.3）
+    closeImageViewer();
+    ctx.imageToken += 1;
+    ctx.urls.revokeAll();
   },
 
   hasUnsavedChanges() {

@@ -350,7 +350,7 @@ export function collectCloseFormTests() {
       ])),
 
     t('CL-19', '「確定損益を入力」を開いたときの符号の初期値と、詳細（任意）を閉じたときの 2 行目', 'pips −0.5／0／＋1／null。値の入った項目',
-      "「−」／「＋」／「＋」／「＋」。入力済みなら「タグ、メモ 入力済み」、空なら '決済理由、感情、タグ、メモ'",
+      "「−」／「＋」／「＋」／「＋」。入力済みなら「タグ、メモ 入力済み」、空なら '決済理由、感情、タグ、メモ、画像'",
       () => {
         const base = { exitReason: '', exitEmotion: '', tags: [], memo: '' };
         return verdict([
@@ -358,7 +358,8 @@ export function collectCloseFormTests() {
           ['pips=0 は ＋', initialManualSign(0) === '+'],
           ['pips>0 は ＋', initialManualSign(1) === '+'],
           ['pips なしは ＋', initialManualSign(null) === '+'],
-          ['空', detailsSummary(base) === '決済理由、感情、タグ、メモ', detailsSummary(base)],
+          ['空', detailsSummary(base) === '決済理由、感情、タグ、メモ、画像', detailsSummary(base)],
+          ['画像だけ（T-24）', detailsSummary(base, 2) === '画像 入力済み', detailsSummary(base, 2)],
           ['タグ・メモ', detailsSummary({ ...base, tags: ['a'], memo: 'x' }) === 'タグ、メモ 入力済み', detailsSummary({ ...base, tags: ['a'], memo: 'x' })],
           ['全部', detailsSummary({ exitReason: 'tp', exitEmotion: '冷静', tags: ['a'], memo: 'x' }) === '決済理由、感情、タグ、メモ 入力済み'],
         ]);

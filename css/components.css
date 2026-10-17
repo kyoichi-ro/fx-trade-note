@@ -1381,3 +1381,233 @@ body:has(.fab) #toast-area {
     animation: none;
   }
 }
+
+/* =========================================================
+   チャート画像（T-24）：サムネイルの並びと追加の行（design 14.1.9・14.4.1）、拡大表示（design 14.4.6）
+   JavaScript は ui/image-field.js・ui/image-viewer.js
+   ========================================================= */
+
+/* サムネイルの並び：4列・正方形・角丸 --radius-sm。入力画面と詳細画面で同じ */
+.img-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2);
+  /* 上と右は、× の押せる範囲（サムネイルの外へ 16px はみ出す）が切れないだけの余白 */
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+}
+.img-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+}
+/* 押すと拡大するボタン（サムネイルいっぱい）。写真の縦横比によらず枠を埋める */
+.img-thumb__open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.img-thumb__open:focus-visible {
+  outline-offset: var(--focus-w);
+}
+.img-thumb__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 読み込み中・処理中・読み込めない：枠（--color-fill）の中に回転アイコン／文字（design 14.7.7） */
+.img-thumb__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--sp-1);
+  border-radius: inherit;
+  color: var(--color-text-sub);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-tight);
+  text-align: center;
+}
+/* 「読み込めません」は右上の × と重ならないよう、少し下げて置く */
+.img-thumb__broken {
+  padding-top: 22px;
+}
+/* × ：見た目は 20px の濃い丸（サムネイルの右上の内側）、押せる範囲は 44px。
+   サムネイルは幅が 70px ほどしかなく、44px の押せる範囲を内側に置くと、サムネイルの真ん中（拡大するために押す場所）まで覆ってしまう。
+   そこで押せる範囲を右上の角から外側（グループの余白）へ 16px はみ出させ、サムネイルの内側に入るのは右上の 28px 四方だけにする。
+   写真の上でも見える濃い色 */
+.img-thumb__remove {
+  position: absolute;
+  top: calc(var(--sp-4) * -1);
+  right: calc(var(--sp-4) * -1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 20px 0 0 var(--sp-1);
+}
+.img-thumb__remove-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.62);
+  color: #FFFFFF;
+}
+.img-thumb__remove:active .img-thumb__remove-mark {
+  opacity: var(--opacity-pressed);
+}
+.img-thumb__remove:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+/* 「画像を追加（残り2枚）」の行：アクセント色の文字。4枚になったら無効表示 */
+.img-add {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  color: var(--color-accent);
+  text-align: left;
+}
+.img-add:disabled {
+  opacity: var(--opacity-disabled);
+}
+/* グループの下の灰色の注記（13px）。両方とも隠れているときは、下の余白ごと出さない */
+.img-note {
+  margin: 0;
+}
+.img-note + .img-note {
+  margin-top: var(--sp-1);
+}
+.img-field .list-group__footer:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* ---------- 拡大表示：背景は常に黒（写真を見る画面の標準。ライトでも黒）。色はダークの値を固定で使う（design 14.4.6） ---------- */
+.img-viewer {
+  --viewer-bg: #000000;
+  --viewer-text: #FFFFFF;
+  --viewer-sub: #98989F;
+  --viewer-danger: #FF6961;
+  /* 拡大表示の中に出るトースト（「画像を削除しました」）は、黒い背景の上でも見えるよう、ダークのときと同じ明るい色にする */
+  --color-toast-bg: #E5E5EA;
+  --color-toast-text: #000000;
+  --color-toast-action: #00667C;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--viewer-bg);
+  color: var(--viewer-text);
+  overflow: hidden;
+}
+.img-viewer::backdrop {
+  background: var(--viewer-bg);
+}
+/* 開くときだけフェード 0.25 秒（動きを減らす設定では base.css が時間を 0.01ms にして即時になる） */
+.img-viewer[open] {
+  display: flex;
+  flex-direction: column;
+  animation: viewer-in var(--dur-normal) var(--ease-ios);
+}
+@keyframes viewer-in {
+  from {
+    opacity: 0;
+  }
+}
+.img-viewer :focus-visible {
+  outline-color: var(--viewer-text);
+}
+
+/* 上部：左「閉じる」・中央「1 / 2」。上端はステータスバーの下から */
+.img-viewer__bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: calc(var(--safe-top) + var(--sp-1)) calc(var(--sp-4) + var(--safe-right)) var(--sp-1) calc(var(--sp-4) + var(--safe-left));
+}
+.img-viewer__close {
+  justify-self: start;
+  padding: 0;
+  color: var(--viewer-text);
+  font-size: var(--fs-body);
+}
+.img-viewer__count {
+  color: var(--viewer-text);
+  font-size: var(--fs-subhead);
+}
+
+/* 画像の並び：左右スワイプで前後へ（1枚ずつ止まる）。縦横比を保って全体を表示する */
+.img-viewer__track {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* 横のスワイプは自分で受け、2本指の拡大はブラウザ標準に任せる（design 14.4.6） */
+  touch-action: pan-x pinch-zoom;
+}
+.img-viewer__track::-webkit-scrollbar {
+  display: none;
+}
+.img-viewer__track:focus-visible {
+  outline-offset: calc(var(--focus-w) * -1);
+}
+.img-viewer__slide {
+  display: flex;
+  flex: 0 0 100%;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 calc(var(--safe-left)) 0 calc(var(--safe-right));
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+}
+.img-viewer__img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.img-viewer__broken {
+  margin: 0;
+  color: var(--viewer-sub);
+  font-size: var(--fs-subhead);
+}
+
+/* 下部：左に添付したタイミング（13px）、右に「削除」（S-04 から開いたときだけ） */
+.img-viewer__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--tap-min);
+  padding: var(--sp-1) calc(var(--sp-4) + var(--safe-right)) calc(var(--sp-1) + var(--safe-bottom)) calc(var(--sp-4) + var(--safe-left));
+}
+.img-viewer__kind {
+  color: var(--viewer-sub);
+  font-size: var(--fs-footnote);
+}
+.img-viewer__delete {
+  margin-left: auto;
+  padding: 0;
+  color: var(--viewer-danger);
+  font-size: var(--fs-body);
+}
