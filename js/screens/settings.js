@@ -12,8 +12,11 @@
    ・選択肢（よく使う通貨ペア・エントリー根拠・感情・タグ）の各行の右に登録数を表示（編集画面の中身は screens/choices.js）
    【T-25 で足した範囲】
    ・データ：CSVを書き出す・削除済みの記録も含める・記録の件数・最終書き出し（中身は screens/settings-data.js）
+   【T-29 で足した範囲】
+   ・このアプリについて：データの保護（有効／ブラウザ任せ）・使用量と、説明文「記録はこの端末の中だけに保存されています。…」
+     （判定と文言は js/data-protection.js。ホーム画面への追加方法の画面の中身は screens/install-guide.js）
    【まだ作らないもの（担当タスク）】
-   ・このアプリについての「データの保護」「使用量」と説明文、ホーム画面への追加方法の画面の中身 … T-29
+   ・新しいバージョンに更新（バージョンの行の下）… T-28
    ・スプレッドシート同期 … Phase 2（T-40）
    ========================================================= */
 import { h } from '../ui/dom.js';
@@ -29,6 +32,7 @@ import { parseLotUnitSize } from '../validate.js';
 import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
 import { dataGroup } from './settings-data.js';
+import { readPersisted, readUsage, protectionLabel, protectionNote, formatUsage } from '../data-protection.js';
 
 /**
  * E-07 の画面の文言（design 14.6.2。2026-10-16 オーナー決定）。
@@ -180,11 +184,66 @@ function choiceCount(kind) {
 }
 
 /* ---------------------------------------------------------
+   このアプリについて（design 14.6.1・14.6.2。T-29 で「データの保護」「使用量」と説明文を足した）
+   --------------------------------------------------------- */
+
+/**
+ * 「このアプリについて」のグループを作る。
+ * ・データの保護：navigator.storage.persisted() が true なら「有効」、false なら「ブラウザ任せ」。機能がない環境では行を出さない
+ * ・使用量：navigator.storage.estimate() の使用量。取得できない環境では行を出さない
+ * ・下の説明文：「記録はこの端末の中だけに保存されています。…」。「ブラウザ任せ」のときは先頭に注意を足す
+ * どちらもブラウザに問い合わせる（待ちが入る）ので、行は隠した状態で作り、答えが届いたら値を入れて見せる
+ * （画面を出すのを待たせないため。答えは一瞬で返るので、行が後から現れてもほとんど目立たない）。
+ * ここでは persist()（保護を頼む）は呼ばない。頼むのは起動時と記録の保存直後だけ（architecture 12.5「繰り返し求めない」）。
+ * @returns {{ group: HTMLElement, dispose: () => void }}
+ */
+function aboutGroup() {
+  let alive = true;
+  const protectionRow = listRow({ label: 'データの保護', value: '' });
+  const usageRow = listRow({ label: '使用量', value: '', numeric: true });
+  protectionRow.hidden = true;
+  usageRow.hidden = true;
+  const note = h('p', {}, protectionNote(null));
+
+  const group = listGroup({
+    header: 'このアプリについて',
+    rows: [
+      listRow({ label: 'バージョン', value: APP_VERSION, numeric: true }),
+      protectionRow,
+      usageRow,
+      listRow({ label: 'ホーム画面への追加方法', href: '#/settings/install' }),
+    ],
+    footer: note,
+  });
+
+  /** 行に値を入れて見せる。値が null（機能がない・読めない）なら隠したまま */
+  const fill = (row, text) => {
+    if (!alive || text === null) return;
+    row.querySelector('.list-row__value').textContent = text;
+    row.hidden = false;
+  };
+
+  readPersisted().then((persisted) => {
+    fill(protectionRow, protectionLabel(persisted));
+    if (alive) note.textContent = protectionNote(persisted);
+  });
+  readUsage().then((bytes) => fill(usageRow, formatUsage(bytes)));
+
+  return {
+    group,
+    dispose() {
+      alive = false;
+    },
+  };
+}
+
+/* ---------------------------------------------------------
    画面
    --------------------------------------------------------- */
 
 let lotUnit = null;
 let data = null;
+let about = null;
 
 export default {
   layout: 'tab',
@@ -194,6 +253,7 @@ export default {
   mount(root) {
     lotUnit = lotUnitGroup();
     data = dataGroup();
+    about = aboutGroup();
     root.append(
       largeTitle('設定'),
       h('div', { class: 'screen__body' },
@@ -218,14 +278,8 @@ export default {
         // ④ データ（CSV の書き出し：T-25。design 14.6.1 の並び＝テーマの次、「このアプリについて」の前）
         data.group,
 
-        // ⑥ このアプリについて（「データの保護」「使用量」と説明文は T-29 で足す）
-        listGroup({
-          header: 'このアプリについて',
-          rows: [
-            listRow({ label: 'バージョン', value: APP_VERSION, numeric: true }),
-            listRow({ label: 'ホーム画面への追加方法', href: '#/settings/install' }),
-          ],
-        }),
+        // ⑥ このアプリについて（バージョン・データの保護・使用量・ホーム画面への追加方法と、データ保護の説明文）
+        about.group,
       ),
     );
   },
@@ -235,6 +289,8 @@ export default {
     lotUnit = null;
     if (data) data.dispose();
     data = null;
+    if (about) about.dispose();
+    about = null;
   },
 
   // 設定はその場で保存するので「保存していない変更」はない（誤った値は保存済みの値に戻す：design 14.6.2）

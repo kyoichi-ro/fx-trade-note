@@ -10,6 +10,8 @@
    【T-24 の範囲】「詳細（任意）」の最後に画像（最大4枚）。選んだ画像は縮小・JPEG 圧縮して images に先に保存し（architecture 11.5）、
    その ID を下書き（addedImageIds）と保存する記録（imageIds）に持たせる。キャンセル・破棄したときは追加した画像も消す
    （孤立画像を残さない）。縮小中に保存を押したら、終わるのを待ってから保存する（design 14.1.9）。
+   【T-29】保存の直後に永続化リクエスト（data-protection.js の requestPersistenceOnce：architecture 12.5）。
+   保存の失敗のアラートの文を、容量不足（QUOTA）とそれ以外で分けた（design 14.7.3。決済・編集の画面とそろえた）。
 
    画面の流れ：
    ・開いたとき：下書き（drafts の 'new'）があればその内容で開き、口座色の線の下に「入力途中の内容を復元しました［破棄］」。
@@ -45,6 +47,7 @@ import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } 
 import { nowInputValue, fromInputValue } from '../datetime.js';
 import { formatDraftTime } from '../format.js';
 import { newId, isAppError } from '../util.js';
+import { requestPersistenceOnce } from '../data-protection.js';
 import { FAVORITE_GRID_COUNT } from '../config.js';
 import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す
 import {
@@ -524,9 +527,13 @@ function buildScreen(root, nav, draft) {
         // 下書きは残す（もう一度保存できるよう、自動保存を再開して今の内容をすぐ書いておく：design 14.1.6）
         autosaver.resume();
         autosaver.flush();
+        // 容量不足（QUOTA）とそれ以外の失敗で文を分ける（design 14.7.3。決済・編集の画面と同じ分け方。
+        // 容量の問題でないのに「空き容量が不足」と出すと、利用者が要らない写真を消してしまうなど、見当違いの対処をするため）
         const choice = await showAlert({
           title: '保存できませんでした',
-          message: '端末の空き容量が不足している可能性があります。入力内容はこの画面に残っています。',
+          message: isAppError(e, 'QUOTA')
+            ? '端末の空き容量が不足している可能性があります。入力内容はこの画面に残っています。'
+            : '保存中に問題が起きました。入力内容はこの画面に残っています。',
           buttons: [{ label: '閉じる', value: 'close' }, { label: 'もう一度保存', value: 'retry', primary: true }],
         });
         if (choice === 'retry') save();
@@ -540,6 +547,9 @@ function buildScreen(root, nav, draft) {
     autosaver.dispose();
     images.dispose();
     rememberLastInput(input.accountType, input.pair, normalizeNumberText(fields.lots));
+    // 最初の記録を保存した直後に、ブラウザへ「データを勝手に消さないで」と頼む（architecture 12.5。
+    // 記録があれば起動時にも頼むが、記録0件で始めた起動ではここが最初の機会になる）。1回の起動で1回だけで、待たない
+    requestPersistenceOnce();
     showToast('保存しました');
     nav.back(ui.returnTo);
   }

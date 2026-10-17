@@ -12,7 +12,7 @@
      ⑦ 下書きの確認（30分以内なら入力画面を自動で開く） ← T-17（drafts.js）
      ⑧ ルーター開始                 ← T-10
      ⑨ 孤立画像の掃除（画面の表示が終わったあと） ← T-24（images.js の sweepOrphans：architecture 11.6）
-   いまは ①・②・③・④・⑦・⑧ を行う。他の処理は各タスクで、この順番どおりに足していく。
+   いまは ①・②・③・④・⑥・⑦・⑧・⑨ を行う（⑤ は T-28）。他の処理は各タスクで、この順番どおりに足していく。
    T-11：お知らせ行を共通部品 ui/notice.js（#notice-area に出す showAppNotice）に置き換えた（design 9.16）。
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
    T-17：⑦ 下書きの確認を追加（30分以内の新規エントリーの下書きがあれば、一覧 → 入力画面の順に履歴を作って入力画面を開く）。
@@ -20,6 +20,7 @@
    T-24：⑨ 孤立画像の掃除を追加（どの記録にも下書きにも使われず、作成から1日以上たった画像を、画面の表示が終わった3秒後に削除する）。
    T-22：⑦ に編集の下書きも加えた。決済・編集の下書きは、対象の記録を見て judgeDraftTarget（draft-notice.js）で判定する
    （対象が無い・削除済み・決済済みの決済 → 黙って消す／元の記録が下書きのあとに変わっていた → 自動では開かず、消さずに一覧のお知らせ行へ任せる）。
+   T-29：⑥ 永続化リクエストを追加（記録が1件以上あるときだけ。画面の表示を始めたあとに行う）。
    ========================================================= */
 import { startRouter } from './router.js';
 import { openDb, setHandlers } from './db.js';
@@ -28,7 +29,8 @@ import { startKeyboardWatch, startInputModalityWatch } from './ui/keyboard.js';
 import { settingsStore } from './settings-store.js';
 import { applyTheme } from './ui/theme.js';
 import { getAllDrafts, pickLaunchDraft, discardDraft, DRAFT_KIND } from './drafts.js';
-import { getTrade } from './trades.js';
+import { getTrade, getAllTrades } from './trades.js';
+import { requestPersistenceOnce } from './data-protection.js';
 import { judgeDraftTarget, draftTargetHash } from './draft-notice.js';
 import { sweepOrphans } from './images.js';
 
@@ -166,6 +168,24 @@ async function openRecentDraft() {
 }
 
 /**
+ * ⑥ 永続化リクエスト（architecture 12.5、requirements 8章）。
+ * ブラウザに「このアプリの記録を、容量が足りないときなどに勝手に消さないで」と頼む（navigator.storage.persist()）。
+ * ・頼むのは「記録が1件以上あるとき」だけ。PC の Firefox などは頼むと確認の画面を出すので、記録が無いうちに出しても
+ *   何のことか伝わらないため（最初の1件は、保存した直後に entry.js から頼む）
+ * ・すでに保護されていれば頼まない／1回の起動で1回だけ（data-protection.js の requestPersistenceOnce）
+ * ・結果は設定画面の「データの保護」に出す（設定画面はそのときの状態を読み直すので、ここでは覚えない）
+ * ・起動を遅らせないよう、画面の表示を始めたあとに行い、失敗しても何も出さない（保護は「あれば使う」機能のため）
+ * 「ホーム画面に追加して使う」の案内は、一覧のお知らせ行（list.js）が出す。
+ */
+function requestPersistenceIfHasRecords() {
+  getAllTrades()
+    .then((trades) => (trades.length > 0 ? requestPersistenceOnce() : null))
+    // 結果は開発者ツールで確かめられるようにだけ出す（null＝記録が無い・機能がない）
+    .then((persisted) => { if (persisted != null) console.info(`データの保護：${persisted ? '有効' : 'ブラウザ任せ'}`); })
+    .catch((err) => console.error('データの保護を確認できませんでした', err));
+}
+
+/**
  * ⑨ 孤立画像の掃除（architecture 11.6）。アプリを開くたびに、画面の表示が終わった少しあとで行う（起動を遅らせないため）。
  * 保存せずにアプリが閉じられて残った、どの記録にも下書きにも使われていない画像のうち、作成から1日以上たったものだけを消す
  * （1日未満のものは入力中の画像かもしれないので残す）。失敗しても画面には何も出さない（次に開いたときにもう一度やる）。
@@ -197,6 +217,9 @@ async function main() {
     root: document.getElementById('app'),
     tabbar: document.querySelector('.tabbar'),
   });
+
+  // ⑥ 永続化リクエスト（順番の表では⑤の次だが、起動を遅らせないよう画面の表示を始めたあとに行う）
+  requestPersistenceIfHasRecords();
 
   // ⑨ 孤立画像の掃除（画面の表示が終わったあと）
   scheduleOrphanSweep();

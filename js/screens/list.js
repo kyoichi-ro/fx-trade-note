@@ -28,6 +28,9 @@
      ・条件は画面を離れても残し（モジュールの変数）、変えるたびに localStorage の listFilter へ保存する。
        アプリを開いたときに保存から30分以内なら復元、超えていれば初期値（analytics 4.8。判定は filter.js の restoreFilter）
      ・アプリが前面に戻ったとき、日付が変わっていれば「今日」「今月」などを計算し直す（analytics 4.4.2）
+   【T-29】お知らせ行「ホーム画面に追加すると、データが消えにくくなります［方法］」（design 14.3.8 の優先4）。
+     iPhone・iPad をホーム画面版でなくブラウザで開いているときだけ出す（判定は js/data-protection.js）。［方法］→ #/settings/install。
+     × は「次に起動するまで出さない」。
    詳細・決済画面は T-20・T-21。
    集計・並び順・日付のまとめは js/filter.js（画面に依存しない純粋な関数）、文字の整形は js/format.js。
    ========================================================= */
@@ -53,9 +56,13 @@ import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, forma
   toneOf, toTenths, speakYen, speakPips, speakDateTime } from '../format.js';
 import { LIST_PAGE_SIZE } from '../config.js';
 import { takeRowFlash, requestRowFlash, FLASH_DURATION_MS } from '../row-flash.js';
+import { isIos, isStandalone, shouldShowInstallNotice, INSTALL_NOTICE } from '../data-protection.js';
 
 /** お知らせ行を × で閉じたか（次に起動するまで出さない：design 14.3.8。アプリを開き直すと元に戻る） */
 let draftNoticeClosed = false;
+
+/** 「ホーム画面に追加すると、データが消えにくくなります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
+let installNoticeClosed = false;
 
 /**
  * 一覧を離れたときのスクロール位置と、そこまでに描いていた行数。
@@ -454,7 +461,7 @@ function renderList(ctx, trades, position) {
 
 /**
  * お知らせ行を並べ直す。優先順は 読み込みエラー → 元の記録が変わったため破棄した下書きの知らせ → 入力途中の下書き
- * （design 14.3.8。同時に最大2行。破棄の知らせは一度きりの知らせなので、続きを開ける案内より先に出す）。
+ * → ホーム画面に未追加（design 14.3.8。同時に最大2行。破棄の知らせは一度きりの知らせなので、続きを開ける案内より先に出す）。
  * 入力途中の下書きの文言は draft-notice.js の buildDraftNotice（1件＝［続ける］、2件以上＝［選ぶ］）。
  */
 function refreshNotices(ctx) {
@@ -486,6 +493,17 @@ function refreshNotices(ctx) {
         ? { label: '続ける', onClick: () => ctx.nav.go(draftNotice.hash) }
         : { label: '選ぶ', onClick: () => chooseDraft(ctx, draftNotice) },
       onClose: () => { draftNoticeClosed = true; refreshNotices(ctx); },
+    });
+  }
+  // （優先3「新しいバージョンがあります［更新］」は T-28 で、この位置に足す）
+  // 優先4：iPhone をホーム画面版でなくブラウザで開いている（7日間使わないと記録が消えることがある：architecture 12.5）。
+  // 判定は data-protection.js。× は「次に起動するまで出さない」（design 14.3.8）
+  if (shouldShowInstallNotice({ ios: isIos(), standalone: isStandalone(), dismissed: installNoticeClosed })) {
+    items.push({
+      iconName: 'share',
+      text: INSTALL_NOTICE.text,
+      action: { label: INSTALL_NOTICE.actionLabel, onClick: () => ctx.nav.go(INSTALL_NOTICE.hash) },
+      onClose: () => { installNoticeClosed = true; refreshNotices(ctx); },
     });
   }
   renderNotices(ctx.notices, items);

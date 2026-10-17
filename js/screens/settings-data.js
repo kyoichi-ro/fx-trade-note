@@ -13,6 +13,7 @@
    ③ 保存・送信が終わったら（共有の成功、またはダウンロードの開始）lastExportAt を記録してトースト。
       CSV を作っただけでは記録しない（「最後のバックアップから○日」の案内を正しく出すため）
    失敗はアラート（design 14.7.3）。キャンセルは失敗として扱わない。
+   【T-29】①〜③を exportCsv() に切り出した（ホーム画面への追加の画面の「CSVを書き出す」でも同じ動きにするため：design 14.6.6）。
 
    【「削除済みの記録も含める」を保存しない理由】
    requirements 6.3 に対応する設定キーがなく、docs を変えずに足すとキー名の取り決め（settings-store.js）から外れるため、
@@ -101,6 +102,68 @@ async function saveWithShareSheet(prepared, file) {
 }
 
 /**
+ * CSV を作って保存・送信するまでの一連の流れ（上の【流れ】①〜③）。
+ * 設定画面の「CSVを書き出す」と、ホーム画面への追加の画面（install-guide.js）の「CSVを書き出す」の両方から使う
+ * （design 14.6.6「設定の『CSVを書き出す』と同じ動き」。同じ処理を2か所に書くと、片方だけ直し忘れるため）。
+ * 二重に始めないための見張り（busy）は呼び出し側が持つ。
+ * @param {{ includeDeleted: boolean, button: HTMLButtonElement, onCounts?: (counts: {live: number, deleted: number}) => void }} opts
+ *   button   … 0.3秒以上かかるときに「作成中」にするボタン
+ *   onCounts … 記録を読み直したときの件数（画面の件数表示を最新にするため）
+ * @returns {Promise<boolean>} 保存・送信まで終わったら true（やめた・失敗・0件は false）
+ */
+export async function exportCsv({ includeDeleted, button: btn, onCounts = () => {} }) {
+  const timer = setTimeout(() => setBusy(btn, true, '作成中'), BUSY_DELAY_MS);
+  const stopBusy = () => {
+    clearTimeout(timer);
+    setBusy(btn, false);
+  };
+
+  let prepared;
+  let file;
+  try {
+    // 開いている間に記録が増減していても、書き出すときに読み直した最新の記録を使う
+    const trades = await getAllTrades();
+    onCounts(countTrades(trades));
+    prepared = prepareCsv(trades, { includeDeleted });
+    file = createCsvFile(prepared.text, prepared.fileName);
+  } catch (e) {
+    console.error('CSVを作成できませんでした', e);
+    stopBusy();
+    await alertCsvCreateFailed();
+    return false;
+  }
+  stopBusy();
+  if (prepared.rowCount === 0) return false; // 直前に記録が消えていた：呼び出し側が件数から案内文に切り替える
+
+  let saved;
+  if (canUseShareSheet(file)) {
+    saved = await saveWithShareSheet(prepared, file);
+  } else {
+    try {
+      downloadCsvFile(file);
+      saved = true;
+    } catch (e) {
+      console.error('CSVをダウンロードできませんでした', e);
+      await alertCsvSaveFailed('ファイルを保存できませんでした。もう一度試してください。');
+      saved = false;
+    }
+  }
+  if (saved) afterSaved();
+  return saved;
+}
+
+/** 保存・送信が終わったときの後始末：最終書き出しを記録し、トーストを出す（design 14.6.5） */
+function afterSaved() {
+  try {
+    setSetting('lastExportAt', nowJst());
+  } catch (e) {
+    // ファイルはもう保存できている。日時が記録できなかっただけなので、利用者には知らせず記録だけ残す
+    console.warn('最終書き出し日時を保存できませんでした', e);
+  }
+  showToast('CSVを書き出しました');
+}
+
+/**
  * 「データ」グループを作る。
  * @returns {{ group: HTMLElement, dispose: () => void }} dispose は画面を離れるとき（書き出しの途中でも画面の更新だけ止める）
  */
@@ -141,66 +204,15 @@ export function dataGroup() {
     if (!busy) exportBtn.disabled = exportable === 0;
   }
 
-  /** 保存・送信が終わったときの後始末：最終書き出しを記録し、トーストを出す（design 14.6.5） */
-  function afterSaved() {
-    try {
-      setSetting('lastExportAt', nowJst());
-    } catch (e) {
-      // ファイルはもう保存できている。日時が記録できなかっただけなので、利用者には知らせず記録だけ残す
-      console.warn('最終書き出し日時を保存できませんでした', e);
-    }
-    showToast('CSVを書き出しました');
-    render();
-  }
-
   async function startExport() {
     if (busy) return;
-    busy = true;
-    const timer = setTimeout(() => setBusy(exportBtn, true, '作成中'), BUSY_DELAY_MS);
-    const stopBusy = () => {
-      clearTimeout(timer);
-      setBusy(exportBtn, false);
-      busy = false;
-    };
-
+    busy = true; // 保存が終わるまで二重に始めない（確認シートの間も）
     try {
-      let prepared;
-      let file;
-      try {
-        // 開いている間に記録が増減していても、書き出すときに読み直した最新の記録を使う
-        const trades = await getAllTrades();
-        counts = countTrades(trades);
-        prepared = prepareCsv(trades, { includeDeleted });
-        file = createCsvFile(prepared.text, prepared.fileName);
-      } catch (e) {
-        console.error('CSVを作成できませんでした', e);
-        stopBusy();
-        render();
-        await alertCsvCreateFailed();
-        return;
-      }
-      stopBusy();
-      busy = true; // 保存が終わるまで二重に始めない（確認シートの間も）
-      render();
-      if (prepared.rowCount === 0) return; // 直前に記録が消えていた：render が案内文に切り替えた
-
-      let saved;
-      if (canUseShareSheet(file)) {
-        saved = await saveWithShareSheet(prepared, file);
-      } else {
-        try {
-          downloadCsvFile(file);
-          saved = true;
-        } catch (e) {
-          console.error('CSVをダウンロードできませんでした', e);
-          await alertCsvSaveFailed('ファイルを保存できませんでした。もう一度試してください。');
-          saved = false;
-        }
-      }
-      if (saved) afterSaved();
+      // 読み直した件数はすぐ画面に反映する（直前に記録が消えていたときは、ここで案内文に切り替わる）
+      await exportCsv({ includeDeleted, button: exportBtn, onCounts: (c) => { counts = c; render(); } });
     } finally {
       busy = false;
-      render();
+      render(); // 最終書き出しの日時・ボタンの有効/無効を今の状態に
     }
   }
 
