@@ -6,6 +6,7 @@
      ・js/calc.js の calcSlTpPips … 損切り幅・利確幅（pips）。fx-rules 9.2 の列は tests/calc.test.js（R-01〜R-09）で確かめる。ここは境界・空の値
      ・js/trades.js の recompute … 任意項目から riskReward・session を決め直す（SL/TP が空なら RR を保存しない）
      ・js/choice-list.js の planTagAdd … 入力画面の「＋追加」でタグを足すときの判断（名前のチェックは T-16 と共通）
+     ・T-33：ロット欄の見本が数字でないこと（U-01）、記録0件のときの「1lot＝1万通貨で計算します」の文（U-02）
    画面（document）も IndexedDB も localStorage も使わないので、Node.js でもブラウザでも実行する。
    「＋追加」の設定への保存・チップの増減は画面の部品（ui/tag-picker.js）なので、ブラウザで目で確かめる。
 
@@ -14,6 +15,7 @@
 import {
   autoSession, nextSession, sessionNote, defaultOptionalFields, cloneFields, fieldsFromEntryDraft, isEntryChanged,
   entryDetailsSummary, ENTRY_DETAILS_LIST, evaluateLevels, visibleIssues, buildOptionalInput, RR_HINT, TIMEFRAMES, SESSIONS,
+  LOTS_PLACEHOLDER, lotUnitHint,
 } from '../js/entry-form.js';
 import { calcSlTpPips } from '../js/calc.js';
 import { recompute, normalizeTrade } from '../js/trades.js';
@@ -471,6 +473,28 @@ export function collectEntryFormTests() {
       () => {
         const r = planTagAdd(['指標前'], ['指標前', '旧タグ'], '旧タグ');
         return verdict([['isNewChip', r.ok && r.isNewChip === false, r], ['設定に加わる', r.ok && sameArray(r.list, ['指標前', '旧タグ']), r.list]]);
+      }),
+
+    t('EF-37', 'ロット欄の見本は数字にしない（T-33 U-01：入力済みの値に見えないように）', 'LOTS_PLACEHOLDER',
+      "'必須'（数字・小数点を含まない）",
+      () => ({ actual: show(LOTS_PLACEHOLDER), pass: LOTS_PLACEHOLDER === '必須' && !/[0-9０-９.．]/.test(LOTS_PLACEHOLDER) })),
+
+    t('EF-38', '記録0件のときの「1lot＝○通貨で計算します（設定で変更）」（T-33 U-02）：選んだ口座の今の設定値', "lotUnitHint('real'／'demo'／''（未選択）, { demo, real })",
+      "本番1万・デモ10万：'real'→1万／'demo'→10万／未選択→両方。両方同じなら未選択でもその値。値が壊れていれば ''",
+      () => {
+        const sizes = { demo: 100000, real: 10000 };
+        const real = lotUnitHint('real', sizes);
+        const demo = lotUnitHint('demo', sizes);
+        const both = lotUnitHint('', sizes);
+        const same = lotUnitHint('', { demo: 10000, real: 10000 });
+        const broken = lotUnitHint('real', { demo: 10000, real: null });
+        return verdict([
+          ['本番', real === '1lot＝1万通貨で計算します（設定で変更）', real],
+          ['デモ', demo === '1lot＝10万通貨で計算します（設定で変更）', demo],
+          ['未選択・値が違う', both === '1lot＝本番1万・デモ10万通貨で計算します（設定で変更）', both],
+          ['未選択・値が同じ', same === '1lot＝1万通貨で計算します（設定で変更）', same],
+          ['値が読めない', broken === '', broken],
+        ]);
       }),
   ];
 }

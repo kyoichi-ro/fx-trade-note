@@ -4,6 +4,7 @@
 
    【T-13】通貨ペアの表示桁で価格を表示する formatPrice()（fx-rules 10.7 の参照実装）。
    【T-20 で追加】formatPipsDistance・formatQuantity・formatLotUnit・formatDuration（保有時間）・formatShortDateTime（詳細画面と確認シート）。
+   【T-33 で追加】formatLotUnitWords（「1万」「10万」：1lot の通貨数を知らせる1行）。
    【T-19 で追加】円（＋2,500円 / −1,885円 / ±0円）・pips（＋25.0 pips）・ロット・日時（10/15(木) 21:30）の整形。
      記号の決まりは design.md 6.3 が正：プラスは全角の「＋」、マイナスは「−」（U+2212）、ゼロは「±0」。
      この記号は表示だけに使う。入力値・CSV・保存データには使わない（数値として読めなくなるため）。
@@ -139,6 +140,18 @@ export function formatQuantity(quantity) {
 export function formatLotUnit(unit) {
   if (unit == null || !Number.isFinite(unit)) return '—';
   return withCommas(Math.round(unit));
+}
+
+/**
+ * 1lot の通貨数を、万の単位で短く言う（T-33：U-02 の「1lot＝1万通貨で計算」の1行に使う）。
+ * 1万で割り切れるときだけ「1万」「10万」、それ以外は「1,000」「15,000」（小数の「1.5万」は読み違えやすいので使わない）。
+ * 値がなければ '—'。
+ * @param {number|null|undefined} unit
+ */
+export function formatLotUnitWords(unit) {
+  if (unit == null || !Number.isFinite(unit)) return '—';
+  const n = Math.round(unit);
+  return n >= 10000 && n % 10000 === 0 ? `${withCommas(n / 10000)}万` : withCommas(n);
 }
 
 /**

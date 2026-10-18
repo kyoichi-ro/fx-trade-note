@@ -22,7 +22,7 @@ import { parsePrice, parseLots, isFarFromEntry, isOutOfPriceRange, isLargeQuanti
 import { calcRiskReward, calcSlTpPips, judgeSession } from './calc.js';
 import { TIMEFRAME_LABELS, getPairSpec } from './master.js';
 import { fromInputValue } from './datetime.js';
-import { formatPipsDistance } from './format.js';
+import { formatPipsDistance, formatLotUnitWords } from './format.js';
 
 /** 必須グループの欄の並び（画面の上から＝エラーを探す順・フォーカスを移す順） */
 export const ENTRY_REQUIRED_KEYS = Object.freeze(['accountType', 'pair', 'side', 'entryPrice', 'lots', 'entryAt']);
@@ -67,6 +67,33 @@ const LOTS_ERRORS = {
   'E-05': 'ロット：0より大きい値を入力してください',
   'E-06': 'ロット：ロットは小数第2位までで入力してください',
 };
+
+/**
+ * ロット欄の見本（T-33：U-01）。前回値がないとき（その口座で初めての記録）だけ見える。
+ * 「0.1」のような数字にすると入力済みの値に見え、そのまま保存して「ロットを入力してください」になるため、数字でない文字にする。
+ */
+export const LOTS_PLACEHOLDER = '必須';
+
+/**
+ * 記録が1件もないときに、ロットの行の下に出す1行（T-33：U-02）。損益（円）が業者の表示と1桁ずれる原因
+ * （1lot の通貨数の設定）に、最初の記録の前に気づけるようにする。数値は設定の今の値（選んだ口座の 1lot の通貨数）。
+ * 口座を選んでいないときは、両方の口座が同じ値ならその値、違えば両方を出す。値が読めなければ ''（出さない）。
+ * @param {string} accountType 'demo' | 'real' | ''（未選択）
+ * @param {{ demo: (number|null), real: (number|null) }} lotUnitSizes 設定の 1lot の通貨数
+ * @returns {string}
+ */
+export function lotUnitHint(accountType, lotUnitSizes) {
+  const ok = (n) => Number.isFinite(n) && n > 0;
+  const tail = '通貨で計算します（設定で変更）';
+  if (accountType === 'demo' || accountType === 'real') {
+    const n = lotUnitSizes[accountType];
+    return ok(n) ? `1lot＝${formatLotUnitWords(n)}${tail}` : '';
+  }
+  const { demo, real } = lotUnitSizes;
+  if (!ok(demo) || !ok(real)) return '';
+  if (demo === real) return `1lot＝${formatLotUnitWords(demo)}${tail}`;
+  return `1lot＝本番${formatLotUnitWords(real)}・デモ${formatLotUnitWords(demo)}${tail}`;
+}
 
 /** 価格の見本：JPYペア「0.000」、非JPYペア「0.00000」（入力できる桁数に合わせる：design 14.1.5）。通貨ペア未選択は JPY 相当 */
 export function pricePlaceholder(pair) {

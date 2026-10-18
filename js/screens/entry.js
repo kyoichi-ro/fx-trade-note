@@ -42,7 +42,7 @@ import { choosePair } from '../ui/pair-chooser.js';
 import { settingsStore } from '../settings-store.js';
 import { TIMEFRAME_LABELS } from '../master.js';
 import { parsePrice, parseLots, normalizeNumberText } from '../validate.js';
-import { saveNewTrade } from '../trades.js';
+import { saveNewTrade, getAllTrades } from '../trades.js';
 import { getDraft, discardDraft, draftKeyOf, DRAFT_KIND, createDraftAutosaver } from '../drafts.js';
 import { nowInputValue, fromInputValue } from '../datetime.js';
 import { formatDraftTime } from '../format.js';
@@ -54,6 +54,7 @@ import {
   ENTRY_REQUIRED_KEYS, ENTRY_OPTIONAL_FIELDS, TIMEFRAMES, SESSIONS, SESSION_SEGMENT_LABELS, ENTRY_DETAILS_LIST, SL_LABEL, TP_LABEL,
   defaultOptionalFields, cloneFields, fieldsFromEntryDraft, isEntryChanged, entryDetailsSummary, nextSession, sessionNote,
   evaluateLevels, visibleIssues, buildOptionalInput, checkRequiredFields, pricePlaceholder, PRICE_LABEL,
+  LOTS_PLACEHOLDER, lotUnitHint,
 } from '../entry-form.js';
 
 /** 新規エントリーの下書きキー（drafts.js の約束：'new'） */
@@ -133,8 +134,9 @@ function checkFields(f) {
  * @param {HTMLElement} root
  * @param {object} nav router.js の移動の道具
  * @param {object|null} draft 復元する下書き（なければ null）
+ * @param {{ firstRecord?: boolean }} [opts] firstRecord：記録が1件もない（ロットの行の下に「1lot＝1万通貨で計算します」を出す：T-33 U-02）
  */
-function buildScreen(root, nav, draft) {
+function buildScreen(root, nav, draft, { firstRecord = false } = {}) {
   const defaults = defaultFields();
   const initial = cloneFields(defaults); // 「初期値から変わったか」の比べる相手（開いた時刻の日時を含む：architecture 9.2）
   const fields = draft ? fieldsFromEntryDraft(draft, defaults) : cloneFields(defaults);
@@ -174,8 +176,9 @@ function buildScreen(root, nav, draft) {
     onBlur: () => { if (fields.entryPrice !== '') touched('entryPrice'); else refresh(); },
   });
   // ロットは、詳細を閉じているときは最後の文字入力欄なので「完了」、開いているときは SL へ続くので「次へ」（renderDetails が切り替える：design 8.4）
+  // 見本は数字にしない（「0.1」だと入力済みの値に見えて、そのまま保存してエラーになる：T-33 U-01）
   const lots = numberRow({
-    label: 'ロット', name: 'lots', value: fields.lots, unit: 'lot', placeholder: '0.1', enterkeyhint: 'done',
+    label: 'ロット', name: 'lots', value: fields.lots, unit: 'lot', placeholder: LOTS_PLACEHOLDER, enterkeyhint: 'done',
     onInput: (e) => { fields.lots = e.target.value; changed(); },
     onBlur: () => { if (fields.lots !== '') touched('lots'); else refresh(); },
   });
@@ -194,6 +197,9 @@ function buildScreen(root, nav, draft) {
     if (ui.detailsOpen) sl.input.focus(); else lots.input.blur();
   });
 
+  // 記録が1件もないときだけ、ロットの行の下に「1lot＝1万通貨で計算します（設定で変更）」（T-33 U-02。renderAccount が口座に合わせて書き換える）
+  const lotHint = h('p', { class: 'field-hint', hidden: true });
+
   // 読み上げ用のまとまりの名前（design 14.1.2：セグメント・チップの行には画面上のラベルを置かない）
   const required = listGroup({
     header: '必須',
@@ -205,6 +211,7 @@ function buildScreen(root, nav, draft) {
       h('div', { class: 'field-row' }, side.el),
       price.row,
       lots.row,
+      lotHint,
       dt.row,
     ],
   });
@@ -320,6 +327,16 @@ function buildScreen(root, nav, draft) {
     accountLine.dataset.account = fields.accountType || 'none';
     const label = saveBtn.querySelector('.btn__label');
     if (label && !saving) label.textContent = saveLabel(fields.accountType);
+    renderLotHint();
+  }
+
+  /** 「1lot＝1万通貨で計算します（設定で変更）」：記録0件のときだけ。数値は選んだ口座の今の設定値（T-33 U-02） */
+  function renderLotHint() {
+    const text = firstRecord
+      ? lotUnitHint(fields.accountType, { demo: settingsStore.get('lotUnitSize.demo'), real: settingsStore.get('lotUnitSize.real') })
+      : '';
+    lotHint.textContent = text;
+    lotHint.hidden = text === '';
   }
 
   function renderPair() {
@@ -567,7 +584,7 @@ function buildScreen(root, nav, draft) {
     await discardAll();
     root.replaceChildren();
     window.scrollTo(0, 0);
-    ctrl = buildScreen(root, nav, null);
+    ctrl = buildScreen(root, nav, null, { firstRecord });
   }
 
   /**
@@ -605,6 +622,12 @@ function buildScreen(root, nav, draft) {
   };
 }
 
+/** 記録（削除済みを除く）が1件もないか */
+async function hasNoRecords() {
+  const trades = await getAllTrades();
+  return !trades.some((t) => t && t.deletedAt == null);
+}
+
 /**
  * 前回値（lastInput）を更新する。新規エントリーの保存に成功したときだけ呼ぶ（design 14.1.5・architecture 7.2）。
  * ロットは保存した口座の分だけ書き換え、もう一方の口座のロットは残す。売買方向は覚えない。
@@ -630,13 +653,14 @@ export default {
   async mount(root, { nav }) {
     // 下書きがあれば、前回値ではなく下書きの内容で開く（design 14.1.10）。読めなくても初期値で開く（入力を止めない）
     // 他の画面が古い版の DB を開いたままだと読み込みが終わらないので、2秒待っても返らなければ初期値で開く（画面を真っ白にしない）
-    let draft = null;
-    try {
-      draft = await Promise.race([getDraft(DRAFT_KEY), new Promise((resolve) => { setTimeout(() => resolve(null), 2000); })]);
-    } catch (e) {
-      console.error('下書きを読み込めませんでした', e);
-    }
-    ctrl = buildScreen(root, nav, draft);
+    // 記録が1件もないか（「1lot＝1万通貨で計算します」を出すか：T-33 U-02）も同時に確かめる。読めない・2秒で返らないときは出さない
+    const [draft, firstRecord] = await Promise.all([
+      Promise.race([getDraft(DRAFT_KEY), new Promise((resolve) => { setTimeout(() => resolve(null), 2000); })])
+        .catch((e) => { console.error('下書きを読み込めませんでした', e); return null; }),
+      Promise.race([hasNoRecords(), new Promise((resolve) => { setTimeout(() => resolve(false), 2000); })])
+        .catch((e) => { console.error('記録の件数を確かめられませんでした', e); return false; }),
+    ]);
+    ctrl = buildScreen(root, nav, draft, { firstRecord });
   },
 
   unmount() {

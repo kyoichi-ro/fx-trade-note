@@ -51,6 +51,7 @@ import { withSelected } from '../choice-list.js'; // 設定から消された選
 import { judgeDraftTarget, DRAFT_STALE_TEXT } from '../draft-notice.js';
 import {
   TIMEFRAMES, SESSIONS, SESSION_SEGMENT_LABELS, SL_LABEL, TP_LABEL, PRICE_LABEL, nextSession, sessionNote, visibleIssues, pricePlaceholder,
+  LOTS_PLACEHOLDER,
 } from '../entry-form.js';
 import {
   EXIT_REASONS, initialManualSign, splitSignedAmount, formatAmountText, tidyAmount, describeProfit, speakProfit,
@@ -184,7 +185,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     onBlur: () => { if (fields.entryPrice !== '') touched('entryPrice'); else refresh(); },
   });
   const lots = numberRow({
-    label: 'ロット', name: 'lots', value: fields.lots, unit: 'lot', placeholder: '0.1', enterkeyhint: 'done',
+    // 見本は数字にしない（エントリー画面と同じ：T-33 U-01。欄を空にしたときだけ見える）
+    label: 'ロット', name: 'lots', value: fields.lots, unit: 'lot', placeholder: LOTS_PLACEHOLDER, enterkeyhint: 'done',
     onInput: (e) => { fields.lots = e.target.value; onInput(); },
     onBlur: () => { if (fields.lots !== '') touched('lots'); else refresh(); },
   });

@@ -5,6 +5,7 @@
    ・pips：＋25.0 pips / −37.7 pips / ±0.0 pips。-0.0 と出さない
    ・ロット：余計な0を付けない
    ・保有時間・数量・値幅の pips・確認シート用の日時（T-20：FM-16〜FM-18）
+   ・1lot の通貨数の「1万」「10万」（T-33：FM-19）
    ・日時：10/15(木) 21:30、今年以外は 2025/12/30(火) 09:00、見出し 10月15日（木）、下書きの時刻
    IndexedDB・localStorage を使わないので、Node.js でもブラウザでも実行する。
 
@@ -13,7 +14,7 @@
 import {
   formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime, formatDateHeading, formatDraftTime,
   toneOf, toTenths, speakYen, speakPips, speakDateTime,
-  formatDuration, formatQuantity, formatLotUnit, formatPipsDistance, formatShortDateTime,
+  formatDuration, formatQuantity, formatLotUnit, formatPipsDistance, formatShortDateTime, formatLotUnitWords,
 } from '../js/format.js';
 import { show } from './helpers.js';
 
@@ -157,6 +158,12 @@ export function collectFormatTests() {
           .map(([v, want]) => [`${show(v)} → ${want}`, formatPipsDistance(v) === want, formatPipsDistance(v)]),
         ...[['2026-10-15T21:30:00+09:00', '10/15 21:30'], ['2025-12-30T09:00:00+09:00', '2025/12/30 09:00'], ['x', '—']]
           .map(([v, want]) => [`${show(v)} → ${want}`, formatShortDateTime(v, NOW) === want, formatShortDateTime(v, NOW)]),
+      ])),
+
+    t('FM-19', '1lot の通貨数を万の単位で（T-33 U-02）：1万で割り切れるときだけ「万」', '10000・100000・1000000・1000・15000・1・null',
+      "'1万'・'10万'・'100万'・'1,000'・'15,000'・'1'・'—'",
+      () => table(formatLotUnitWords, [
+        [10000, '1万'], [100000, '10万'], [1000000, '100万'], [1000, '1,000'], [15000, '15,000'], [1, '1'], [null, '—'], [NaN, '—'],
       ])),
   ];
 }

@@ -23,7 +23,7 @@ import {
 } from './validate.js';
 import { fromInputValue } from './datetime.js';
 import { getPairSpec, EXIT_REASON_LABELS } from './master.js';
-import { formatYen, formatPips, formatShortDateTime, toneOf, toTenths, speakYen, speakPips } from './format.js';
+import { formatYen, formatPips, formatShortDateTime, toneOf, toTenths, speakYen, speakPips, formatLotUnitWords } from './format.js';
 import { computeClose } from './trades.js';
 
 /** 決済理由の保存値の並び（design 14.2.3：TP到達・SL到達・裁量決済・建値決済・その他） */
@@ -116,6 +116,22 @@ export function closeSaveLabel(accountType) {
   if (accountType === 'real') return '本番の決済を保存';
   if (accountType === 'demo') return 'デモの決済を保存';
   return '決済を保存';
+}
+
+/**
+ * 損益の注記「自動計算はスワップ・手数料を含みません。」の下に足す1行（T-33：U-02）。
+ * 自動計算に使う 1lot の通貨数を知らせ、業者の表示と1桁ずれたときに原因に気づけるようにする。
+ * 数値は「その記録の 1lot の通貨数」（エントリーしたときの設定値を記録にコピーしたもの：requirements 6.1）。
+ * 自動計算はこの値で行うので、設定の今の値と違っていても、計算に使う値を出す（設定を変えてもこの記録の損益は変わらないため、
+ * 「設定で変更」とは書かない）。記録に値がないとき（壊れた記録）は fallback（設定の今の値）、それも読めなければ ''。
+ * @param {number|null|undefined} lotUnitSize 記録の lotUnitSize
+ * @param {number|null|undefined} [fallback] 設定の今の値（その口座区分）
+ * @returns {string}
+ */
+export function closeLotUnitNote(lotUnitSize, fallback = null) {
+  const ok = (n) => Number.isFinite(n) && n > 0;
+  const n = ok(lotUnitSize) ? lotUnitSize : ok(fallback) ? fallback : null;
+  return n == null ? '' : `1lot＝${formatLotUnitWords(n)}通貨で計算しています（記録時の設定）。`;
 }
 
 /** 保存後のトースト（design 14.2.8：「決済を保存しました ＋1,265円」。損益が空なら文だけ） */

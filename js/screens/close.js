@@ -48,7 +48,7 @@ import { withSelected } from '../choice-list.js'; // 設定から消された選
 import {
   EXIT_REASONS, defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
   initialManualSign, splitSignedAmount, formatAmountText, tidyAmount, evaluateClose, describeProfit, speakProfit,
-  closeInputFromEvaluation, CLOSE_DETAILS_LIST,
+  closeInputFromEvaluation, CLOSE_DETAILS_LIST, closeLotUnitNote,
 } from '../close-form.js';
 
 /** 今表示しているこの画面の操作の係（unmount・hasUnsavedChanges から使う） */
@@ -226,7 +226,11 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
   const backNote = h('div', { class: 'list-row close-back-note' }, '円換算レートを入れると自動計算に戻せます');
 
   const profitNote = h('p', { class: 'close-note' }, NOTE_AUTO);
-  const profitGroup = listGroup({ header: '損益', className: 'close-profit-group', rows: [autoRow, enterManualRow], footer: profitNote });
+  // 自動計算に使う 1lot の通貨数（T-33：U-02。手入力のときは計算に使わないので出さない）
+  const knownAccount = trade.accountType === 'demo' || trade.accountType === 'real'; // 知らない口座の設定キーは読まない（例外になるため）
+  const lotNoteText = closeLotUnitNote(trade.lotUnitSize, knownAccount ? settingsStore.get(`lotUnitSize.${trade.accountType}`) : null);
+  const lotNote = h('p', { class: 'close-note close-note--lot' }, lotNoteText);
+  const profitGroup = listGroup({ header: '損益', className: 'close-profit-group', rows: [autoRow, enterManualRow], footer: [profitNote, lotNote] });
   const announce = (() => {
     // 計算結果は 1 文字ごとには読み上げず、欄から離れたときに 1 回だけ読ませる（design 14.1.7 と同じ方針）
     const live = h('div', { class: 'visually-hidden', 'aria-live': 'polite' });
@@ -336,6 +340,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
       body.replaceChildren(...(v.mode === 'manual' ? [manualRow, manualPipsRow, manualRefRow, v.back === 'button' ? backBtn : backNote] : [autoRow, enterManualRow]));
     }
     profitNote.textContent = v.mode === 'manual' ? NOTE_MANUAL : NOTE_AUTO;
+    lotNote.hidden = v.mode === 'manual' || lotNoteText === '';
   }
 
   /** 出してよい欄のエラー・警告の文を出し直す（欄から離れた・保存を押した欄だけ：design 14.1.8） */

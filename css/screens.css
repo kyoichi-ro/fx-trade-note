@@ -107,6 +107,20 @@
   color: var(--color-text-sub);
 }
 
+/* 記録が1件もないときだけ、ロットの行の下に出す1行「1lot＝1万通貨で計算します（設定で変更）」（13px・灰：T-33 U-02）。
+   ロットの行の補足なので、上にヘアラインを引かず、ロットの行に寄せる */
+.field-hint {
+  margin: 0;
+  margin-top: calc(var(--sp-2) * -1);
+  padding: 0 var(--sp-4) var(--sp-3);
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-tight);
+  color: var(--color-text-sub);
+}
+.list-group__body > .field-hint::before {
+  display: none;
+}
+
 /* 根拠・感情の選択肢がひとつもないとき（設定ですべて削除した）の案内 */
 .choice-empty {
   margin: 0;
@@ -300,6 +314,10 @@
 /* グループの下の説明文（13px・灰。グループ共通の footer の文字をそのまま使う） */
 .close-note {
   margin: 0;
+}
+/* 「1lot＝1万通貨で計算しています」は「自動計算はスワップ・手数料を含みません。」の次の行に（T-33 U-02） */
+.close-note + .close-note--lot {
+  margin-top: var(--sp-1);
 }
 
 /* 損益の自動計算の表示：左に「損益」、右に 28px・700 の金額（利益/損失/ゼロの色＋符号）、その下に 15px の補足と pips */

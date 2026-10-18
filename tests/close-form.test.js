@@ -12,7 +12,7 @@
 import {
   defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
   initialManualSign, splitSignedAmount, resolveManualProfit, formatAmountText, tidyAmount, evaluateClose, describeProfit,
-  speakProfit, closeInputFromEvaluation,
+  speakProfit, closeInputFromEvaluation, closeLotUnitNote,
 } from '../js/close-form.js';
 import { computeClose, buildClosedTrade, buildReopenedTrade, recompute } from '../js/trades.js';
 import { TRADE_KEYS } from '../js/db.js';
@@ -481,6 +481,19 @@ export function collectCloseFormTests() {
           ['理由・感情', f.exitReason === 'sl' && f.exitEmotion === '焦り', `${f.exitReason}/${f.exitEmotion}`],
           ['タグ・メモ', f.tags.join() === 'ルール違反' && f.memo === 'メモ', `${f.tags}/${f.memo}`],
           ['決済価格は空', f.exitPrice === '', f.exitPrice],
+        ]);
+      }),
+
+    t('CL-27', '損益の注記の下の「1lot＝○通貨で計算しています」（T-33 U-02）：自動計算に使う、その記録の 1lot の通貨数', 'closeLotUnitNote(記録 10000, 設定 100000)／(記録 なし, 設定 100000)／(なし, なし)',
+      "'1lot＝1万通貨で計算しています（記録時の設定）。'（設定の今の値ではなく記録の値）／記録になければ設定の値（10万）／''",
+      () => {
+        const a = closeLotUnitNote(10000, 100000);
+        const b = closeLotUnitNote(null, 100000);
+        const c = closeLotUnitNote(undefined, null);
+        return verdict([
+          ['記録の値を使う', a === '1lot＝1万通貨で計算しています（記録時の設定）。', a],
+          ['記録になければ設定の値', b === '1lot＝10万通貨で計算しています（記録時の設定）。', b],
+          ['どちらもなければ出さない', c === '', c],
         ]);
       }),
 
