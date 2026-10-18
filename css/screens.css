@@ -171,30 +171,41 @@
 }
 
 /* 適用中の条件チップ（design 14.3.7）：大タイトル・お知らせ行の下、サマリーの上。
-   横1列に並べ、はみ出す分は横にスクロールする（T-33 U-06：折り返すと2段で約110px を使い、結果の行が画面の半分より下から始まったため）。
-   スクロールバーは出さない（iOS と同じ。右端でチップが切れて見えることで、続きがあると分かる） */
+   チップは横1列に並べ、はみ出す分は横にスクロールする（T-33 U-06：折り返すと2段で約110px を使い、結果の行が画面の半分より下から始まったため）。
+   スクロールバーは出さない（iOS と同じ。右端でチップが切れて見えることで、続きがあると分かる）。
+   「すべて解除」はスクロールする列（.filter-chips__track）の外、右端に固定する（T-33 再確認 RC-02：列の末尾に置くと、
+   条件が3つ以上で画面の外に隠れたため） */
 .filter-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2) var(--sp-3) 0;
+}
+.filter-chips:empty {
+  display: none;
+}
+.filter-chips__track {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: var(--sp-2);
-  padding: 0 var(--sp-4) var(--sp-3);
+  padding: 0 var(--sp-2) 0 var(--sp-4);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
-.filter-chips::-webkit-scrollbar {
+.filter-chips__track::-webkit-scrollbar {
   display: none;
 }
-.filter-chips > * {
+.filter-chips__track > * {
   flex-shrink: 0;
 }
-/* 「すべて解除」は文字ボタン。折り返さない */
-.filter-chips > .btn {
+/* 「すべて解除」は文字ボタン。縮めず・折り返さない */
+.filter-chips__clear {
+  flex-shrink: 0;
   white-space: nowrap;
-}
-.filter-chips:empty {
-  display: none;
 }
 /* 選択用のチップ（枠線あり）と見分けがつくよう、枠線なしの淡い塗りにする。タップでその条件だけ外れる */
 .filter-chip {

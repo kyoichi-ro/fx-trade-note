@@ -10,6 +10,7 @@
 import { imageField } from '../js/ui/image-field.js';
 import { h, isDangerousUrl } from '../js/ui/dom.js';
 import { choosePair } from '../js/ui/pair-chooser.js';
+import { renderFilterChips } from '../js/ui/filter-chips.js';
 import { show } from './helpers.js';
 
 const CATEGORY = '画面の部品';
@@ -217,6 +218,30 @@ export function collectUiTests() {
           field.dispose();
           field.el.remove();
         }
+      }),
+
+    t('UI-08', '条件チップが3つ以上でも「すべて解除」はスクロールする列の外に置く（T-33 再確認 RC-02）', 'renderFilterChips（3つ／1つ／0）',
+      '3つ：チップは横スクロールの列の中、「すべて解除」は列の外（右端）。1つ：「すべて解除」なし。0：中身なし（「null」などの文字も入らない）',
+      () => {
+        const box = h('div', { class: 'filter-chips' });
+        let cleared = 0;
+        const handlers = { onClear: () => {}, onClearAll: () => { cleared += 1; } };
+        const chip = (key) => ({ key, label: key, ariaLabel: `${key}の条件を解除` });
+        renderFilterChips(box, [chip('本番'), chip('今月'), chip('負け')], handlers);
+        const track = box.querySelector('.filter-chips__track');
+        const clear = box.querySelector('.filter-chips__clear');
+        const three = { chipsInTrack: track ? track.querySelectorAll('.filter-chip').length : 0, clearOutside: Boolean(clear) && !track.contains(clear) };
+        if (clear) clear.click();
+        renderFilterChips(box, [chip('本番')], handlers);
+        const one = { clear: box.querySelector('.filter-chips__clear'), text: box.textContent };
+        renderFilterChips(box, [], handlers);
+        return verdict([
+          ['3つは列の中', three.chipsInTrack === 3, three.chipsInTrack],
+          ['「すべて解除」は列の外', three.clearOutside, three.clearOutside],
+          ['押すと onClearAll', cleared === 1, cleared],
+          ['1つなら「すべて解除」なし', one.clear === null && one.text === '本番', one.text],
+          ['0なら空', box.childNodes.length === 0, box.childNodes.length],
+        ]);
       }),
 
     t('UI-07', '「その他の通貨ペア」のシートは検索欄にフォーカスして開く（T-33：T-32 の U-09）', 'choosePair(よく使うペア, USD/JPY) を開く → 「キャンセル」',

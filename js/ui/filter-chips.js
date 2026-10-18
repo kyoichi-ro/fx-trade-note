@@ -31,14 +31,21 @@ export function createFilterButton(onClick) {
 
 /**
  * 適用中の条件チップを並べ直す。チップは1つずつ <button>（読み上げ「本番の条件を解除」）。
+ * チップは横にスクロールする列（.filter-chips__track）に入れ、2つ以上のときの「すべて解除」は列の外の右端に置く
+ * （T-33 再確認 RC-02：列の末尾だと、条件が3つ以上で画面の外に隠れたため）。
  * @param {HTMLElement} container チップを入れる場所（空になると CSS で場所ごと消える）
  * @param {{ key: string, label: string, ariaLabel: string }[]} chips filter.js の describeFilter の結果
  * @param {{ onClear: (key: string) => void, onClearAll: () => void }} handlers
  */
 export function renderFilterChips(container, chips, { onClear, onClearAll }) {
+  if (chips.length === 0) {
+    container.replaceChildren(); // 空にする（CSS の :empty で場所ごと消える）
+    return;
+  }
   const nodes = chips.map((c) => h('button', {
     type: 'button', class: 'filter-chip', 'aria-label': c.ariaLabel, onClick: () => onClear(c.key),
   }, h('span', { class: 'filter-chip__label' }, c.label), icon('close', { size: 'xs' })));
-  if (chips.length >= 2) nodes.push(h('button', { type: 'button', class: 'btn btn--text', onClick: onClearAll }, 'すべて解除'));
-  container.replaceChildren(...nodes); // null を渡すと「null」という文字が入ってしまうので、配列に入れる時点で作ったものだけにしている
+  const parts = [h('div', { class: 'filter-chips__track' }, nodes)];
+  if (chips.length >= 2) parts.push(h('button', { type: 'button', class: 'btn btn--text filter-chips__clear', onClick: onClearAll }, 'すべて解除'));
+  container.replaceChildren(...parts); // null を渡すと「null」という文字が入ってしまうので、作ったものだけを渡す
 }
