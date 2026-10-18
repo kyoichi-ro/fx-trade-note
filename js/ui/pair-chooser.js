@@ -5,6 +5,7 @@
    【なぜ共通の部品にしたか】
    T-17 では entry.js の中にあったが、編集画面（T-22）でも同じシートを同じ動きで出すため、2か所に同じ処理を書いて
    片方だけ直して食い違わないよう、ここに移した（中身は変えていない）。
+   【T-33】開いたら検索欄にフォーカスする（T-32 の U-09）。
    ========================================================= */
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -45,9 +46,14 @@ export function choosePair(favorites, selected) {
         onInput: (e) => renderList(e.target.value),
       });
       renderList('');
-      return h('div', {},
-        h('label', { class: 'sheet-search' }, icon('search', { size: 'sm', className: 'sheet-search__icon' }), search),
-        h('section', { class: 'list-group' }, listBody));
+      return {
+        body: h('div', {},
+          h('label', { class: 'sheet-search' }, icon('search', { size: 'sm', className: 'sheet-search__icon' }), search),
+          h('section', { class: 'list-group' }, listBody)),
+        // 開いたらすぐ検索欄へ（「その他」を開くのは、格子にないペアを探すとき。検索欄をタップする手間を省く：T-33 U-09）。
+        // タップの処理の中で開くので、iPhone でもキーボードが出る（決済価格の自動フォーカスと同じ考え方）
+        initialFocus: search,
+      };
     },
   });
 }

@@ -9,6 +9,7 @@
    ========================================================= */
 import { imageField } from '../js/ui/image-field.js';
 import { h, isDangerousUrl } from '../js/ui/dom.js';
+import { choosePair } from '../js/ui/pair-chooser.js';
 import { show } from './helpers.js';
 
 const CATEGORY = '画面の部品';
@@ -45,10 +46,10 @@ function tinyBlob() {
 }
 
 /**
- * 画像の業務処理の偽物。prepareImage は gates に積んだ順に、テストが resolve するまで終わらない。
+ * 画像の業務処理の偽物。prepareImage は gates に積んだ順に、テストが resolve するまで終わらない（immediate なら待たない）。
  * saveImage は ID を 'img-1'・'img-2'… と順に振る。
  */
-function fakeService() {
+function fakeService({ immediate = false } = {}) {
   const gates = [];
   let seq = 0;
   const deleted = [];
@@ -60,6 +61,7 @@ function fakeService() {
     prepareImage: async () => {
       const g = deferred();
       gates.push(g);
+      if (immediate) g.resolve(); // すぐ縮小が終わる（待たせない）
       await g.promise;
       return { blob: tinyBlob(), width: 1, height: 1 };
     },
@@ -192,6 +194,45 @@ export function collectUiTests() {
           plain.el.remove();
           stuck.el.remove();
         }
+      }),
+
+    t('UI-06', '「4枚を超えた分は追加しませんでした」はサムネイルの上に出す（T-33：T-32 の U-14）', 'imageField に5枚を選ぶ',
+      '4枚だけ追加。文はグループの中のサムネイルの直前（グループの下＝保存ボタンに隠れる位置には出さない）',
+      async () => {
+        const service = fakeService({ immediate: true });
+        const field = imageField({ tradeId: 't1', kind: 'entry', service });
+        document.body.append(field.el);
+        try {
+          pick(field, 5);
+          await field.whenIdle();
+          const note = [...field.el.querySelectorAll('.img-note')].find((n) => n.textContent === '4枚を超えた分は追加しませんでした');
+          const footer = field.el.querySelector('.list-group__footer');
+          return verdict([
+            ['4枚だけ', field.count() === 4, field.count()],
+            ['文がある', Boolean(note), note && note.textContent],
+            ['サムネイルの直前', Boolean(note) && note.nextElementSibling && note.nextElementSibling.classList.contains('img-grid'), note && note.nextElementSibling && note.nextElementSibling.className],
+            ['グループの下には出さない', Boolean(note) && !footer.contains(note)],
+          ]);
+        } finally {
+          field.dispose();
+          field.el.remove();
+        }
+      }),
+
+    t('UI-07', '「その他の通貨ペア」のシートは検索欄にフォーカスして開く（T-33：T-32 の U-09）', 'choosePair(よく使うペア, USD/JPY) を開く → 「キャンセル」',
+      '開いた直後のフォーカスは検索欄。「キャンセル」には枠（:focus-visible）が付かない。キャンセルで null',
+      async () => {
+        const opened = choosePair(['USD/JPY', 'EUR/USD'], 'USD/JPY');
+        const active = document.activeElement;
+        const cancel = document.querySelector('dialog .sheet__header .btn--text');
+        const cancelVisible = cancel ? cancel.matches(':focus-visible') : null;
+        if (cancel) cancel.click();
+        const result = await opened;
+        return verdict([
+          ['検索欄にフォーカス', Boolean(active) && active.classList.contains('sheet-search__input'), active && active.className],
+          ['キャンセルに枠がない', cancelVisible === false, cancelVisible],
+          ['キャンセルで null', result === null, result],
+        ]);
       }),
   ];
 }

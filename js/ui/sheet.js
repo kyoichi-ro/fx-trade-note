@@ -8,6 +8,7 @@
    【T-23 で拡張】絞り込みシート（design 14.3.10）のために、上部の右（「すべて解除」）と下部に固定する主要ボタン（「12件を表示」）を
    足せるようにした。content が { body, headerRight, footer } を返すと使える（Node だけを返す従来の形もそのまま使える）。
    本文だけがスクロールし、題名・「キャンセル」・下部のボタンは常に見える。
+   【T-33】content が { initialFocus } も返せるようにした（最初にフォーカスを置く要素。「その他の通貨ペア」は検索欄：T-32 の U-09）。
 
    ・開く・閉じる・フォーカスを戻す・背後のスクロールを止める仕組みは、アクションシートと同じ dialog.js の openModal を使う
      （同時に開くのは1つだけ、という約束をアプリ全体で守るため）。
@@ -21,9 +22,10 @@ import { openModal } from './dialog.js';
 /**
  * ボトムシートを開く。
  * @param {{ title: string, cancelLabel?: string,
- *   content: (finish: (value: any) => void) => (Node | { body: Node, headerRight?: Node|null, footer?: Node|null }) }} opts
+ *   content: (finish: (value: any) => void) => (Node | { body: Node, headerRight?: Node|null, footer?: Node|null, initialFocus?: HTMLElement|null }) }} opts
  *   content … シートの中身を作る関数。引数の finish(値) を呼ぶとシートを閉じる。
- *     返すもの：本文の Node、または { body: 本文, headerRight: 上部の右に置く部品（「すべて解除」など）, footer: 下部に固定する部品（主要ボタン） }
+ *     返すもの：本文の Node、または { body: 本文, headerRight: 上部の右に置く部品（「すべて解除」など）, footer: 下部に固定する部品（主要ボタン）,
+ *       initialFocus: 最初にフォーカスを置く要素（省略すると「キャンセル」） }
  * @returns {Promise<any>} finish に渡した値。キャンセル・背景タップ・Esc なら null
  */
 export function openSheet({ title, cancelLabel = 'キャンセル', content }) {
@@ -32,7 +34,7 @@ export function openSheet({ title, cancelLabel = 'キャンセル', content }) {
   const finish = (value) => dlg._finish(value);
   const cancelBtn = h('button', { type: 'button', class: 'btn btn--text', onClick: () => finish(null) }, cancelLabel);
   const built = content(finish);
-  const { body, headerRight = null, footer = null } = built instanceof Node ? { body: built } : built;
+  const { body, headerRight = null, footer = null, initialFocus = null } = built instanceof Node ? { body: built } : built;
   dlg.append(h('div', { class: 'sheet' },
     // 上端の「つまみ」は見た目だけ（iOS と同じ形。ドラッグで閉じる操作は作らない：キャンセル・背景タップで閉じられる）
     h('div', { class: 'sheet__grip', 'aria-hidden': 'true' }),
@@ -44,6 +46,7 @@ export function openSheet({ title, cancelLabel = 'キャンセル', content }) {
     // 下部に固定する主要ボタン。キーボードが出ている間は隠す（キーボードに隠れて押せないため。css の .keyboard-open）
     footer ? h('div', { class: 'sheet__footer' }, footer) : null,
   ));
-  // 最初のフォーカスは「キャンセル」（検索欄にすると iPhone ではすぐキーボードが出て一覧が隠れるため）
-  return openModal(dlg, cancelBtn, null, true);
+  // 最初のフォーカスは、指定がなければ「キャンセル」（検索欄にすると iPhone ではすぐキーボードが出て一覧が隠れるため）。
+  // 「その他の通貨ペア」は、開いた目的がほぼ検索なので検索欄（T-33 U-09：タップが1つ減る）
+  return openModal(dlg, initialFocus || cancelBtn, null, true);
 }

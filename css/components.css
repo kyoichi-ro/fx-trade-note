@@ -1395,7 +1395,7 @@ body:has(.fab) #toast-area {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-2);
-  /* 上と右は、× の押せる範囲（サムネイルの外へ 16px はみ出す）が切れないだけの余白 */
+  /* 上は、× の押せる範囲（サムネイルの上へ 16px はみ出す）が切れないだけの余白 */
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
 }
 .img-thumb {
@@ -1444,18 +1444,21 @@ body:has(.fab) #toast-area {
 }
 /* × ：見た目は 20px の濃い丸（サムネイルの右上の内側）、押せる範囲は 44px。
    サムネイルは幅が 70px ほどしかなく、44px の押せる範囲を内側に置くと、サムネイルの真ん中（拡大するために押す場所）まで覆ってしまう。
-   そこで押せる範囲を右上の角から外側（グループの余白）へ 16px はみ出させ、サムネイルの内側に入るのは右上の 28px 四方だけにする。
-   写真の上でも見える濃い色 */
+   そこで押せる範囲を上だけ外側（グループの余白）へ 16px はみ出させ、サムネイルの内側に入るのは右上の 44×28px だけにする。
+   横は外へはみ出させない（T-33 U-14：以前は右へも 16px はみ出し、隣のサムネイルの左端 8px に重なっていた。
+   今は × の押せる範囲の右端＝サムネイルの右端で、隣との間はサムネイルの間隔 8px がそのまま空く）。
+   1行に4枚までなので、下の段のサムネイルに上へはみ出して重なることはない。写真の上でも見える濃い色 */
 .img-thumb__remove {
   position: absolute;
   top: calc(var(--sp-4) * -1);
-  right: calc(var(--sp-4) * -1);
+  right: 0;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
   width: var(--tap-min);
   height: var(--tap-min);
-  padding: 20px 0 0 var(--sp-1);
+  /* 丸の位置は以前と同じ（サムネイルの右上から内側へ 4px） */
+  padding: 20px 0 0 20px;
 }
 .img-thumb__remove-mark {
   display: flex;
@@ -1488,6 +1491,16 @@ body:has(.fab) #toast-area {
 /* グループの下の灰色の注記（13px）。両方とも隠れているときは、下の余白ごと出さない */
 .img-note {
   margin: 0;
+}
+/* 「4枚を超えた分は追加しませんでした」：グループの中、サムネイルの上（T-33 U-14）。サムネイルとの間にヘアラインは引かない */
+.img-note--top {
+  padding: var(--sp-3) var(--sp-4) 0;
+  font-size: var(--fs-footnote);
+  line-height: var(--lh-normal);
+  color: var(--color-text-sub);
+}
+.list-group__body > .img-note--top + .img-grid::before {
+  display: none;
 }
 .img-note + .img-note {
   margin-top: var(--sp-1);

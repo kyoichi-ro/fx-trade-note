@@ -8,7 +8,7 @@
    ・選んだ画像は 1 枚ずつ順に、縮小・JPEG 圧縮して images に保存し（architecture 11.1・11.5）、その ID を覚える（下書きの addedImageIds になる）。
      処理中はサムネイルの枠に回転アイコン。残り枚数より多く選んだら先頭から残り枚数分だけ追加し、「4枚を超えた分は追加しませんでした」。
      読み込めない画像は「画像を読み込めませんでした。別の画像を選んでください。」（赤）。他の入力は残る。
-   ・サムネイルの × （見た目20px・押せる範囲44px）：
+   ・サムネイルの × （見た目20px・押せる範囲44px。押せる範囲は横には外へはみ出さず、隣のサムネイルとの間を 8px 空ける：T-33 U-14）：
        この入力で追加した画像 … 確認なしで即削除（まだ保存していない画像なので：requirements F-05）。images からも消す
        保存済みの画像（編集のみ）… 一覧から外すだけ。物理削除は「変更を保存」のとき（キャンセルなら元に戻る：architecture 11.4）
        保存済みの画像（決済）… × を出さない（削除は編集画面：design 14.2.10）
@@ -112,9 +112,10 @@ export function imageField({
       input.click();
     },
   }, icon('photo', { size: 'sm' }), addLabel);
-  const overflowNote = h('p', { class: 'img-note' });
+  // 「4枚を超えた分は追加しませんでした」はサムネイルの上に出す（グループの下だと下部の保存ボタンに隠れて気づけなかった：T-33 U-14）
+  const overflowNote = h('p', { class: 'img-note img-note--top', role: 'status' });
   const removedNote = h('p', { class: 'img-note' }, IMAGE_TEXT.removedNote);
-  const group = listGroup({ header, className: 'img-field', rows: [], footer: [overflowNote, removedNote] });
+  const group = listGroup({ header, className: 'img-field', rows: [], footer: [removedNote] });
   group.append(input); // 入力欄はグループの行の外に置く（行の間のヘアラインが入力欄の分だけ引かれないように）
   const body = group.querySelector('.list-group__body');
 
@@ -149,14 +150,14 @@ export function imageField({
     if (disposed) return;
     const readyItems = items.filter((i) => i.status === 'ready');
     const rows = [];
+    overflowNote.textContent = text.overflow;
+    if (text.overflow) rows.push(overflowNote);
     if (items.length > 0) rows.push(h('div', { class: 'img-grid' }, items.map((i) => tile(i, readyItems))));
     rows.push(addBtn);
     body.replaceChildren(...rows);
     const left = remainingSlots(items.length);
     addLabel.textContent = addRowText(left);
     addBtn.disabled = disabled || left === 0;
-    overflowNote.textContent = text.overflow;
-    overflowNote.hidden = text.overflow === '';
     removedNote.hidden = !(removableExisting && removed.length > 0);
     // ⚠ のエラー文（赤）・注意文（琥珀）は他の入力欄と同じ出し方（fields.js）。説明文（上の2つの灰色の文）より上に入る
     setGroupMessages(group, [

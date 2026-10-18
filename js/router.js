@@ -31,7 +31,7 @@
    画面には mount の引数 nav（go / replace / back）を渡す（循環 import を作らないため：architecture.md 4.3）。
    ========================================================= */
 import { h } from './ui/dom.js';
-import { syncToastWithRoute } from './ui/toast.js';
+import { syncToastWithRoute, hideToast } from './ui/toast.js';
 import { actionSheet } from './ui/dialog.js';
 import { CHOICE_KINDS } from './master.js'; // 選択肢の編集画面で使える種類（architecture 5.1。これ以外の kind は「一覧にない URL」として扱う）
 
@@ -319,6 +319,9 @@ async function render() {
   if (seq !== renderSeq) return;
 
   applyLayout(screen);
+  // 入力画面（新規・決済・編集）を開いたら、前の画面のトーストは消す（T-33：T-32 の U-05。
+  // 保存の直後に［決済］を開くと「保存しました」が決済画面に残り、まだ決済していないのに保存されたように見えたため）
+  if (screen.layout === 'form') hideToast();
   root.replaceChildren();
   window.scrollTo(0, 0);
   document.title = `${resolveTitle(screen, match.params)} - FXトレードノート`;

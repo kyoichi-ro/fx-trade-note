@@ -36,6 +36,18 @@ export function setPageScrollLock(on) {
 }
 
 /**
+ * プログラムからフォーカスを移す。指・マウスで操作しているとき（Tab キーの操作中＝<html class="kbd-nav"> でないとき）は、
+ * フォーカスの枠（:focus-visible）を出さないよう頼む（T-33：T-32 の U-09。シートを開いたときの「キャンセル」や、
+ * 閉じたあとに戻した絞り込みボタンに四角い枠が出て、押し間違えたように見えたため）。
+ * focusVisible に対応していないブラウザは、この指定を無視して今までどおりフォーカスする（害はない）。
+ * @param {HTMLElement} el
+ */
+function focusQuietly(el) {
+  const byKeyboard = document.documentElement.classList.contains('kbd-nav');
+  el.focus(byKeyboard ? undefined : { focusVisible: false });
+}
+
+/**
  * <dialog> を開いて、閉じられたときの値を Promise で返す共通部分。
  * @param {HTMLDialogElement} dlg
  * @param {HTMLElement} initialFocus 最初にフォーカスを置くボタン
@@ -57,7 +69,7 @@ function open(dlg, initialFocus, cancelValue, closeOnBackdrop) {
       lockScroll(false);
       openEntry = null;
       // 開く前の場所へフォーカスを戻す（その要素が画面から消えていたら何もしない）
-      if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') returnFocus.focus();
+      if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') focusQuietly(returnFocus);
       resolve(value);
     };
     openEntry = { finish, cancelValue };
@@ -78,7 +90,7 @@ function open(dlg, initialFocus, cancelValue, closeOnBackdrop) {
     document.body.append(dlg);
     lockScroll(true);
     dlg.showModal();
-    initialFocus.focus();
+    focusQuietly(initialFocus);
   });
 }
 
