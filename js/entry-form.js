@@ -21,7 +21,7 @@
 import { parsePrice, parseLots, isFarFromEntry, isOutOfPriceRange, isLargeQuantity } from './validate.js';
 import { calcRiskReward, calcSlTpPips, judgeSession } from './calc.js';
 import { TIMEFRAME_LABELS, getPairSpec } from './master.js';
-import { fromInputValue } from './datetime.js';
+import { fromInputValue, isInputYearOutOfRange } from './datetime.js';
 import { formatPipsDistance, formatLotUnitWords } from './format.js';
 
 /** 必須グループの欄の並び（画面の上から＝エラーを探す順・フォーカスを移す順） */
@@ -56,6 +56,19 @@ function cleanStrings(v) {
 
 /** 価格の欄の名前（E-01〜E-04・W-06 の文の先頭に付ける：design 14.1.8） */
 export const PRICE_LABEL = 'エントリー価格';
+
+/** 日時の年が 2000〜2099 年の外のときの文（T-33 再確認 RC-05。空欄・読めないときは「日時を入力してください」のまま）。決済画面も使う */
+export const DATE_YEAR_RANGE_TEXT = '日時は2000〜2099年で入力してください';
+
+/**
+ * 日時の欄のエラー文（読めるなら ''）。入力済みなのに「日時を入力してください」と出て、何を直せばよいか分からなくならないよう、
+ * 年が範囲外のときは範囲を示す文にする。
+ * @param {string} text 日時欄の値
+ */
+export function dateInputError(text) {
+  if (fromInputValue(text)) return '';
+  return isInputYearOutOfRange(text) ? DATE_YEAR_RANGE_TEXT : '日時を入力してください';
+}
 
 /** E-17（価格が 1,000,000 以上：T-33 R-01）の文の後半。決済画面（close-form.js）も同じ文を使う */
 export const PRICE_LIMIT_TEXT = '1,000,000未満の値で入力してください';
@@ -144,7 +157,8 @@ export function checkRequiredFields(f, { lotUnitSize = null } = {}) {
     warn('lots', '数量が非常に大きくなっています。ロットと1lotの通貨数を確認してください。');
   }
 
-  if (!fromInputValue(f.entryAt)) err('entryAt', '日時を入力してください');
+  const dateError = dateInputError(f.entryAt);
+  if (dateError) err('entryAt', dateError);
   return out;
 }
 

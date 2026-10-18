@@ -512,15 +512,18 @@ export function collectEntryFormTests() {
         ]);
       }),
 
-    t('EF-40', '2000〜2099 年の外の日時は「日時を入力してください」（T-33 R-09）', "entryAt '0500-01-01T10:00'／'2100-01-01T00:00'",
-      'どちらもエラー「日時を入力してください」',
+    t('EF-40', '2000〜2099 年の外の日時は「日時は2000〜2099年で入力してください」、空欄は「日時を入力してください」（T-33 R-09・再確認 RC-05）',
+      "entryAt '0500-01-01T10:00'／'2100-01-01T00:00'／''／'2026-10-15T21:30'",
+      '範囲外の2つは範囲を示す文、空欄は「日時を入力してください」、正しい日時はエラーなし',
       () => {
         const base = { accountType: 'real', pair: 'USD/JPY', side: 'buy', entryPrice: '150', lots: '0.1' };
-        const a = checkRequiredFields({ ...base, entryAt: '0500-01-01T10:00' }).find((i) => i.field === 'entryAt');
-        const b = checkRequiredFields({ ...base, entryAt: '2100-01-01T00:00' }).find((i) => i.field === 'entryAt');
+        const at = (entryAt) => checkRequiredFields({ ...base, entryAt }).find((i) => i.field === 'entryAt');
+        const [a, b, c, d] = ['0500-01-01T10:00', '2100-01-01T00:00', '', '2026-10-15T21:30'].map(at);
         return verdict([
-          ['0500年', a && a.text === '日時を入力してください', a && a.text],
-          ['2100年', b && b.text === '日時を入力してください', b && b.text],
+          ['0500年', a && a.text === '日時は2000〜2099年で入力してください', a && a.text],
+          ['2100年', b && b.text === '日時は2000〜2099年で入力してください', b && b.text],
+          ['空欄', c && c.text === '日時を入力してください', c && c.text],
+          ['正しい日時', d === undefined, d && d.text],
         ]);
       }),
   ];

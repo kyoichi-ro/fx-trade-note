@@ -13,7 +13,7 @@
    ========================================================= */
 import {
   toJstString, nowJst, parseJst, toInputValue, fromInputValue, nowInputValue, diffMinutes, isWithinMinutes, jstParts,
-  INPUT_YEAR_MIN, INPUT_YEAR_MAX,
+  INPUT_YEAR_MIN, INPUT_YEAR_MAX, isInputYearOutOfRange,
 } from '../js/datetime.js';
 import { show } from './helpers.js';
 
@@ -218,6 +218,9 @@ export function collectDatetimeTests() {
           ['範囲の値', INPUT_YEAR_MIN === 2000 && INPUT_YEAR_MAX === 2099, `${INPUT_YEAR_MIN}〜${INPUT_YEAR_MAX}`],
           ['500年の保存形式は4桁・25文字', s500 === '0500-01-01T10:00:00+09:00' && s500.length === 25, s500],
           ['保存済みの日時は年の範囲で読めなくしない', parseJst('1999-12-31T23:59:00+09:00') !== null, 'null'],
+          // 画面の文の出し分け（RC-05）：範囲外の年だけ true。空欄・形が違う・範囲内は false
+          ['範囲外の年の見分け', isInputYearOutOfRange('1999-12-31T23:59') && isInputYearOutOfRange('2100-01-01T00:00')
+            && !isInputYearOutOfRange('') && !isInputYearOutOfRange('abc') && !isInputYearOutOfRange('2026-10-15T21:30'), 'NG'],
         ]);
       }),
   ];

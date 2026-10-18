@@ -31,7 +31,8 @@ const pad2 = (n) => String(n).padStart(2, '0');
 /**
  * 入力欄から受け付ける年の範囲（T-33：T-30 の R-09）。トレードの記録に使う日時なので 2000〜2099 年に限る。
  * 以前は「0500年」のような打ち間違いがそのまま保存され、保存形式（25文字固定）が崩れて、並び順や日時の読み取りが壊れたため。
- * 範囲外は「日時を入力してください」（fromInputValue が null）。保存済みの日時を読む parseJst には当てない（読めなくなるのを避ける）。
+ * 範囲外は fromInputValue が null。画面は「日時は2000〜2099年で入力してください」と出し分ける（isInputYearOutOfRange：T-33 再確認 RC-05）。
+ * 保存済みの日時を読む parseJst には当てない（読めなくなるのを避ける）。
  */
 export const INPUT_YEAR_MIN = 2000;
 export const INPUT_YEAR_MAX = 2099;
@@ -109,6 +110,21 @@ export function toInputValue(value) {
   const d = toDate(value);
   if (!d) return '';
   return toJstString(d).slice(0, 16);
+}
+
+/**
+ * 入力欄の値が「形は日時として正しいが、年が 2000〜2099 年の外」か（RC-05）。
+ * 画面が「日時を入力してください」（空欄・読めない）と「日時は2000〜2099年で入力してください」を出し分けるために使う。
+ * 空欄・形が違うときは false。
+ * @param {string} text 例 '1999-12-31T23:59'
+ * @returns {boolean}
+ */
+export function isInputYearOutOfRange(text) {
+  if (typeof text !== 'string') return false;
+  const m = INPUT_PATTERN.exec(text.trim());
+  if (!m) return false;
+  const y = Number(m[1]);
+  return y < INPUT_YEAR_MIN || y > INPUT_YEAR_MAX;
 }
 
 /**

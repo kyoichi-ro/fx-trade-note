@@ -498,6 +498,19 @@ export function collectCloseFormTests() {
         ]);
       }),
 
+    t('CL-29', '決済日時の年が 2000〜2099 年の外なら範囲を示す文、空欄は「日時を入力してください」（T-33 再確認 RC-05）', "exitAt '2100-01-01T00:00'／''",
+      "'日時は2000〜2099年で入力してください'／'日時を入力してください'",
+      () => {
+        const at = (exitAt) => evaluateClose(openTrade(), { ...defaultCloseFields(openTrade(), exitAt), exitPrice: '151' }, { now: NOW })
+          .issues.find((i) => i.field === 'exitAt');
+        const a = at('2100-01-01T00:00');
+        const b = at('');
+        return verdict([
+          ['範囲外', a && a.text === '日時は2000〜2099年で入力してください', a && a.text],
+          ['空欄', b && b.text === '日時を入力してください', b && b.text],
+        ]);
+      }),
+
     t('CL-28', '極端な値でも決済画面の計算が例外で止まらない（T-33 R-01）', 'エントリー価格 1e306 の保有中の記録で決済価格 151／決済価格 1000000',
       '例外なし・pips と損益は null／決済価格 1000000 は E-17「決済価格：1,000,000未満の値で入力してください」',
       () => {

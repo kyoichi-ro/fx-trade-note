@@ -25,7 +25,7 @@ import { fromInputValue } from './datetime.js';
 import { getPairSpec, EXIT_REASON_LABELS } from './master.js';
 import { formatYen, formatPips, formatShortDateTime, toneOf, toTenths, speakYen, speakPips, formatLotUnitWords } from './format.js';
 import { computeClose } from './trades.js';
-import { PRICE_LIMIT_TEXT } from './entry-form.js';
+import { PRICE_LIMIT_TEXT, dateInputError } from './entry-form.js';
 
 /** 決済理由の保存値の並び（design 14.2.3：TP到達・SL到達・裁量決済・建値決済・その他） */
 export const EXIT_REASONS = Object.freeze(Object.keys(EXIT_REASON_LABELS));
@@ -255,7 +255,8 @@ export function evaluateClose(trade, fields, { now = new Date() } = {}) {
     }
   }
   if (!rate.ok) add('quoteToJpyRate', 'error', TEXT['E-08']);
-  if (!exitAt) add('exitAt', 'error', TEXT.required.exitAt);
+  // 空欄・読めないときは「日時を入力してください」、年が 2000〜2099 年の外なら範囲を示す文（RC-05）
+  if (!exitAt) add('exitAt', 'error', dateInputError(fields.exitAt) || TEXT.required.exitAt);
   else if (!checkExitAfterEntry(trade.entryAt, exitAt).ok) {
     add('exitAt', 'error', `決済日時がエントリー日時（${formatShortDateTime(trade.entryAt, now)}）より前になっています`);
   }
