@@ -111,8 +111,9 @@ const BOUND_CASES = [
     read: (input, pair) => parsePrice(input, pair),
   },
   {
-    id: 'VB-02', title: 'ロットの上限：10,000 以下だけ受け付ける（E-18）',
-    rows: [['10000', null, 10000], ['10000.00', null, 10000], ['10000.01', null, 'E-18'], ['99999999', null, 'E-18'], ['0.01', null, 0.01]],
+    id: 'VB-02', title: 'ロットの上限：10,000,000 以下だけ受け付ける（E-18）。1lot＝1通貨の業者の 10,000 lot は通る',
+    rows: [['10000', null, 10000], ['10000000', null, 10000000], ['10000000.00', null, 10000000], ['10000000.01', null, 'E-18'],
+      ['99999999', null, 'E-18'], ['0.01', null, 0.01]],
     read: (input) => parseLots(input),
   },
 ];
@@ -132,7 +133,7 @@ function boundTests() {
           const ok = typeof want === 'string' ? r.ok === false && r.error === want : r.ok === true && r.value === want;
           return { text: describeRead(r), ok };
         });
-        return { actual: got.map((g) => g.text).join(' ／ '), pass: got.every((g) => g.ok) && PRICE_MAX_EXCLUSIVE === 1_000_000 && LOTS_MAX === 10_000 };
+        return { actual: got.map((g) => g.text).join(' ／ '), pass: got.every((g) => g.ok) && PRICE_MAX_EXCLUSIVE === 1_000_000 && LOTS_MAX === 10_000_000 };
       },
     })),
     {

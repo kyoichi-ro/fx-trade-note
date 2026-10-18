@@ -498,16 +498,16 @@ export function collectEntryFormTests() {
         ]);
       }),
 
-    t('EF-39', '価格・ロット・SL の上限のエラー文（T-33 R-01）：価格は通貨ペアを選ぶ前でも出す', "エントリー価格 '1000000'（通貨ペア未選択）・ロット '20000'・SL '5000000'",
-      "'エントリー価格：1,000,000未満の値で入力してください'・'ロット：10,000以下で入力してください'・'SL（損切り）：1,000,000未満の値で入力してください'",
+    t('EF-39', '価格・ロット・SL の上限のエラー文（T-33 R-01）：価格は通貨ペアを選ぶ前でも出す', "エントリー価格 '1000000'（通貨ペア未選択）・ロット '20000000'・SL '5000000'",
+      "'エントリー価格：1,000,000未満の値で入力してください'・'ロット：10,000,000以下で入力してください'・'SL（損切り）：1,000,000未満の値で入力してください'",
       () => {
-        const f = { accountType: 'real', pair: '', side: 'buy', entryPrice: '1000000', lots: '20000', entryAt: '2026-10-15T21:30', ...defaultOptionalFields('2026-10-15T21:30'), slPrice: '5000000' };
+        const f = { accountType: 'real', pair: '', side: 'buy', entryPrice: '1000000', lots: '20000000', entryAt: '2026-10-15T21:30', ...defaultOptionalFields('2026-10-15T21:30'), slPrice: '5000000' };
         const issues = checkRequiredFields(f);
         const text = (field) => (issues.find((i) => i.field === field) || {}).text;
         const sl = evaluateLevels({ ...f, pair: 'USD/JPY', entryPrice: '150' }).issues.find((i) => i.field === 'slPrice');
         return verdict([
           ['価格', text('entryPrice') === 'エントリー価格：1,000,000未満の値で入力してください', text('entryPrice')],
-          ['ロット', text('lots') === 'ロット：10,000以下で入力してください', text('lots')],
+          ['ロット', text('lots') === 'ロット：10,000,000以下で入力してください', text('lots')],
           ['SL', sl && sl.text === 'SL（損切り）：1,000,000未満の値で入力してください', sl && sl.text],
         ]);
       }),

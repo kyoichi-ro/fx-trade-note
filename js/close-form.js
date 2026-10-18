@@ -124,15 +124,14 @@ export function closeSaveLabel(accountType) {
  * 自動計算に使う 1lot の通貨数を知らせ、業者の表示と1桁ずれたときに原因に気づけるようにする。
  * 数値は「その記録の 1lot の通貨数」（エントリーしたときの設定値を記録にコピーしたもの：requirements 6.1）。
  * 自動計算はこの値で行うので、設定の今の値と違っていても、計算に使う値を出す（設定を変えてもこの記録の損益は変わらないため、
- * 「設定で変更」とは書かない）。記録に値がないとき（壊れた記録）は fallback（設定の今の値）、それも読めなければ ''。
+ * 「設定で変更」とは書かない）。記録に値がないとき（壊れた記録）は何も出さない（''）。自動計算は記録の値しか使わないので、
+ * 設定の値を「計算しています」と出すと事実と違うため（T-33 再確認・fx-expert）。
  * @param {number|null|undefined} lotUnitSize 記録の lotUnitSize
- * @param {number|null|undefined} [fallback] 設定の今の値（その口座区分）
  * @returns {string}
  */
-export function closeLotUnitNote(lotUnitSize, fallback = null) {
-  const ok = (n) => Number.isFinite(n) && n > 0;
-  const n = ok(lotUnitSize) ? lotUnitSize : ok(fallback) ? fallback : null;
-  return n == null ? '' : `1lot＝${formatLotUnitWords(n)}通貨で計算しています（記録時の設定）。`;
+export function closeLotUnitNote(lotUnitSize) {
+  const ok = Number.isFinite(lotUnitSize) && lotUnitSize > 0;
+  return ok ? `1lot＝${formatLotUnitWords(lotUnitSize)}通貨で計算しています（記録時の設定）。` : '';
 }
 
 /** 保存後のトースト（design 14.2.8：「決済を保存しました ＋1,265円」。損益が空なら文だけ） */

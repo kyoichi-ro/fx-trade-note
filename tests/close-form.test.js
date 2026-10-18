@@ -484,16 +484,17 @@ export function collectCloseFormTests() {
         ]);
       }),
 
-    t('CL-27', '損益の注記の下の「1lot＝○通貨で計算しています」（T-33 U-02）：自動計算に使う、その記録の 1lot の通貨数', 'closeLotUnitNote(記録 10000, 設定 100000)／(記録 なし, 設定 100000)／(なし, なし)',
-      "'1lot＝1万通貨で計算しています（記録時の設定）。'（設定の今の値ではなく記録の値）／記録になければ設定の値（10万）／''",
+    t('CL-27', '損益の注記の下の「1lot＝○通貨で計算しています」（T-33 U-02）：自動計算に使う、その記録の 1lot の通貨数', 'closeLotUnitNote(記録 10000)／(100000)／(なし)／(0)',
+      "'1lot＝1万通貨で計算しています（記録時の設定）。'／'…10万…'／''（記録に値がなければ設定の値も出さない）／''",
       () => {
-        const a = closeLotUnitNote(10000, 100000);
-        const b = closeLotUnitNote(null, 100000);
-        const c = closeLotUnitNote(undefined, null);
+        const a = closeLotUnitNote(10000);
+        const b = closeLotUnitNote(100000);
+        const c = closeLotUnitNote(null);
+        const d = closeLotUnitNote(0);
         return verdict([
           ['記録の値を使う', a === '1lot＝1万通貨で計算しています（記録時の設定）。', a],
-          ['記録になければ設定の値', b === '1lot＝10万通貨で計算しています（記録時の設定）。', b],
-          ['どちらもなければ出さない', c === '', c],
+          ['10万', b === '1lot＝10万通貨で計算しています（記録時の設定）。', b],
+          ['記録に値がなければ出さない', c === '' && d === '', `${c}/${d}`],
         ]);
       }),
 

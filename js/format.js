@@ -143,14 +143,17 @@ export function formatLotUnit(unit) {
 }
 
 /**
- * 1lot の通貨数を、万の単位で短く言う（T-33：U-02 の「1lot＝1万通貨で計算」の1行に使う）。
+ * 1lot の通貨数を、万・億の単位で短く言う（T-33：U-02 の「1lot＝1万通貨で計算」の1行に使う）。
  * 1万で割り切れるときだけ「1万」「10万」、それ以外は「1,000」「15,000」（小数の「1.5万」は読み違えやすいので使わない）。
- * 値がなければ '—'。
+ * 1億以上は「10,000万」のような読みにくい形にしない：1億で割り切れれば「1億」「3億」、それ以外はカンマ区切りの数字
+ * （T-33 再確認・fx-expert）。値がなければ '—'。
  * @param {number|null|undefined} unit
  */
 export function formatLotUnitWords(unit) {
   if (unit == null || !Number.isFinite(unit)) return '—';
   const n = Math.round(unit);
+  const OKU = 100_000_000;
+  if (n >= OKU) return n % OKU === 0 ? `${withCommas(n / OKU)}億` : withCommas(n);
   return n >= 10000 && n % 10000 === 0 ? `${withCommas(n / 10000)}万` : withCommas(n);
 }
 

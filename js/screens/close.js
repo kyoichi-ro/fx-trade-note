@@ -227,8 +227,7 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
 
   const profitNote = h('p', { class: 'close-note' }, NOTE_AUTO);
   // 自動計算に使う 1lot の通貨数（T-33：U-02。手入力のときは計算に使わないので出さない）
-  const knownAccount = trade.accountType === 'demo' || trade.accountType === 'real'; // 知らない口座の設定キーは読まない（例外になるため）
-  const lotNoteText = closeLotUnitNote(trade.lotUnitSize, knownAccount ? settingsStore.get(`lotUnitSize.${trade.accountType}`) : null);
+  const lotNoteText = closeLotUnitNote(trade.lotUnitSize);
   const lotNote = h('p', { class: 'close-note close-note--lot' }, lotNoteText);
   const profitGroup = listGroup({ header: '損益', className: 'close-profit-group', rows: [autoRow, enterManualRow], footer: [profitNote, lotNote] });
   const announce = (() => {
