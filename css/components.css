@@ -1395,8 +1395,11 @@ body:has(.fab) #toast-area {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-2);
-  /* 上は、× の押せる範囲（サムネイルの上へ 16px はみ出す）が切れないだけの余白 */
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
+}
+/* 入力画面（× があるとき）は、× の押せる範囲（サムネイルの上へ 28px はみ出す）が切れないだけの上の余白 */
+.img-field .img-grid {
+  padding-top: calc(var(--sp-5) + var(--sp-1));
 }
 .img-thumb {
   position: relative;
@@ -1442,25 +1445,30 @@ body:has(.fab) #toast-area {
 .img-thumb__broken {
   padding-top: 22px;
 }
-/* × ：見た目は 20px の濃い丸（サムネイルの右上の内側）、押せる範囲は 44px。
+/* × ：見た目は 20px の濃い丸（サムネイルの右上の角に重ねる）、押せる範囲は 44×44px。
    サムネイルは幅が 70px ほどしかなく、44px の押せる範囲を内側に置くと、サムネイルの真ん中（拡大するために押す場所）まで覆ってしまう。
-   そこで押せる範囲を上だけ外側（グループの余白）へ 16px はみ出させ、サムネイルの内側に入るのは右上の 44×28px だけにする。
-   横は外へはみ出させない（T-33 U-14：以前は右へも 16px はみ出し、隣のサムネイルの左端 8px に重なっていた。
-   今は × の押せる範囲の右端＝サムネイルの右端で、隣との間はサムネイルの間隔 8px がそのまま空く）。
+   ・横は外へはみ出させない（T-33 U-14：右へはみ出すと隣のサムネイルに重なった。右端＝サムネイルの右端で、隣との間 8px を空ける）
+   ・そのぶん上へ 28px はみ出させ（グループの上の余白）、サムネイルの内側に入るのは上端の 44×16px だけにする
+     （T-33 再確認 RC-03：上へ 16px だけだと内側に 44×28px 入り、拡大しようとして押した指で画像が外れる範囲が広かった。
+      面積で約24% → 約14%）。確認なしで外れる画像なので、拡大のタップを優先した
+   ・丸は角に重ねて置く（中心がサムネイルの右上の角から内側へ 4px）。押せる範囲の中に丸が入るようにするため
+     （丸の右の 6px は隣との間に出るが、そこは何も押せない場所なので誤タップにならない）。
    1行に4枚までなので、下の段のサムネイルに上へはみ出して重なることはない。写真の上でも見える濃い色 */
 .img-thumb__remove {
   position: absolute;
-  top: calc(var(--sp-4) * -1);
+  top: calc((var(--sp-5) + var(--sp-1)) * -1);
   right: 0;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
   width: var(--tap-min);
   height: var(--tap-min);
-  /* 丸の位置は以前と同じ（サムネイルの右上から内側へ 4px） */
-  padding: 20px 0 0 20px;
+  overflow: visible;
+  /* 丸の左上を、押せる範囲の左から 30px・上から 22px に（＝サムネイルの右端から −14px・上端から −6px） */
+  padding: 22px 0 0 30px;
 }
 .img-thumb__remove-mark {
+  flex-shrink: 0; /* 押せる範囲の右端から 6px はみ出して置くので、縮めない */
   display: flex;
   align-items: center;
   justify-content: center;
