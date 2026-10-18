@@ -16,6 +16,9 @@
    ・保存済みの画像を読み込めない（壊れている・見つからない）ときは、その1枚だけ「読み込めません」にする。記録全体は壊さない。
    ・画面を離れるとき・保存したとき・破棄したときは dispose() を呼ぶ：表示用 URL をすべて解放し、処理中の画像は保存せずに捨てる
      （画面が閉じたあとに画像だけが保存されて、孤立画像として残らないように）。
+   ・【T-33：T-30 の R-04】保存の途中は setDisabled(true) で「画像を追加」と × を押せなくする（画面の setSaving から呼ぶ）。
+     保存を押したあとに足した画像が、記録に入らないまま黙って消えるのを防ぐため。あわせて whenIdle() は、待っている間に
+     足された画像も含めて「処理中の枠が0になるまで」待つ。
 
    画面との約束：画面は画像の保存・削除の「結果」を getAddedIds() / getRemovedIds() で受け取って記録・下書きに反映する。
    画像と記録の保存の順序（画像が先）は images.js の冒頭を参照。
@@ -80,6 +83,7 @@ export function imageField({
 }) {
   const pool = createUrlPool();
   let disposed = false;
+  let disabled = false; // 保存の途中（setDisabled）。追加・外すを受け付けない
   let seq = 0;
   let queue = Promise.resolve();
   const text = { error: '', warn: '', overflow: '' };
@@ -103,6 +107,7 @@ export function imageField({
   const addBtn = h('button', {
     type: 'button', class: 'list-row img-add',
     onClick: () => {
+      if (disabled) return;
       onBeforePick();
       input.click();
     },
@@ -133,7 +138,8 @@ export function imageField({
       node = loadingThumb(item.status === 'processing' ? '画像を処理中' : '読み込み中');
     }
     if (canRemove(item)) {
-      node.append(h('button', { type: 'button', class: 'img-thumb__remove', 'aria-label': 'この画像を外す', onClick: () => remove(item) },
+      // 保存の途中は押せないだけにする（× を消すとサムネイルの見た目が変わり、何かが起きたように見えるため）
+      node.append(h('button', { type: 'button', class: 'img-thumb__remove', 'aria-label': 'この画像を外す', disabled, onClick: () => remove(item) },
         h('span', { class: 'img-thumb__remove-mark', 'aria-hidden': 'true' }, icon('close', { size: 'xs' }))));
     }
     return node;
@@ -148,7 +154,7 @@ export function imageField({
     body.replaceChildren(...rows);
     const left = remainingSlots(items.length);
     addLabel.textContent = addRowText(left);
-    addBtn.disabled = left === 0;
+    addBtn.disabled = disabled || left === 0;
     overflowNote.textContent = text.overflow;
     overflowNote.hidden = text.overflow === '';
     removedNote.hidden = !(removableExisting && removed.length > 0);
@@ -288,7 +294,7 @@ export function imageField({
 
   /* ----- 外す ----- */
   async function remove(item) {
-    if (item.busy || disposed) return;
+    if (item.busy || disposed || disabled) return;
     if (item.origin === 'existing') {
       // 保存済みの画像：一覧から外すだけ。物理削除は「変更を保存」のとき（キャンセルなら元に戻る）
       removed.push(item.id);
@@ -336,8 +342,26 @@ export function imageField({
     addedCount: () => addedIdsNow().length,
     /** 追加・外したものがあるか（「変更あり」の判定に加える） */
     isChanged: () => addedIdsNow().length > 0 || removed.length > 0,
-    /** 縮小・保存の処理が終わるのを待つ（処理中に保存を押したときは、終わってから保存する：design 14.1.9） */
-    whenIdle: () => queue.then(() => undefined),
+    /**
+     * 縮小・保存の処理が終わるのを待つ（処理中に保存を押したときは、終わってから保存する：design 14.1.9）。
+     * 待っている間に足された画像（呼んだ時点では queue に入っていない分）も待つよう、処理中の枠が0になるまで繰り返す（R-04）。
+     * 処理中の枠が残っていても、待つ相手（queue）が前と同じなら止める（処理が途中で失敗して枠が残ったときに、待ち続けないため）。
+     */
+    async whenIdle() {
+      let waited = null;
+      while (!disposed && items.some((i) => i.origin === 'processing') && waited !== queue) {
+        waited = queue;
+        await waited;
+      }
+    },
+    /**
+     * 保存の途中は「画像を追加」と × を押せなくする（R-04）。保存に失敗して入力に戻るときは false で戻す。
+     * @param {boolean} on
+     */
+    setDisabled(on) {
+      disabled = Boolean(on);
+      render();
+    },
     /** 最初の読み込みが終わるのを待つ（テスト用） */
     ready,
     /**

@@ -635,6 +635,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     setBusy(saveBtn, on);
     topSave.disabled = on;
     cancelBtn.disabled = on; // 保存の途中で破棄の確認が出て、保存と破棄が重ならないように
+    // 保存の途中に画像を足す・外すと、記録に入らない・外したつもりが残る、が起きるので押せなくする（T-30 の R-04）
+    images.setDisabled(on);
     if (!on) renderValues(evaluate());
   }
 

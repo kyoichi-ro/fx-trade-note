@@ -30,10 +30,11 @@ console.log('\n----------------------------------------');
 console.log(`全${total}件中${passed}件合格${failed ? `（不合格 ${failed}件）` : ''}`);
 if (skipped) {
   // スキップの理由ごとに分けて出す（T-33：git が使えないときの RL-06 が加わった）
-  const storage = results.filter((r) => r.skipped && (r.skipReason === 'indexedDB' || r.skipReason === 'localStorage')).length;
-  const others = results.filter((r) => r.skipped && r.skipReason !== 'indexedDB' && r.skipReason !== 'localStorage');
+  const BROWSER_ONLY = ['indexedDB', 'localStorage', 'dom'];
+  const storage = results.filter((r) => r.skipped && BROWSER_ONLY.includes(r.skipReason)).length;
+  const others = results.filter((r) => r.skipped && !BROWSER_ONLY.includes(r.skipReason));
   if (storage) {
-    console.log(`※ 保存処理・設定の保存のテスト ${storage}件は、IndexedDB・localStorage が Node.js で使えないためスキップしました。`
+    console.log(`※ 保存処理・設定の保存・画面の部品のテスト ${storage}件は、IndexedDB・localStorage・document が Node.js で使えないためスキップしました。`
       + 'ブラウザで http://localhost:8000/tests/ を開いて実行してください。');
   }
   for (const r of others) console.log(`※ ${r.category} ${r.id} は${r.actual}`);

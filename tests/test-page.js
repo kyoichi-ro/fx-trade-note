@@ -48,6 +48,8 @@ const CATEGORY_INFO = {
   '選択肢の編集': 'design 14.6.3・14.6.4、fx-rules 10.4、architecture 7.1（CH＝choice-list.js・master.js の初期値・settings-store.js）。'
     + '名前のチェック（空白だけ・20文字以内・同じ名前）・追加/削除/並び替え・通貨ペアの追加（E-12〜E-16・W-07）・最後の1つは削除できない・'
     + '「通貨ペアを追加」シートの絞り込み・初期値が master.js にあること・壊れた値の補い方・保存の読み直し・削除した選択肢を持つ記録の表示',
+  '画面の部品': 'T-33（UI）。部品を実際に作って確かめる（document を使うためブラウザでのみ実行）。保存中の「画像を追加」と × の無効化・'
+    + '待っている間に足した画像も待つ whenIdle（T-30 の R-04）など',
 };
 
 function renderSummary(el, { total, passed, failed }) {
@@ -112,9 +114,10 @@ function renderEnv(el, { results, leftover, leftoverSettings }) {
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { /* 表示用なので無視 */ }
   const notes = [];
   // スキップの理由ごとに分けて出す（T-33：git を使う RL-06 はブラウザでは必ずスキップになる）
-  const storage = results.filter((r) => r.skipped && (r.skipReason === 'indexedDB' || r.skipReason === 'localStorage')).length;
-  if (storage) notes.push(`保存処理・設定の保存のテスト ${storage}件は、このブラウザで IndexedDB・localStorage が使えないためスキップしました`);
-  for (const r of results.filter((x) => x.skipped && x.skipReason !== 'indexedDB' && x.skipReason !== 'localStorage')) {
+  const BROWSER_ONLY = ['indexedDB', 'localStorage', 'dom'];
+  const storage = results.filter((r) => r.skipped && BROWSER_ONLY.includes(r.skipReason)).length;
+  if (storage) notes.push(`保存処理・設定の保存・画面の部品のテスト ${storage}件は、このブラウザで IndexedDB・localStorage・document が使えないためスキップしました`);
+  for (const r of results.filter((x) => x.skipped && !BROWSER_ONLY.includes(x.skipReason))) {
     notes.push(`${r.category} ${r.id} は${r.actual}`);
   }
   // 後片付けの結果（各テストは自分の DB を消すので、通常は 0）。databases() がないブラウザでは調べられない

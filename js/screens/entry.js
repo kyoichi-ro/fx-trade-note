@@ -478,6 +478,8 @@ function buildScreen(root, nav, draft) {
     saving = on;
     setBusy(saveBtn, on);
     topSave.disabled = on;
+    // 保存の途中に画像を足す・外すと、記録に入らないまま消えることがあるので押せなくする（T-30 の R-04）
+    images.setDisabled(on);
     if (!on) renderAccount();
   }
 
