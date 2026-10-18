@@ -497,6 +497,24 @@ export function collectCloseFormTests() {
         ]);
       }),
 
+    t('CL-28', '極端な値でも決済画面の計算が例外で止まらない（T-33 R-01）', 'エントリー価格 1e306 の保有中の記録で決済価格 151／決済価格 1000000',
+      '例外なし・pips と損益は null／決済価格 1000000 は E-17「決済価格：1,000,000未満の値で入力してください」',
+      () => {
+        let a;
+        let b;
+        try {
+          a = evaluateClose(openTrade({ entryPrice: 1e306 }), { ...defaultCloseFields(openTrade(), '2026-10-15T23:00'), exitPrice: '151' }, { now: NOW });
+          b = evaluateClose(openTrade(), { ...defaultCloseFields(openTrade(), '2026-10-15T23:00'), exitPrice: '1000000' }, { now: NOW });
+        } catch (e) {
+          return { actual: `例外：${e.message}`, pass: false };
+        }
+        const e17 = b.issues.find((i) => i.field === 'exitPrice');
+        return verdict([
+          ['pips・損益は null', a.pips === null && a.profitJpy === null, `${a.pips}/${a.profitJpy}`],
+          ['E-17 の文', e17 && e17.text === '決済価格：1,000,000未満の値で入力してください', e17 && e17.text],
+        ]);
+      }),
+
     t('FL-01', '一覧に戻った直後のハイライトの受け渡し：預けた記録を 1 度だけ渡す', "requestRowFlash('a') → take／もう一度 take",
       "'a'／null",
       () => {

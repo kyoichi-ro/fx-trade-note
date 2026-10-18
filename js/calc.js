@@ -35,6 +35,11 @@
    ・損益は整数どうしを掛けて、最後に1回だけ割って四捨五入する（途中で丸めると 0.5円ちょうどで1円ずれる）
    ・損益の掛け算は BigInt（大きな数量だと通常の数値で正確に扱える上限 約9×10^15 を超えるため）
    ・「四捨五入」はすべて「0から遠い方へ」（Math.round(-1.5) は -1 になるのでマイナスに使わない）
+
+   【極端な値（T-33：T-30 の R-01）】
+   ・入力は validate.js が上限（価格 1,000,000 未満・ロット 10,000 以下）で止めるが、上限を入れる前に保存された記録や壊れた記録でも
+     画面を止めないよう、ポイント・ロット×100・1lot の通貨数・円換算レート×1000 が「安全な整数」（約 9×10^15 まで）でないときは、
+     例外にせず「計算できない」（pips・損益は null、RR は null）を返す。BigInt(Infinity) は例外になり、決済・編集の画面の再描画が止まったため
    ========================================================= */
 import { getPairSpec } from './master.js';
 
@@ -73,6 +78,8 @@ export function calcPips(t) {
   if ([t.pair, t.side, t.entryPrice, t.exitPrice].some(isBlank)) return { diffPoints: null, pips: null };
   const e = toPoints(t.entryPrice, t.pair);
   const x = toPoints(t.exitPrice, t.pair);
+  // 極端な価格（1e17 など）は差が無意味な値になるので、計算できないとする（R-01）
+  if (!Number.isSafeInteger(e) || !Number.isSafeInteger(x)) return { diffPoints: null, pips: null };
   // 買いは「後で売る」ので上がれば利益、売りは「後で買い戻す」ので下がれば利益（fx-rules 3.2）
   const diffPoints = t.side === 'buy' ? x - e : e - x;
   // 整数 ÷ 10 なので、結果は必ず小数第1位までのきれいな値になる（丸め不要）。
@@ -125,6 +132,8 @@ export function calcProfitJpy(t) {
   if (diffPoints == null || isBlank(t.lots) || isBlank(t.lotUnitSize)) return null;
   const spec = getPairSpec(t.pair);
   const lotsX100 = toLotsX100(t.lots);
+  // BigInt に渡す値が安全な整数でなければ（巨大・Infinity・小数の 1lot）、例外にせず「計算できない」とする（R-01）
+  if (!Number.isSafeInteger(lotsX100) || !Number.isSafeInteger(t.lotUnitSize)) return null;
   // 掛け算は BigInt で行う（C-16 のように途中の値が約1.5×10^18 になり、通常の数値では端数が狂うため）
   let num = BigInt(diffPoints) * BigInt(lotsX100) * BigInt(t.lotUnitSize);
   // 参照実装では JPYペア 1000n × 100n、非JPYペア 100000n × 100n × 1000n と書かれている。
@@ -135,10 +144,14 @@ export function calcProfitJpy(t) {
     // 空欄は「損益を手入力する」意味なので自動計算しない（E-11）
     if (t.quoteToJpyRate == null) return null;
     // 円換算レートは小数第3位まで（E-08）なので ×1000 で正確な整数になる
-    num *= BigInt(Math.round(t.quoteToJpyRate * 1000));
+    const rateX1000 = Math.round(t.quoteToJpyRate * 1000);
+    if (!Number.isSafeInteger(rateX1000)) return null;
+    num *= BigInt(rateX1000);
     den *= 1000n;
   }
-  return divRoundHalfAwayFromZero(num, den);
+  const yen = divRoundHalfAwayFromZero(num, den);
+  // 結果が安全な整数を超える（保存・集計で端数が狂う）ときも「計算できない」とする（R-01）
+  return Number.isSafeInteger(yen) ? yen : null;
 }
 
 /**
@@ -150,6 +163,8 @@ function slTpPoints(t) {
   const e = toPoints(t.entryPrice, t.pair);
   const sl = toPoints(t.slPrice, t.pair);
   const tp = toPoints(t.tpPrice, t.pair);
+  // 極端な価格は幅が無意味な値になるので、計算できないとする（呼び出し側は null を「—」として扱う：R-01）
+  if (![e, sl, tp].every(Number.isSafeInteger)) return null;
   return {
     risk: t.side === 'buy' ? e - sl : sl - e,
     reward: t.side === 'buy' ? tp - e : e - tp,
@@ -170,7 +185,9 @@ export function calcRiskReward(t) {
   // 必要な値が空なら RR も W-01 も判断できないので、何も出さない（fx-rules 5.3）。
   // 空のまま toPoints に渡すと、通貨ペアが空で例外、エントリー価格が undefined で NaN、null で 0 扱いになってしまう
   if ([t.pair, t.side, t.entryPrice, t.slPrice, t.tpPrice].some(isBlank)) return { rr: null, warn: [] };
-  const { risk, reward } = slTpPoints(t);
+  const points = slTpPoints(t);
+  if (!points) return { rr: null, warn: [] };
+  const { risk, reward } = points;
   const warn = [];
   if (risk <= 0) warn.push('SL');
   if (reward <= 0) warn.push('TP');
@@ -192,7 +209,9 @@ export function calcRiskReward(t) {
 export function calcSlTpPips(t) {
   const none = { riskPips: null, rewardPips: null };
   if ([t.pair, t.side, t.entryPrice, t.slPrice, t.tpPrice].some(isBlank)) return none;
-  const { risk, reward } = slTpPoints(t);
+  const points = slTpPoints(t);
+  if (!points) return none;
+  const { risk, reward } = points;
   if (risk <= 0 || reward <= 0) return none;
   return { riskPips: risk / 10, rewardPips: reward / 10 };
 }

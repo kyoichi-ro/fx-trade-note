@@ -13,6 +13,7 @@
    ========================================================= */
 import {
   toJstString, nowJst, parseJst, toInputValue, fromInputValue, nowInputValue, diffMinutes, isWithinMinutes, jstParts,
+  INPUT_YEAR_MIN, INPUT_YEAR_MAX,
 } from '../js/datetime.js';
 import { show } from './helpers.js';
 
@@ -198,6 +199,25 @@ export function collectDatetimeTests() {
           ['1つ目', a && a.year === 2026 && a.month === 10 && a.day === 15 && a.hour === 21 && a.minute === 30 && a.second === 5 && a.weekday === 4, JSON.stringify(a)],
           ['2つ目', b && b.month === 10 && b.day === 18 && b.hour === 0 && b.minute === 0 && b.weekday === 0, JSON.stringify(b)],
           ['読めない値', jstParts('') === null, jstParts('')],
+        ]);
+      }),
+
+    t('DT-16', '入力欄の年は 2000〜2099 年だけ受け付ける・保存形式の年はいつも4桁（T-33：T-30 の R-09）',
+      "fromInputValue('0500-01-01T10:00' / '1999-12-31T23:59' / '2000-01-01T00:00' / '2099-12-31T23:59' / '2100-01-01T00:00')／toJstString(500年)",
+      'null／null／受け付ける／受け付ける／null／年が4桁の25文字',
+      () => {
+        const y500 = new Date(Date.UTC(2000, 0, 1, 1));
+        y500.setUTCFullYear(500);
+        const s500 = toJstString(y500);
+        return verdict([
+          ['0500年は null', fromInputValue('0500-01-01T10:00') === null, fromInputValue('0500-01-01T10:00')],
+          ['1999年は null', fromInputValue('1999-12-31T23:59') === null, fromInputValue('1999-12-31T23:59')],
+          ['2000年は受け付ける', fromInputValue('2000-01-01T00:00') === '2000-01-01T00:00:00+09:00', fromInputValue('2000-01-01T00:00')],
+          ['2099年は受け付ける', fromInputValue('2099-12-31T23:59') === '2099-12-31T23:59:00+09:00', fromInputValue('2099-12-31T23:59')],
+          ['2100年は null', fromInputValue('2100-01-01T00:00') === null, fromInputValue('2100-01-01T00:00')],
+          ['範囲の値', INPUT_YEAR_MIN === 2000 && INPUT_YEAR_MAX === 2099, `${INPUT_YEAR_MIN}〜${INPUT_YEAR_MAX}`],
+          ['500年の保存形式は4桁・25文字', s500 === '0500-01-01T10:00:00+09:00' && s500.length === 25, s500],
+          ['保存済みの日時は年の範囲で読めなくしない', parseJst('1999-12-31T23:59:00+09:00') !== null, 'null'],
         ]);
       }),
   ];

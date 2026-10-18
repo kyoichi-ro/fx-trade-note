@@ -25,6 +25,7 @@ import { fromInputValue } from './datetime.js';
 import { getPairSpec, EXIT_REASON_LABELS } from './master.js';
 import { formatYen, formatPips, formatShortDateTime, toneOf, toTenths, speakYen, speakPips, formatLotUnitWords } from './format.js';
 import { computeClose } from './trades.js';
+import { PRICE_LIMIT_TEXT } from './entry-form.js';
 
 /** 決済理由の保存値の並び（design 14.2.3：TP到達・SL到達・裁量決済・建値決済・その他） */
 export const EXIT_REASONS = Object.freeze(Object.keys(EXIT_REASON_LABELS));
@@ -211,6 +212,7 @@ const EXIT_PRICE_ERRORS = {
   'E-02': `${EXIT_PRICE_LABEL}：0より大きい値を入力してください`,
   'E-03': `${EXIT_PRICE_LABEL}：価格は小数第3位までで入力してください`,
   'E-04': `${EXIT_PRICE_LABEL}：価格は小数第5位までで入力してください`,
+  'E-17': `${EXIT_PRICE_LABEL}：${PRICE_LIMIT_TEXT}`, // 1,000,000 以上（T-33 R-01）
 };
 
 /** 文言の置き場（design 14.2.9。画面は issues の text をそのまま出す） */

@@ -78,8 +78,18 @@ function toNumberOrNull(text) {
    --------------------------------------------------------- */
 
 /**
- * 価格（エントリー・決済・SL・TP）を読み取る。E-01〜E-04。
- * チェックの順：数値として読めない（E-01）→ 0以下（E-02）→ 小数桁が上限を超える（JPY E-03／非JPY E-04）。
+ * 価格の上限（これ以上はエラー E-17。T-33：T-30 の R-01）。FX の通貨ペアの価格は大きくても数万程度なので、
+ * 1,000,000 未満なら現実の価格を止めることはない。上限がないと、桁を貼り間違えた巨大な値（1e306 など）が
+ * 保存されて、決済・編集の画面の計算が例外で止まったり、無意味な pips になったりしたため。
+ */
+export const PRICE_MAX_EXCLUSIVE = 1_000_000;
+
+/** ロットの上限（これを超えるとエラー E-18。T-33：R-01）。個人の取引で 10,000 lot を超えることはない */
+export const LOTS_MAX = 10_000;
+
+/**
+ * 価格（エントリー・決済・SL・TP）を読み取る。E-01〜E-04・E-17。
+ * チェックの順：数値として読めない（E-01）→ 0以下（E-02）→ 1,000,000 以上（E-17）→ 小数桁が上限を超える（JPY E-03／非JPY E-04）。
  * 桁の上限は通貨ペアマスタの maxInputDecimals（JPYペア 3、非JPYペア 5）。
  * @param {string} input 入力欄の文字
  * @param {string} pair 'USD/JPY' の形
@@ -90,13 +100,14 @@ export function parsePrice(input, pair) {
   const value = toNumberOrNull(text);
   if (value === null) return { ok: false, error: 'E-01' };
   if (value <= 0) return { ok: false, error: 'E-02' };
+  if (value >= PRICE_MAX_EXCLUSIVE) return { ok: false, error: 'E-17' };
   const spec = getPairSpec(pair);
   if (countDecimals(text) > spec.maxInputDecimals) return { ok: false, error: spec.isJpyPair ? 'E-03' : 'E-04' };
   return { ok: true, value };
 }
 
 /**
- * ロットを読み取る。E-05（数値でない／0以下）、E-06（小数第3位以下まである）。
+ * ロットを読み取る。E-05（数値でない／0以下）、E-18（10,000 を超える：T-33 R-01）、E-06（小数第3位以下まである）。
  * ロットの最小単位は業者により異なるため「小数第2位まで」とだけ制限する（fx-rules 8.2）。
  */
 export function parseLots(input) {
@@ -104,6 +115,7 @@ export function parseLots(input) {
   if (text === '') return { ok: true, value: null, empty: true };
   const value = toNumberOrNull(text);
   if (value === null || value <= 0) return { ok: false, error: 'E-05' };
+  if (value > LOTS_MAX) return { ok: false, error: 'E-18' };
   if (countDecimals(text) > 2) return { ok: false, error: 'E-06' };
   return { ok: true, value };
 }
@@ -205,7 +217,10 @@ export function isFarFromEntry(entryPrice, slOrTpPrice, pair) {
  * 大きな値でも桁あふれしないよう BigInt で掛ける。
  */
 export function isLargeQuantity(lots, lotUnitSize) {
-  return BigInt(toLotsX100(lots)) * BigInt(lotUnitSize) > 10_000_000n * 100n;
+  const lotsX100 = toLotsX100(lots);
+  // 安全な整数でない（巨大・Infinity）ときは BigInt が例外を出すので、計算せずに「大きすぎる」とする（T-33 R-01：画面を止めない）
+  if (!Number.isSafeInteger(lotsX100) || !Number.isSafeInteger(lotUnitSize)) return true;
+  return BigInt(lotsX100) * BigInt(lotUnitSize) > 10_000_000n * 100n;
 }
 
 /**

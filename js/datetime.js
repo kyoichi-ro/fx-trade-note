@@ -28,6 +28,14 @@ const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 /** 2桁にそろえる（5 → '05'） */
 const pad2 = (n) => String(n).padStart(2, '0');
 
+/**
+ * 入力欄から受け付ける年の範囲（T-33：T-30 の R-09）。トレードの記録に使う日時なので 2000〜2099 年に限る。
+ * 以前は「0500年」のような打ち間違いがそのまま保存され、保存形式（25文字固定）が崩れて、並び順や日時の読み取りが壊れたため。
+ * 範囲外は「日時を入力してください」（fromInputValue が null）。保存済みの日時を読む parseJst には当てない（読めなくなるのを避ける）。
+ */
+export const INPUT_YEAR_MIN = 2000;
+export const INPUT_YEAR_MAX = 2099;
+
 /** 保存形式（25文字固定）。ほかの書き方（Z・+0900・ミリ秒付き）は受け付けない（並び順の約束を守るため） */
 const JST_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\+09:00$/;
 
@@ -61,7 +69,8 @@ export function toJstString(date) {
   const t = date.getTime();
   if (!Number.isFinite(t)) throw new RangeError('toJstString(): 正しくない日時です');
   const j = new Date(t + JST_OFFSET_MS);
-  return `${j.getUTCFullYear()}-${pad2(j.getUTCMonth() + 1)}-${pad2(j.getUTCDate())}`
+  // 年も4桁にそろえる（999年以前で桁が減り、25文字固定の約束が崩れないように：R-09）
+  return `${String(j.getUTCFullYear()).padStart(4, '0')}-${pad2(j.getUTCMonth() + 1)}-${pad2(j.getUTCDate())}`
     + `T${pad2(j.getUTCHours())}:${pad2(j.getUTCMinutes())}:${pad2(j.getUTCSeconds())}+09:00`;
 }
 
@@ -104,7 +113,8 @@ export function toInputValue(value) {
 
 /**
  * datetime-local 入力欄の値を、日本時間として保存形式にする（architecture 6.6：入力欄に見えている時刻＝保存される日本時間）。
- * 秒がなければ ':00' を付ける。空欄・形が違う・存在しない日時（2月30日など）は null（画面は「日時を入力してください」）。
+ * 秒がなければ ':00' を付ける。空欄・形が違う・存在しない日時（2月30日など）・2000〜2099 年の外（R-09）は null
+ * （画面は「日時を入力してください」）。
  * @param {string} text 例 '2026-10-15T21:30'
  * @returns {string|null} 例 '2026-10-15T21:30:00+09:00'
  */
@@ -113,6 +123,7 @@ export function fromInputValue(text) {
   const m = INPUT_PATTERN.exec(text.trim());
   if (!m) return null;
   const [y, mo, d, hh, mi] = m.slice(1, 6).map(Number);
+  if (y < INPUT_YEAR_MIN || y > INPUT_YEAR_MAX) return null;
   const ss = m[6] === undefined ? 0 : Number(m[6]);
   const date = dateFromJstFields(y, mo, d, hh, mi, ss);
   return date ? toJstString(date) : null;

@@ -57,16 +57,27 @@ function cleanStrings(v) {
 /** 価格の欄の名前（E-01〜E-04・W-06 の文の先頭に付ける：design 14.1.8） */
 export const PRICE_LABEL = 'エントリー価格';
 
+/** E-17（価格が 1,000,000 以上：T-33 R-01）の文の後半。決済画面（close-form.js）も同じ文を使う */
+export const PRICE_LIMIT_TEXT = '1,000,000未満の値で入力してください';
+
 const PRICE_ERRORS = {
   'E-01': `${PRICE_LABEL}：数値で入力してください`,
   'E-02': `${PRICE_LABEL}：0より大きい値を入力してください`,
   'E-03': `${PRICE_LABEL}：価格は小数第3位までで入力してください`,
   'E-04': `${PRICE_LABEL}：価格は小数第5位までで入力してください`,
+  'E-17': `${PRICE_LABEL}：${PRICE_LIMIT_TEXT}`,
 };
 const LOTS_ERRORS = {
   'E-05': 'ロット：0より大きい値を入力してください',
   'E-06': 'ロット：ロットは小数第2位までで入力してください',
+  'E-18': 'ロット：10,000以下で入力してください',
 };
+
+/**
+ * 通貨ペアを選ぶ前でも出してよい価格のエラー（桁数 E-03・E-04 は通貨ペアで決まるので、選んでから出す）。
+ * E-17（1,000,000 以上：T-33 R-01）は通貨ペアに関係しない
+ */
+const PAIR_FREE_PRICE_ERRORS = ['E-01', 'E-02', 'E-17'];
 
 /**
  * ロット欄の見本（T-33：U-01）。前回値がないとき（その口座で初めての記録）だけ見える。
@@ -121,7 +132,7 @@ export function checkRequiredFields(f, { lotUnitSize = null } = {}) {
   // （桁の上限が大きい非JPYペアの規則で読み、E-01・E-02 だけを使う。桁数は通貨ペアを選んだ時点でその場で再チェックする）
   const price = parsePrice(f.entryPrice, f.pair || 'EUR/USD');
   if (price.empty) err('entryPrice', 'エントリー価格を入力してください');
-  else if (!price.ok && (f.pair || price.error === 'E-01' || price.error === 'E-02')) err('entryPrice', PRICE_ERRORS[price.error]);
+  else if (!price.ok && (f.pair || PAIR_FREE_PRICE_ERRORS.includes(price.error))) err('entryPrice', PRICE_ERRORS[price.error]);
   else if (price.ok && f.pair && isOutOfPriceRange(price.value, f.pair)) {
     warn('entryPrice', `${PRICE_LABEL}：${f.pair} の価格としては大きく外れています。通貨ペアと桁を確認してください。`);
   }
@@ -261,6 +272,7 @@ const LEVEL_ERRORS = (label) => ({
   'E-02': `${label}：0より大きい値を入力してください`,
   'E-03': `${label}：価格は小数第3位までで入力してください`,
   'E-04': `${label}：価格は小数第5位までで入力してください`,
+  'E-17': `${label}：${PRICE_LIMIT_TEXT}`,
 });
 
 /** W-01 の文言（design 14.1.8）。SL は「建値へ動かした」場合を添え、TP は確認を促す */
@@ -327,7 +339,7 @@ export function evaluateLevels(f) {
     ['slPrice', SL_LABEL, 'SL', sl, slPrice], ['tpPrice', TP_LABEL, 'TP', tp, tpPrice],
   ]) {
     // 桁数の上限は通貨ペアを選んでからでないと決められない（選んだ時点でその場で再チェックする：design 14.1.8）
-    if (!r.ok && (pair || r.error === 'E-01' || r.error === 'E-02')) issues.push({ field, type: 'error', text: LEVEL_ERRORS(label)[r.error] });
+    if (!r.ok && (pair || PAIR_FREE_PRICE_ERRORS.includes(r.error))) issues.push({ field, type: 'error', text: LEVEL_ERRORS(label)[r.error] });
     if (warn.includes(kind)) issues.push({ field, type: 'warning', text: W01_TEXT[side][kind] });
     // W-03・W-06 は通貨ペアごとの桁・価格帯で見るので、通貨ペアを選んでから
     if (pair && value != null && entryPrice != null && isFarFromEntry(entryPrice, value, pair)) {

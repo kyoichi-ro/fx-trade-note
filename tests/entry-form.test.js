@@ -6,7 +6,8 @@
      ・js/calc.js の calcSlTpPips … 損切り幅・利確幅（pips）。fx-rules 9.2 の列は tests/calc.test.js（R-01〜R-09）で確かめる。ここは境界・空の値
      ・js/trades.js の recompute … 任意項目から riskReward・session を決め直す（SL/TP が空なら RR を保存しない）
      ・js/choice-list.js の planTagAdd … 入力画面の「＋追加」でタグを足すときの判断（名前のチェックは T-16 と共通）
-     ・T-33：ロット欄の見本が数字でないこと（U-01）、記録0件のときの「1lot＝1万通貨で計算します」の文（U-02）
+     ・T-33：ロット欄の見本が数字でないこと（U-01）、記録0件のときの「1lot＝1万通貨で計算します」の文（U-02）、
+       価格・ロットの上限のエラー文（R-01：E-17・E-18）、2000〜2099 年の外の日時（R-09）
    画面（document）も IndexedDB も localStorage も使わないので、Node.js でもブラウザでも実行する。
    「＋追加」の設定への保存・チップの増減は画面の部品（ui/tag-picker.js）なので、ブラウザで目で確かめる。
 
@@ -15,7 +16,7 @@
 import {
   autoSession, nextSession, sessionNote, defaultOptionalFields, cloneFields, fieldsFromEntryDraft, isEntryChanged,
   entryDetailsSummary, ENTRY_DETAILS_LIST, evaluateLevels, visibleIssues, buildOptionalInput, RR_HINT, TIMEFRAMES, SESSIONS,
-  LOTS_PLACEHOLDER, lotUnitHint,
+  LOTS_PLACEHOLDER, lotUnitHint, checkRequiredFields,
 } from '../js/entry-form.js';
 import { calcSlTpPips } from '../js/calc.js';
 import { recompute, normalizeTrade } from '../js/trades.js';
@@ -494,6 +495,32 @@ export function collectEntryFormTests() {
           ['未選択・値が違う', both === '1lot＝本番1万・デモ10万通貨で計算します（設定で変更）', both],
           ['未選択・値が同じ', same === '1lot＝1万通貨で計算します（設定で変更）', same],
           ['値が読めない', broken === '', broken],
+        ]);
+      }),
+
+    t('EF-39', '価格・ロット・SL の上限のエラー文（T-33 R-01）：価格は通貨ペアを選ぶ前でも出す', "エントリー価格 '1000000'（通貨ペア未選択）・ロット '20000'・SL '5000000'",
+      "'エントリー価格：1,000,000未満の値で入力してください'・'ロット：10,000以下で入力してください'・'SL（損切り）：1,000,000未満の値で入力してください'",
+      () => {
+        const f = { accountType: 'real', pair: '', side: 'buy', entryPrice: '1000000', lots: '20000', entryAt: '2026-10-15T21:30', ...defaultOptionalFields('2026-10-15T21:30'), slPrice: '5000000' };
+        const issues = checkRequiredFields(f);
+        const text = (field) => (issues.find((i) => i.field === field) || {}).text;
+        const sl = evaluateLevels({ ...f, pair: 'USD/JPY', entryPrice: '150' }).issues.find((i) => i.field === 'slPrice');
+        return verdict([
+          ['価格', text('entryPrice') === 'エントリー価格：1,000,000未満の値で入力してください', text('entryPrice')],
+          ['ロット', text('lots') === 'ロット：10,000以下で入力してください', text('lots')],
+          ['SL', sl && sl.text === 'SL（損切り）：1,000,000未満の値で入力してください', sl && sl.text],
+        ]);
+      }),
+
+    t('EF-40', '2000〜2099 年の外の日時は「日時を入力してください」（T-33 R-09）', "entryAt '0500-01-01T10:00'／'2100-01-01T00:00'",
+      'どちらもエラー「日時を入力してください」',
+      () => {
+        const base = { accountType: 'real', pair: 'USD/JPY', side: 'buy', entryPrice: '150', lots: '0.1' };
+        const a = checkRequiredFields({ ...base, entryAt: '0500-01-01T10:00' }).find((i) => i.field === 'entryAt');
+        const b = checkRequiredFields({ ...base, entryAt: '2100-01-01T00:00' }).find((i) => i.field === 'entryAt');
+        return verdict([
+          ['0500年', a && a.text === '日時を入力してください', a && a.text],
+          ['2100年', b && b.text === '日時を入力してください', b && b.text],
         ]);
       }),
   ];
