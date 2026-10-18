@@ -120,3 +120,4 @@
   margin-top: var(--sp-5);
   word-break: break-all;
 }
+.t-table tr.is-skip td { color: var(--color-text-sub); }

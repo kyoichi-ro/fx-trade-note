@@ -67,8 +67,10 @@ function renderTables(el, results, onlyFailed) {
   clear(el);
   const categories = [...new Set(results.map((r) => r.category))];
   for (const cat of categories) {
-    const rows = results.filter((r) => r.category === cat);
-    const shown = onlyFailed ? rows.filter((r) => !r.pass) : rows;
+    const all = results.filter((r) => r.category === cat);
+    // スキップした行（ブラウザでは確かめられない RL-06 など：T-33）は件数に入れず、「－」で表に残す
+    const rows = all.filter((r) => !r.skipped);
+    const shown = onlyFailed ? rows.filter((r) => !r.pass) : all;
     const passed = rows.filter((r) => r.pass).length;
 
     const section = h('section', { class: 't-group' },
@@ -90,8 +92,9 @@ function renderTables(el, results, onlyFailed) {
             h('th', { scope: 'col' }, '入力'),
             h('th', { scope: 'col' }, '期待値'),
             h('th', { scope: 'col' }, '実際の値'))),
-          h('tbody', {}, shown.map((r) => h('tr', { class: r.pass ? 'is-pass' : 'is-fail' },
-            h('td', { class: 't-mark' }, r.pass ? '○' : '×', h('span', { class: 'visually-hidden' }, r.pass ? '合格' : '不合格')),
+          h('tbody', {}, shown.map((r) => h('tr', { class: r.skipped ? 'is-skip' : r.pass ? 'is-pass' : 'is-fail' },
+            h('td', { class: 't-mark' }, r.skipped ? '－' : r.pass ? '○' : '×',
+              h('span', { class: 'visually-hidden' }, r.skipped ? 'スキップ' : r.pass ? '合格' : '不合格')),
             // 分類名を付けて表示する（例「セッション S-01」：architecture 13.2）
             h('td', { class: 't-id' }, `${cat} ${r.id}`),
             h('td', {}, r.title),
@@ -104,11 +107,16 @@ function renderTables(el, results, onlyFailed) {
   }
 }
 
-function renderEnv(el, { skipped, leftover, leftoverSettings }) {
+function renderEnv(el, { results, leftover, leftoverSettings }) {
   let tz = '不明';
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { /* 表示用なので無視 */ }
   const notes = [];
-  if (skipped) notes.push(`保存処理・設定の保存のテスト ${skipped}件は、このブラウザで IndexedDB・localStorage が使えないためスキップしました`);
+  // スキップの理由ごとに分けて出す（T-33：git を使う RL-06 はブラウザでは必ずスキップになる）
+  const storage = results.filter((r) => r.skipped && (r.skipReason === 'indexedDB' || r.skipReason === 'localStorage')).length;
+  if (storage) notes.push(`保存処理・設定の保存のテスト ${storage}件は、このブラウザで IndexedDB・localStorage が使えないためスキップしました`);
+  for (const r of results.filter((x) => x.skipped && x.skipReason !== 'indexedDB' && x.skipReason !== 'localStorage')) {
+    notes.push(`${r.category} ${r.id} は${r.actual}`);
+  }
   // 後片付けの結果（各テストは自分の DB を消すので、通常は 0）。databases() がないブラウザでは調べられない
   if (leftover === null) notes.push('残ったテスト用 DB の確認：このブラウザでは調べられません');
   else notes.push(`残っていたテスト用 DB：${leftover}件（削除済み）`);
@@ -134,7 +142,7 @@ async function main() {
   renderSummary(document.getElementById('summary'), summary);
   renderTables(resultsEl, summary.results, onlyFailed.checked);
   onlyFailed.addEventListener('change', () => renderTables(resultsEl, summary.results, onlyFailed.checked));
-  renderEnv(document.getElementById('env'), { skipped: summary.skipped, leftover, leftoverSettings });
+  renderEnv(document.getElementById('env'), { results: summary.results, leftover, leftoverSettings });
   // 集計をタブ名にも出す（スマホでタブを切り替えても結果が分かるように）
   document.title = `${summary.failed === 0 ? '○' : '×'} ${summary.passed}/${summary.total} テスト - FXトレードノート`;
 }

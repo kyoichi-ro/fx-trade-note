@@ -9,6 +9,17 @@
    ・RL-04 index.html・manifest.json・CSS・JS（import と画面の遅延読み込み import()）からたどれるファイルが、全部一覧にあるか
    ・RL-05 css/・js/・icons/ の全ファイルが一覧にあるか（Node.js ではフォルダの中身と突き合わせる。
            ブラウザはフォルダの中身を読めないので RL-04 と同じ「たどり」で確かめる）
+   ・RL-06 バージョンの上げ忘れ（T-33：T-31 の S-02）：「最後に公開した状態」と比べて、アプリのファイル（SHELL_FILES の全ファイルと
+           sw.js）の中身が1つでも変わっているのに APP_VERSION が同じなら不合格。Service Worker は sw.js の中身が変わったときだけ
+           新しい版を入れるので、上げ忘れると直した版がスマホに届かない（キャッシュ優先のため、開き直しても古いまま）。
+           比べる相手（基準）は次の順に決める：
+             ① 今のブランチの追跡先（@{upstream}。ふだんは origin/main）＝ GitHub に push した最後の状態＝公開中の版。
+                公開前に何回コミットしても、公開中の版と APP_VERSION が違っていれば合格（版を上げたあとの手直しも同じ版に含めてよい）
+             ② 追跡先がないとき（push したことがない・別の場所へ複製した）：js/config.js の APP_VERSION の行を最後に変えたコミット。
+                「版を上げたあと、さらにファイルを直したのに上げていない」を見つける
+           比べるのは作業中のファイル（コミット前の変更も含む）。git が使えない・リポジトリでない・ブラウザ（git を動かせない）では
+           この1件だけスキップする（ほかのテストは止めない）
+   ・RL-07 RL-06 の合否の決め方（judgeVersionBump）を、決まった入力で確かめる（git がなくても動く）
    ・SU-xx Service Worker を登録するかの判定（localhost では ?sw=1 のときだけ：architecture 18.4）と、更新の確認の間隔（1時間）
 
    ファイルの読み方：Node.js はファイルを直接読み、ブラウザ（tests/index.html）は同じサーバーから fetch で読む。
@@ -175,6 +186,85 @@ async function loadSw() {
   return parseSw(await readText('sw.js'));
 }
 
+/* ---------------------------------------------------------
+   RL-06 バージョンの上げ忘れ（git で「最後に公開した状態」と比べる。Node.js だけ）
+   --------------------------------------------------------- */
+
+/**
+ * RL-06 の合否を決める（git を使わない純粋な関数。RL-07 で確かめる）。
+ * @param {{ changedFiles: string[], baseVersion: (string|null), currentVersion: (string|null) }} p
+ *   changedFiles   … 基準と比べて中身が変わったアプリのファイル（ルートからの相対パス）
+ *   baseVersion    … 基準の APP_VERSION（基準に config.js がない・読めないときは null）
+ *   currentVersion … 今の APP_VERSION
+ * @returns {{ pass: boolean, reason: 'unchanged'|'bumped'|'no-base-version'|'forgot' }}
+ *   'forgot' のときだけ不合格（ファイルが変わったのに版が同じ）
+ */
+export function judgeVersionBump({ changedFiles, baseVersion, currentVersion }) {
+  if (changedFiles.length === 0) return { pass: true, reason: 'unchanged' };
+  // 基準に版の書き込みがない（初めての公開より前など）ときは、比べられないので合格にする
+  if (baseVersion == null) return { pass: true, reason: 'no-base-version' };
+  if (currentVersion !== baseVersion) return { pass: true, reason: 'bumped' };
+  return { pass: false, reason: 'forgot' };
+}
+
+/** git を実行して標準出力を返す（失敗したら null）。プロジェクトのルートで動かす */
+async function git(args) {
+  const { execFile } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const cwd = fileURLToPath(projectUrl(''));
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+
+/**
+ * 比べる相手（基準）のコミットを決める（冒頭の RL-06 の説明の ① → ②）。
+ * @returns {Promise<{ commit: string, label: string } | null>} 決められなければ null
+ */
+async function findReleaseBase() {
+  const upstream = await git(['rev-parse', '--verify', '--quiet', '@{upstream}']);
+  if (upstream && upstream.trim()) {
+    const name = (await git(['rev-parse', '--abbrev-ref', '@{upstream}'])) || '';
+    return { commit: upstream.trim(), label: `追跡先 ${name.trim() || '@{upstream}'}` };
+  }
+  // -G：その行の追加・削除を含むコミットだけを選ぶ（コメントの書き換えでは選ばれないよう、行の書き出しまで指定する）
+  const last = await git(['log', '-1', '--format=%H', '-G', "^export const APP_VERSION = '", '--', 'js/config.js']);
+  if (last && last.trim()) return { commit: last.trim(), label: `APP_VERSION を最後に変えたコミット ${last.trim().slice(0, 7)}` };
+  return null;
+}
+
+/**
+ * RL-06 の本体。git が使えない環境では { skipped: true } を返す（runner.js がスキップとして数える）。
+ */
+async function checkVersionBump() {
+  const skip = (why) => ({ actual: `スキップ（${why}）`, pass: false, skipped: true, skipReason: 'git' });
+  if (!IS_NODE) return skip('ブラウザでは git を使えないため。node tests/run-node.mjs で確かめます');
+  const inside = await git(['rev-parse', '--is-inside-work-tree']);
+  if (!inside || inside.trim() !== 'true') return skip('git が使えない、または git のリポジトリではないため');
+  const base = await findReleaseBase();
+  if (!base) return skip('比べる相手のコミットが見つからないため');
+
+  const { files, version: currentVersion } = await loadSw();
+  if (!files) return { actual: 'SHELL_FILES が見つかりません', pass: false };
+  const appFiles = [...new Set(['sw.js', ...files.map(fromShell)])];
+  // 作業中のファイル（コミット前の変更を含む）と基準のコミットを比べる。中身が同じなら名前は出ない
+  const diff = await git(['diff', '--name-only', base.commit, '--', ...appFiles]);
+  if (diff === null) return skip('git diff を実行できなかったため');
+  const changedFiles = diff.split('\n').map((s) => s.trim()).filter(Boolean);
+  const baseConfig = await git(['show', `${base.commit}:js/config.js`]);
+  const baseVersion = baseConfig === null ? null : parseConfigVersion(baseConfig);
+  const configVersion = parseConfigVersion(await readText('js/config.js'));
+
+  const r = judgeVersionBump({ changedFiles, baseVersion, currentVersion: configVersion });
+  const head = `基準：${base.label}（APP_VERSION ${show(baseVersion)}）／今 ${show(configVersion)}`;
+  const listed = changedFiles.length > 3 ? `${changedFiles.slice(0, 3).join('・')} ほか${changedFiles.length - 3}件` : changedFiles.join('・');
+  if (r.reason === 'unchanged') return { actual: `${head}／アプリのファイルの変更なし`, pass: true };
+  if (r.reason === 'no-base-version') return { actual: `${head}／基準に APP_VERSION がないため比べない`, pass: true };
+  if (r.reason === 'bumped') return { actual: `${head}／変更 ${changedFiles.length}件・版は上げてある`, pass: true };
+  // sw.js と config.js の値の食い違いは RL-01 が見つけるので、ここでは config.js の値で判定している
+  return { actual: `${head}／ファイルが変わっています（${listed}）。js/config.js と sw.js の APP_VERSION を上げてください`, pass: false };
+}
+
 export function collectReleaseTests() {
   return [
     t('RL-01', 'sw.js と config.js のバージョンが一致', 'sw.js・js/config.js の APP_VERSION', '同じ値', async () => {
@@ -243,6 +333,22 @@ export function collectReleaseTests() {
             : `一覧に無い：${show(notListed)}／一覧だけにある：${show(onlyInList)}`,
           pass,
         };
+      }),
+
+    t('RL-06', 'アプリのファイルを変えたら APP_VERSION も上げてある', 'git：最後に公開した状態（追跡先。なければ APP_VERSION を最後に変えたコミット）と、SHELL_FILES の全ファイル・sw.js を比べる',
+      '中身が変わったファイルがあれば、APP_VERSION が基準と違う（git が使えない環境・ブラウザではスキップ）', () => checkVersionBump()),
+
+    t('RL-07', 'RL-06 の合否の決め方', '変更なし・版同じ／変更あり・版上げ／変更あり・版同じ／変更あり・基準に版なし',
+      '合格／合格／不合格（上げ忘れ）／合格', () => {
+        const cases = [
+          [{ changedFiles: [], baseVersion: '0.2.0', currentVersion: '0.2.0' }, true, 'unchanged'],
+          [{ changedFiles: ['js/app.js'], baseVersion: '0.1.0', currentVersion: '0.2.0' }, true, 'bumped'],
+          [{ changedFiles: ['css/base.css', 'sw.js'], baseVersion: '0.2.0', currentVersion: '0.2.0' }, false, 'forgot'],
+          [{ changedFiles: ['js/app.js'], baseVersion: null, currentVersion: '0.2.0' }, true, 'no-base-version'],
+        ];
+        const got = cases.map(([input]) => judgeVersionBump(input));
+        const ok = cases.every(([, pass, reason], i) => got[i].pass === pass && got[i].reason === reason);
+        return { actual: got.map((r) => `${r.pass ? '合格' : '不合格'}（${r.reason}）`).join('／'), pass: ok };
       }),
 
     {

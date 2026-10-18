@@ -29,8 +29,14 @@ for (const r of results) {
 console.log('\n----------------------------------------');
 console.log(`全${total}件中${passed}件合格${failed ? `（不合格 ${failed}件）` : ''}`);
 if (skipped) {
-  console.log(`※ 保存処理・設定の保存のテスト ${skipped}件は、IndexedDB・localStorage が Node.js で使えないためスキップしました。`
-    + 'ブラウザで http://localhost:8000/tests/ を開いて実行してください。');
+  // スキップの理由ごとに分けて出す（T-33：git が使えないときの RL-06 が加わった）
+  const storage = results.filter((r) => r.skipped && (r.skipReason === 'indexedDB' || r.skipReason === 'localStorage')).length;
+  const others = results.filter((r) => r.skipped && r.skipReason !== 'indexedDB' && r.skipReason !== 'localStorage');
+  if (storage) {
+    console.log(`※ 保存処理・設定の保存のテスト ${storage}件は、IndexedDB・localStorage が Node.js で使えないためスキップしました。`
+      + 'ブラウザで http://localhost:8000/tests/ を開いて実行してください。');
+  }
+  for (const r of others) console.log(`※ ${r.category} ${r.id} は${r.actual}`);
 }
 console.log(`Node.js ${process.version}／端末のタイムゾーン ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 process.exitCode = failed ? 1 : 0;
