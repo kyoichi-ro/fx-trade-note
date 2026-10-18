@@ -12,13 +12,13 @@
    ・RL-06 バージョンの上げ忘れ（T-33：T-31 の S-02）：「最後に公開した状態」と比べて、アプリのファイル（SHELL_FILES の全ファイルと
            sw.js）の中身が1つでも変わっているのに APP_VERSION が同じなら不合格。Service Worker は sw.js の中身が変わったときだけ
            新しい版を入れるので、上げ忘れると直した版がスマホに届かない（キャッシュ優先のため、開き直しても古いまま）。
-           比べる相手（基準）は次の順に決める：
-             ① 今のブランチの追跡先（@{upstream}。ふだんは origin/main）＝ GitHub に push した最後の状態＝公開中の版。
-                公開前に何回コミットしても、公開中の版と APP_VERSION が違っていれば合格（版を上げたあとの手直しも同じ版に含めてよい）
-             ② 追跡先がないとき（push したことがない・別の場所へ複製した）：js/config.js の APP_VERSION の行を最後に変えたコミット。
-                「版を上げたあと、さらにファイルを直したのに上げていない」を見つける
-           比べるのは作業中のファイル（コミット前の変更も含む）。git が使えない・リポジトリでない・ブラウザ（git を動かせない）では
-           この1件だけスキップする（ほかのテストは止めない）
+           比べる相手（基準）は「公開中の版」＝ origin/main（GitHub Pages の公開元）に固定する（T-33 再確認 RC-01）。
+           公開前に何回コミットしても、公開中の版と APP_VERSION が違っていれば合格（版を上げたあとの手直しも同じ版に含めてよい）。
+           作業ブランチの追跡先や「版を最後に変えたコミット」と比べると、公開中の版と食い違って誤合格・誤不合格になったため使わない。
+           【公開（push）の前に実行すること】push した後は基準＝今の状態になり、上げ忘れていても「変更なし」で合格してしまう。
+           手元の origin/main が古いと基準も古くなるので、他の場所から push したときは先に git fetch する。
+           比べるのは作業中のファイル（コミット前の変更も含む）。git が使えない・リポジトリでない・origin/main が無い・
+           ブラウザ（git を動かせない）では、この1件だけスキップする（不合格にはしない。理由を表示する）
    ・RL-07 RL-06 の合否の決め方（judgeVersionBump）を、決まった入力で確かめる（git がなくても動く）
    ・SU-xx Service Worker を登録するかの判定（localhost では ?sw=1 のときだけ：architecture 18.4）と、更新の確認の間隔（1時間）
 
@@ -217,20 +217,19 @@ async function git(args) {
   });
 }
 
+/** 公開中の版（GitHub Pages の公開元）。RL-06 はいつもこれと比べる（RC-01） */
+const RELEASE_REF = 'origin/main';
+
+/** RL-06 の結果の文に添える注意（push の後に実行すると上げ忘れを見つけられないため） */
+const RUN_BEFORE_PUSH = '※公開（push）の前に実行してください。基準を最新にするには git fetch';
+
 /**
- * 比べる相手（基準）のコミットを決める（冒頭の RL-06 の説明の ① → ②）。
- * @returns {Promise<{ commit: string, label: string } | null>} 決められなければ null
+ * 比べる相手（基準）のコミット＝公開中の版（origin/main）。無ければ null（RL-06 はスキップ）。
+ * @returns {Promise<{ commit: string, label: string } | null>}
  */
 async function findReleaseBase() {
-  const upstream = await git(['rev-parse', '--verify', '--quiet', '@{upstream}']);
-  if (upstream && upstream.trim()) {
-    const name = (await git(['rev-parse', '--abbrev-ref', '@{upstream}'])) || '';
-    return { commit: upstream.trim(), label: `追跡先 ${name.trim() || '@{upstream}'}` };
-  }
-  // -G：その行の追加・削除を含むコミットだけを選ぶ（コメントの書き換えでは選ばれないよう、行の書き出しまで指定する）
-  const last = await git(['log', '-1', '--format=%H', '-G', "^export const APP_VERSION = '", '--', 'js/config.js']);
-  if (last && last.trim()) return { commit: last.trim(), label: `APP_VERSION を最後に変えたコミット ${last.trim().slice(0, 7)}` };
-  return null;
+  const ref = await git(['rev-parse', '--verify', '--quiet', `${RELEASE_REF}^{commit}`]);
+  return ref && ref.trim() ? { commit: ref.trim(), label: `公開中の版 ${RELEASE_REF}（${ref.trim().slice(0, 7)}）` } : null;
 }
 
 /**
@@ -242,7 +241,7 @@ async function checkVersionBump() {
   const inside = await git(['rev-parse', '--is-inside-work-tree']);
   if (!inside || inside.trim() !== 'true') return skip('git が使えない、または git のリポジトリではないため');
   const base = await findReleaseBase();
-  if (!base) return skip('比べる相手のコミットが見つからないため');
+  if (!base) return skip(`公開中の版（${RELEASE_REF}）が見つからないため。GitHub に公開済みなら git fetch してから実行してください`);
 
   const { files, version: currentVersion } = await loadSw();
   if (!files) return { actual: 'SHELL_FILES が見つかりません', pass: false };
@@ -257,12 +256,13 @@ async function checkVersionBump() {
 
   const r = judgeVersionBump({ changedFiles, baseVersion, currentVersion: configVersion });
   const head = `基準：${base.label}（APP_VERSION ${show(baseVersion)}）／今 ${show(configVersion)}`;
+  const tail = `／${RUN_BEFORE_PUSH}`;
   const listed = changedFiles.length > 3 ? `${changedFiles.slice(0, 3).join('・')} ほか${changedFiles.length - 3}件` : changedFiles.join('・');
-  if (r.reason === 'unchanged') return { actual: `${head}／アプリのファイルの変更なし`, pass: true };
-  if (r.reason === 'no-base-version') return { actual: `${head}／基準に APP_VERSION がないため比べない`, pass: true };
-  if (r.reason === 'bumped') return { actual: `${head}／変更 ${changedFiles.length}件・版は上げてある`, pass: true };
+  if (r.reason === 'unchanged') return { actual: `${head}／アプリのファイルの変更なし${tail}`, pass: true };
+  if (r.reason === 'no-base-version') return { actual: `${head}／基準に APP_VERSION がないため比べない${tail}`, pass: true };
+  if (r.reason === 'bumped') return { actual: `${head}／変更 ${changedFiles.length}件・版は上げてある${tail}`, pass: true };
   // sw.js と config.js の値の食い違いは RL-01 が見つけるので、ここでは config.js の値で判定している
-  return { actual: `${head}／ファイルが変わっています（${listed}）。js/config.js と sw.js の APP_VERSION を上げてください`, pass: false };
+  return { actual: `${head}／ファイルが変わっています（${listed}）。js/config.js と sw.js の APP_VERSION を上げてください${tail}`, pass: false };
 }
 
 export function collectReleaseTests() {
@@ -335,8 +335,8 @@ export function collectReleaseTests() {
         };
       }),
 
-    t('RL-06', 'アプリのファイルを変えたら APP_VERSION も上げてある', 'git：最後に公開した状態（追跡先。なければ APP_VERSION を最後に変えたコミット）と、SHELL_FILES の全ファイル・sw.js を比べる',
-      '中身が変わったファイルがあれば、APP_VERSION が基準と違う（git が使えない環境・ブラウザではスキップ）', () => checkVersionBump()),
+    t('RL-06', 'アプリのファイルを変えたら APP_VERSION も上げてある（公開＝push の前に実行）', 'git：公開中の版（origin/main）と、作業中の SHELL_FILES の全ファイル・sw.js を比べる',
+      '中身が変わったファイルがあれば、APP_VERSION が公開中の版と違う（git・origin/main が無い環境・ブラウザではスキップ）', () => checkVersionBump()),
 
     t('RL-07', 'RL-06 の合否の決め方', '変更なし・版同じ／変更あり・版上げ／変更あり・版同じ／変更あり・基準に版なし',
       '合格／合格／不合格（上げ忘れ）／合格', () => {

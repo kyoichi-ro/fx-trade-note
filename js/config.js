@@ -9,7 +9,7 @@
  * 公開のたびに上げる（sw.js の APP_VERSION と必ず同じ値にする：architecture.md 12.3。sw.js は T-28 で作る）。
  * 開発中（公開前）は 0.x.x とし、最初の公開で 1.0.0 にする想定。
  */
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.1';
 
 /**
  * IndexedDB の名前とバージョン（architecture.md 6.1）。
