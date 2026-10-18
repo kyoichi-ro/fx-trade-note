@@ -126,7 +126,7 @@ export function summarize(prepared) {
 
 /**
  * 表示するサマリーの行（本番が上、デモが下。件数0の口座は出さない：analytics 4.7.2）。
- * 決済済みが1件もない口座の損益・pips は null（画面は「—」。「±0円」とは区別する）。
+ * 決済済みが1件もない口座の損益・pips は null（画面は「損益は未確定」：T-33 U-03。「±0円」とは区別する）。
  * @param {ReturnType<typeof summarize>} summary
  * @returns {{ account: 'real'|'demo', count: number, openCount: number, profitJpy: number|null, pipsTenths: number|null }[]}
  */
@@ -144,6 +144,19 @@ export function summaryRows(summary) {
         pipsTenths: settled ? a.pipsTenths : null,
       };
     });
+}
+
+/** 決済済みが1件もない口座の、サマリーの金額の位置に出す文（T-33 U-03。読み上げの文と同じ言葉） */
+export const SUMMARY_PENDING_TEXT = '損益は未確定';
+
+/**
+ * サマリーの下の注記「pips は通貨ペア・ロットを区別せず足した値です。」を出すか（design 14.3.6・T-33 U-06）。
+ * pips の合計が1つでも出ていて、絞り込み中でないときだけ（絞り込み中は省いて、結果の行を上に寄せる。1回読めば分かる注記のため）。
+ * @param {ReturnType<typeof summaryRows>} rows
+ * @param {boolean} filtering 条件を1つ以上適用しているか
+ */
+export function showSummaryPipsNote(rows, filtering) {
+  return !filtering && rows.some((r) => r.pipsTenths != null);
 }
 
 /**

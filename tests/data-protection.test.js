@@ -109,9 +109,9 @@ export function collectDataProtectionTests() {
       ])),
 
     t('DP-04', 'お知らせ行の文言と行き先（design 14.3.8）', 'INSTALL_NOTICE',
-      '1行目「ホーム画面に追加すると、データが消えにくくなります」・［方法］・#/settings/install。感嘆符なし',
+      '1行目「ホーム画面に追加すると、記録が消えにくくなります」・［方法］・#/settings/install。感嘆符なし',
       () => verdict([
-        ['1行目', INSTALL_NOTICE.text === 'ホーム画面に追加すると、データが消えにくくなります', INSTALL_NOTICE.text],
+        ['1行目', INSTALL_NOTICE.text === 'ホーム画面に追加すると、記録が消えにくくなります', INSTALL_NOTICE.text],
         ['ボタン', INSTALL_NOTICE.actionLabel === '方法', INSTALL_NOTICE.actionLabel],
         ['行き先', INSTALL_NOTICE.hash === '#/settings/install', INSTALL_NOTICE.hash],
         ['感嘆符なし', !/[!！]/.test(INSTALL_NOTICE.text), INSTALL_NOTICE.text],

@@ -940,12 +940,13 @@ body:has(.fab) #toast-area {
   transition: none;
 }
 
-/* 行全体が詳細へのリンク。上下 12px の余白で、2行で約 60px の高さになる */
+/* 行全体が詳細へのリンク。上下 10px の余白と、2行目の行の高さを詰めた（--lh-tight）ことで、2行で約 60px の高さになる
+   （T-33 U-06：以前は約 67px で、375×812 で起動直後に約5.8件しか見えなかった。押せる範囲は 44px 以上のまま） */
 .trade-row__link {
   flex: 1 1 auto;
   min-width: 0;
   display: block;
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--trade-row-pad-y) var(--sp-4);
   color: var(--color-text);
 }
 .trade-row__link:active {
@@ -965,7 +966,9 @@ body:has(.fab) #toast-area {
 }
 .trade-row__line--sub {
   align-items: baseline;
+  margin-top: 2px;
   font-size: var(--fs-subhead);
+  line-height: var(--lh-tight);
   color: var(--color-text-sub);
 }
 

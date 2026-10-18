@@ -16,7 +16,7 @@ import {
   isClosedTrade, summarize, summaryRows, canShowDailyTotals, buildListView as buildView, flattenView, nextChunkEnd,
   DEFAULT_FILTER, defaultFilter, cloneFilter, periodRange, normalizeForSearch, toTokens, countMatches, countActiveConditions,
   isFilterKeyActive, clearCondition, fixConflicts, describeFilter, describePeriodRange, formatYmdLabel, pairOptions,
-  normalizeFilter, packFilter, restoreFilter, FILTER_KEYS,
+  normalizeFilter, packFilter, restoreFilter, FILTER_KEYS, SUMMARY_PENDING_TEXT, showSummaryPipsNote,
 } from '../js/filter.js';
 import { judgeResult } from '../js/calc.js';
 import { toJstString } from '../js/datetime.js';
@@ -364,6 +364,29 @@ export function collectFilterTests() {
       () => {
         const v = buildListView(SAMPLE.filter((x) => x.id === 'T02'), NOW);
         return verdict([['見出し', v.groups[0].label === '10月14日（水）', v.groups[0].label]]);
+      }),
+
+    t('LV-26', 'サマリー：決済済みが0件の口座は損益・pips が null で、画面は「損益は未確定」と文字で出す（T-33 U-03）', '保有中だけの T09（本番）',
+      "profitJpy・pipsTenths は null／SUMMARY_PENDING_TEXT は '損益は未確定'",
+      () => {
+        const rows = summaryRows(buildListView(SAMPLE.filter((x) => x.id === 'T09'), NOW).summary);
+        return verdict([
+          ['1行（本番）', rows.length === 1 && rows[0].account === 'real', rows.length],
+          ['損益・pips は null', rows[0].profitJpy === null && rows[0].pipsTenths === null, `${rows[0].profitJpy}/${rows[0].pipsTenths}`],
+          ['画面の文', SUMMARY_PENDING_TEXT === '損益は未確定', SUMMARY_PENDING_TEXT],
+        ]);
+      }),
+
+    t('LV-27', 'サマリーの下の pips の注記は、絞り込み中は出さない（T-33 U-06）', 'サンプル全件／保有中だけ × 絞り込みなし／あり',
+      '全件・絞り込みなし＝出す／全件・絞り込み中＝出さない／保有中だけ（pips の合計なし）＝出さない',
+      () => {
+        const all = summaryRows(buildListView(SAMPLE, NOW).summary);
+        const openOnly = summaryRows(buildListView(SAMPLE.filter((x) => x.id === 'T09'), NOW).summary);
+        return verdict([
+          ['全件・絞り込みなし', showSummaryPipsNote(all, false) === true, showSummaryPipsNote(all, false)],
+          ['全件・絞り込み中', showSummaryPipsNote(all, true) === false, showSummaryPipsNote(all, true)],
+          ['保有中だけ', showSummaryPipsNote(openOnly, false) === false, showSummaryPipsNote(openOnly, false)],
+        ]);
       }),
     ...collectListFilterTests(),
   ];

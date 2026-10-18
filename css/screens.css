@@ -170,13 +170,28 @@
   opacity: var(--opacity-disabled);
 }
 
-/* 適用中の条件チップ（design 14.3.7）：大タイトル・お知らせ行の下、サマリーの上。折り返して並べる（横スクロールにしない） */
+/* 適用中の条件チップ（design 14.3.7）：大タイトル・お知らせ行の下、サマリーの上。
+   横1列に並べ、はみ出す分は横にスクロールする（T-33 U-06：折り返すと2段で約110px を使い、結果の行が画面の半分より下から始まったため）。
+   スクロールバーは出さない（iOS と同じ。右端でチップが切れて見えることで、続きがあると分かる） */
 .filter-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-4) var(--sp-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.filter-chips::-webkit-scrollbar {
+  display: none;
+}
+.filter-chips > * {
+  flex-shrink: 0;
+}
+/* 「すべて解除」は文字ボタン。折り返さない */
+.filter-chips > .btn {
+  white-space: nowrap;
 }
 .filter-chips:empty {
   display: none;
@@ -241,6 +256,12 @@
   line-height: var(--lh-tight);
 }
 .summary-row__pips {
+  text-align: right;
+}
+/* 決済済みが0件の口座の「損益は未確定」（15px・灰：T-33 U-03） */
+.summary-row__pending {
+  font-size: var(--fs-subhead);
+  color: var(--color-text-sub);
   text-align: right;
 }
 

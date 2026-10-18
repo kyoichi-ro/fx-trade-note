@@ -28,9 +28,11 @@
      ・条件は画面を離れても残し（モジュールの変数）、変えるたびに localStorage の listFilter へ保存する。
        アプリを開いたときに保存から30分以内なら復元、超えていれば初期値（analytics 4.8。判定は filter.js の restoreFilter）
      ・アプリが前面に戻ったとき、日付が変わっていれば「今日」「今月」などを計算し直す（analytics 4.4.2）
-   【T-29】お知らせ行「ホーム画面に追加すると、データが消えにくくなります［方法］」（design 14.3.8 の優先4）。
+   【T-29】お知らせ行「ホーム画面に追加すると、記録が消えにくくなります［方法］」（design 14.3.8 の優先4）。
      iPhone・iPad をホーム画面版でなくブラウザで開いているときだけ出す（判定は js/data-protection.js）。［方法］→ #/settings/install。
      × は「次に起動するまで出さない」。
+   【T-33】一度に見える行を増やす（T-32 の U-06）：行の高さを約60px に詰め（css）、条件チップは横1列（はみ出しは横スクロール：css）、
+     絞り込み中はサマリーの下の pips の注記を出さない。決済済みが0件の口座のサマリーは右側に「損益は未確定」と文字で出す（U-03）。
    【T-28】お知らせ行「新しいバージョンがあります［更新］」（design 14.3.8 の優先3）。新しい版が待機中のときだけ出す
      （判定と切り替えは js/sw-update.js）。［更新］→ 新しい版に切り替えて再読み込み。× は「次に起動するまで出さない」。
      一覧には入力中の内容がないので、ここから再読み込みしても入力は消えない（入力画面では出さない）。
@@ -52,7 +54,7 @@ import { judgeDraftTarget, buildDraftNotice, DRAFT_STALE_TEXT } from '../draft-n
 import { takeDeletedToast } from '../deleted-toast.js';
 import { isAppError } from '../util.js';
 import { buildListView, flattenView, nextChunkEnd, summaryRows, defaultFilter, describeFilter, clearCondition,
-  packFilter, restoreFilter } from '../filter.js';
+  packFilter, restoreFilter, SUMMARY_PENDING_TEXT, showSummaryPipsNote } from '../filter.js';
 import { getSetting, setSetting } from '../settings-store.js';
 import { jstParts } from '../datetime.js';
 import { formatPrice, formatYen, formatPips, formatPipsTenths, formatLots, formatTime, formatDateTime,
@@ -65,7 +67,7 @@ import { isUpdateWaiting, applyUpdate, UPDATE_READY } from '../sw-update.js';
 /** お知らせ行を × で閉じたか（次に起動するまで出さない：design 14.3.8。アプリを開き直すと元に戻る） */
 let draftNoticeClosed = false;
 
-/** 「ホーム画面に追加すると、データが消えにくくなります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
+/** 「ホーム画面に追加すると、記録が消えにくくなります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
 let installNoticeClosed = false;
 
 /** 「新しいバージョンがあります」を × で閉じたか（同じく次に起動するまで出さない：design 14.3.8） */
@@ -134,28 +136,30 @@ function numSpan(className, text, tone) {
 function speakSummaryRow(r) {
   const parts = [r.account === 'real' ? '本番' : 'デモ', `${r.count}件`];
   if (r.openCount > 0) parts.push(`うち保有中${r.openCount}件`);
-  if (r.profitJpy == null) parts.push('損益は未確定');
+  if (r.profitJpy == null) parts.push(SUMMARY_PENDING_TEXT);
   else parts.push(`合計損益 ${speakYen(r.profitJpy)}`, `pips合計 ${speakPips(r.pipsTenths / 10)}`);
   return parts.join('、');
 }
 
 /**
  * サマリーの1行（design 14.3.6）。1行目：［本番/デモ］と合計損益、2行目：件数と合計 pips。
- * 決済済みが1件もない口座は金額と pips の位置に「—」（灰）。「±0円」とは出さない。
+ * 決済済みが1件もない口座は、金額の位置に「損益は未確定」（15px・灰）と文字で出し、pips は出さない（T-33 U-03。
+ * 以前は「—」を2つ並べていたが、最初の記録の直後に「壊れている？」と見えたため）。「±0円」とは出さない。
  * 見た目の文字は読み上げから外し、代わりに読み上げ用の文を置く（「＋」「▲」を記号のまま読ませないため）。
  */
 function summaryRow(r, single) {
-  const yenTone = r.profitJpy == null ? 'none' : toneOf(r.profitJpy);
-  const pipsTone = r.pipsTenths == null ? 'none' : toneOf(r.pipsTenths);
   const countText = r.openCount > 0 ? `${r.count}件（保有中${r.openCount}）` : `${r.count}件`;
+  const pending = r.profitJpy == null;
   return h('div', { class: `summary-row${single ? ' summary-row--single' : ''}` },
     h('span', { class: 'visually-hidden' }, speakSummaryRow(r)),
     h('div', { class: 'summary-row__line', 'aria-hidden': 'true' },
       badge(r.account),
-      numSpan('summary-row__amount', formatYen(r.profitJpy), yenTone)),
+      pending
+        ? h('span', { class: 'summary-row__pending' }, SUMMARY_PENDING_TEXT)
+        : numSpan('summary-row__amount', formatYen(r.profitJpy), toneOf(r.profitJpy))),
     h('div', { class: 'summary-row__line summary-row__line--sub', 'aria-hidden': 'true' },
       h('span', { class: 'num' }, countText),
-      numSpan('summary-row__pips', r.pipsTenths == null ? '—' : formatPipsTenths(r.pipsTenths), pipsTone)),
+      pending || r.pipsTenths == null ? null : numSpan('summary-row__pips', formatPipsTenths(r.pipsTenths), toneOf(r.pipsTenths))),
   );
 }
 
@@ -163,13 +167,16 @@ function summaryRow(r, single) {
  * サマリー（件数・合計損益）と pips の注記（design 14.3.6）。
  * 混在のときはグループの上に全体の件数、1口座だけのときは全体の件数は出さず金額を大きく（22px）。
  * pips の注記は、サマリーに pips の合計が1つでも出ているときだけ、グループの直下に置く。
+ * ただし絞り込み中は出さない（T-33 U-06：1回読めば分かる注記で、絞り込んだ結果の行が下へ押し出されるため）。
+ * @param {object} view
+ * @param {{ filtering?: boolean }} [opts] filtering：条件を1つ以上適用している
  * @returns {Node[]}
  */
-function summaryNodes(view) {
+function summaryNodes(view, { filtering = false } = {}) {
   const rows = summaryRows(view.summary);
   if (rows.length === 0) return [];
   const single = rows.length === 1;
-  const hasPips = rows.some((r) => r.pipsTenths != null);
+  const hasPips = showSummaryPipsNote(rows, filtering);
   return [
     single ? null : h('p', { class: 'list-count num' }, `${view.summary.total}件`),
     listGroup({
@@ -438,7 +445,8 @@ function renderList(ctx, trades, position) {
 
   ctx.listEl = h('div', { class: 'trade-list' });
   ctx.sentinel = h('div', { class: 'loading list-more' }, spinner('続きを読み込み中'));
-  ctx.content.replaceChildren(...summaryNodes(ctx.view).filter(Boolean), ctx.listEl, ctx.sentinel);
+  const filtering = describeFilter(ctx.filter, ctx.now.getTime()).length > 0;
+  ctx.content.replaceChildren(...summaryNodes(ctx.view, { filtering }).filter(Boolean), ctx.listEl, ctx.sentinel);
 
   appendChunk(ctx, Math.max(LIST_PAGE_SIZE, position.rows));
   ctx.ready = true;

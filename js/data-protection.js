@@ -4,7 +4,7 @@
    requirements 8章「データ保護」）。
 
    ・ホーム画面版（standalone）かどうか、iPhone/iPad かどうかの判定
-   ・一覧のお知らせ行「ホーム画面に追加すると、データが消えにくくなります［方法］」を出すかどうか
+   ・一覧のお知らせ行「ホーム画面に追加すると、記録が消えにくくなります［方法］」を出すかどうか
    ・永続化リクエスト（navigator.storage.persist()）と、その結果の表示（「有効」／「ブラウザ任せ」）
    ・使用量（navigator.storage.estimate()）の表示（「12 MB」「1 MB未満」）
 
@@ -63,7 +63,7 @@ function isIosOtherBrowser(env) {
 }
 
 /**
- * 一覧のお知らせ行「ホーム画面に追加すると、データが消えにくくなります［方法］」を出すか（design 14.3.8 の優先4）。
+ * 一覧のお知らせ行「ホーム画面に追加すると、記録が消えにくくなります［方法］」を出すか（design 14.3.8 の優先4）。
  * iPhone・iPad で、ホーム画面版ではなく（ブラウザで開いていて）、この起動中に × で閉じていないときだけ出す。
  * @param {{ ios: boolean, standalone: boolean, dismissed: boolean }} state
  * @returns {boolean}
@@ -74,7 +74,8 @@ export function shouldShowInstallNotice({ ios, standalone, dismissed }) {
 
 /** 一覧のお知らせ行の文言（design 14.3.8。右のボタンは［方法］→ #/settings/install） */
 export const INSTALL_NOTICE = Object.freeze({
-  text: 'ホーム画面に追加すると、データが消えにくくなります',
+  // 375px の画面で2行にちょうど収まる長さ（12文字×2行）。以前の文は「す」1文字だけが3行目に落ちていた（T-33 U-04）
+  text: 'ホーム画面に追加すると、記録が消えにくくなります',
   actionLabel: '方法',
   hash: '#/settings/install',
 });
