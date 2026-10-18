@@ -30,11 +30,16 @@
    ・決済では、保存されている最新の imageIds に追加した画像を足す（addImageIds）。
    ・removeTradeImage()：詳細の拡大表示からの個別削除。画像の物理削除と imageIds の更新を1つのトランザクションで行う。
    論理削除（deleteTrade）は画像を消さない（削除の取り消しで画像も戻すため：architecture 10章）。
+   【T-33】
+   ・saveTrade の deleteImageIds は、画像の tradeId がその記録のときだけ消す（T-30 の R-07。removeTradeImage と同じ考え方）。
+   ・削除・削除の取り消しのとき、その記録の決済・編集の下書きの baseUpdatedAt を一緒に付け替える（R-10）。
+     削除と取り消しは updatedAt を変えるので、そのままだと取り消したあとに下書きが「元の記録が変更された」と判定されて破棄され、
+     入力途中の決済・編集が戻らないため。付け替えるのは「下書きの土台＝削除する直前の記録」のときだけ（それ以外は今までどおり古い下書き）。
 
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
 
-   依存（architecture 4.2）：db, datetime, util, events, calc, settings-store
+   依存（architecture 4.2）：db, datetime, util, events, calc, settings-store（T-24 で images、T-33 で drafts の draftKeyOf も使う）
    ========================================================= */
 import { appDb, STORE, TRADE_KEYS } from './db.js';
 import { nowJst } from './datetime.js';
@@ -44,6 +49,7 @@ import { calcRiskReward, calcPips, calcProfitJpy, judgeSession } from './calc.js
 import { getPairSpec, SESSION_LABELS } from './master.js';
 import { settingsStore } from './settings-store.js';
 import { mergeImageIds, buildImageIds } from './images.js';
+import { draftKeyOf, DRAFT_KIND } from './drafts.js';
 
 /** 未入力のとき null ではなく空の配列にする項目（architecture 6.7） */
 const ARRAY_KEYS = Object.freeze(['entryReasons', 'tags', 'imageIds']);
@@ -244,7 +250,8 @@ export function createTradeService({
    * ・imageIds に、保存されている記録にはなかった ID が増えていたら、その画像が images にあるかを同じトランザクションで確かめ、
    *   なければ AppError IMAGE_MISSING（何も保存しない。「記録が画像を指しているのに画像が無い」状態を作らない：T-24）
    * ・deleteImageIds を渡すと（編集で外した画像：T-24）、記録の保存と同じトランザクションで画像を物理削除する
-   *   （記録だけ・画像だけが片方残る状態を作らない：architecture 8章・11.4）。保存する imageIds に残っている ID は消さない
+   *   （記録だけ・画像だけが片方残る状態を作らない：architecture 8章・11.4）。保存する imageIds に残っている ID は消さない。
+   *   画像の tradeId がこの記録でないものも消さない（T-33：R-07）
    * 下の closeTrade / reopenTrade からも呼ぶため、メソッドではなくこの関数の中の部品として定義している
    * （tradeService の分割代入 { saveTrade, ... } で取り出しても this に頼らず動くようにするため）。
    * @param {object} trade 32項目（id 必須）
@@ -274,11 +281,34 @@ export function createTradeService({
       await assertImagesExist(ops, saved.imageIds.filter((id) => !had.has(id)));
       await ops.put(STORE.TRADES, saved);
       const keep = new Set(saved.imageIds);
-      for (const id of deleteImageIds || []) if (!keep.has(id)) await ops.delete(STORE.IMAGES, id);
+      for (const id of deleteImageIds || []) {
+        if (keep.has(id)) continue;
+        // 画像の持ち主がこの記録のときだけ消す（呼び出し側の誤りや壊れた下書きで、別の記録の画像 ID が混ざっても消さない：R-07）
+        const image = await ops.get(STORE.IMAGES, id);
+        if (image && image.tradeId === trade.id) await ops.delete(STORE.IMAGES, id);
+      }
       if (draftKey) await ops.delete(STORE.DRAFTS, draftKey);
     });
     emit(TRADES_CHANGED, { type: 'update', id: saved.id, trade: saved });
     return saved;
+  }
+
+  /**
+   * その記録の決済・編集の下書きの baseUpdatedAt を、from から to に付け替える（削除・削除の取り消しと同じトランザクションの中で呼ぶ：R-10）。
+   * baseUpdatedAt が from でない下書き（削除より前に記録が変わっていた古い下書き）には触らない（今までどおり 'stale' になる）。
+   * @param {object} ops runTx の道具
+   * @param {string} id 記録の ID
+   * @param {string} from 付け替える前の updatedAt
+   * @param {string} to 付け替えた後の updatedAt
+   */
+  async function rebaseTradeDrafts(ops, id, from, to) {
+    for (const kind of [DRAFT_KIND.CLOSE, DRAFT_KIND.EDIT]) {
+      const key = draftKeyOf(kind, id);
+      const draft = await ops.get(STORE.DRAFTS, key);
+      if (draft && draft.baseUpdatedAt != null && draft.baseUpdatedAt === from) {
+        await ops.put(STORE.DRAFTS, { ...draft, baseUpdatedAt: to });
+      }
+    }
   }
 
   /** 保存されている記録を読む。ない・削除済みなら NOT_FOUND（決済・決済の取り消しの前に最新の記録を確かめる） */
@@ -402,6 +432,8 @@ export function createTradeService({
      * 論理削除（architecture 10章）。deletedAt・updatedAt ＝今、syncStatus ＝ 'pending'。
      * 画像は消さない（取り消しで元に戻せるように）。
      * すでに削除済みなら何も変えずにその記録を返す（2回押しても削除日時が変わらない＝取り消しが効くまま）。
+     * その記録の決済・編集の下書きは消さず、baseUpdatedAt を新しい updatedAt に付け替える（取り消しで入力途中の内容も戻せるように：R-10）。
+     * 下書きは一覧などが、削除から1分を過ぎてから掃除する（draft-notice.js の keepsGoneDraft）。
      * @param {string} id
      * @returns {Promise<object>} 削除後の記録。取り消しには戻り値の deletedAt を undoDeleteTrade に渡す
      */
@@ -410,7 +442,7 @@ export function createTradeService({
       const t = now();
       let result;
       let changed = false;
-      await db.runTx([STORE.TRADES], async (ops) => {
+      await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
         const stored = await ops.get(STORE.TRADES, id);
         if (!stored) throw notFound();
         if (stored.deletedAt != null) {
@@ -420,6 +452,7 @@ export function createTradeService({
         result = { ...stored, deletedAt: t, updatedAt: t, syncStatus: 'pending' };
         changed = true;
         await ops.put(STORE.TRADES, result);
+        await rebaseTradeDrafts(ops, id, stored.updatedAt, t);
       });
       if (changed) emit(TRADES_CHANGED, { type: 'delete', id, trade: result });
       return result;
@@ -429,6 +462,7 @@ export function createTradeService({
      * 削除の取り消し（architecture 10章：トースト「削除しました［取り消す］」）。
      * deletedAt が「削除したときに付けた値のまま」のときだけ、deletedAt ＝ null・updatedAt ＝今・
      * syncStatus ＝ 'pending' にして戻す。違うとき（すでに取り消し済み・別の操作で変わった）は何もせず null を返す。
+     * 決済・編集の下書きが残っていれば、baseUpdatedAt を新しい updatedAt に付け替える（取り消したあとも続きを開けるように：R-10）。
      * @param {string} id
      * @param {string} deletedAt deleteTrade の戻り値の deletedAt
      * @returns {Promise<object|null>} 戻した記録。戻さなかったときは null
@@ -437,12 +471,13 @@ export function createTradeService({
       assertId(id);
       const t = now();
       let result = null;
-      await db.runTx([STORE.TRADES], async (ops) => {
+      await db.runTx([STORE.TRADES, STORE.DRAFTS], async (ops) => {
         const stored = await ops.get(STORE.TRADES, id);
         if (!stored) throw notFound();
         if (stored.deletedAt == null || stored.deletedAt !== deletedAt) return;
         result = { ...stored, deletedAt: null, updatedAt: t, syncStatus: 'pending' };
         await ops.put(STORE.TRADES, result);
+        await rebaseTradeDrafts(ops, id, stored.updatedAt, t);
       });
       if (result) emit(TRADES_CHANGED, { type: 'restore', id, trade: result });
       return result;

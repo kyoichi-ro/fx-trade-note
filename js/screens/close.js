@@ -43,7 +43,7 @@ import { formatPrice, formatLots, formatDateTime, formatDraftTime } from '../for
 import { isClosedTrade } from '../filter.js';
 import { isAppError } from '../util.js';
 import { requestRowFlash } from '../row-flash.js';
-import { judgeDraftTarget, DRAFT_STALE_TEXT } from '../draft-notice.js';
+import { judgeDraftTarget, DRAFT_STALE_TEXT, keepsGoneDraft } from '../draft-notice.js';
 import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す（T-16 で choice-list.js へ移した）
 import {
   EXIT_REASONS, defaultCloseFields, fieldsFromCloseDraft, isCloseFormChanged, detailsSummary, closeSaveLabel, closeToastText,
@@ -679,7 +679,8 @@ const screen = {
       return;
     }
     if (!trade || trade.deletedAt != null) {
-      await dropDraft(draftKey);
+      // 削除して1分以内なら下書きは残す（一覧の［取り消す］で記録を戻したとき、入力途中の内容も戻せるように：T-33 R-10）
+      if (!keepsGoneDraft({ kind: DRAFT_KIND.CLOSE }, trade)) await dropDraft(draftKey);
       renderMissing(root, nav);
       return;
     }

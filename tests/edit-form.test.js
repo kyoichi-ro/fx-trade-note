@@ -18,7 +18,9 @@ import { nextSession } from '../js/entry-form.js';
 import { describeProfit } from '../js/close-form.js';
 import { recompute } from '../js/trades.js';
 import { TRADE_KEYS } from '../js/db.js';
-import { judgeDraftTarget, draftTargetHash, draftSummary, buildDraftNotice, DRAFT_STALE_TEXT } from '../js/draft-notice.js';
+import { judgeDraftTarget, draftTargetHash, draftSummary, buildDraftNotice, DRAFT_STALE_TEXT, keepsGoneDraft } from '../js/draft-notice.js';
+import { createDraftAutosaver } from '../js/drafts.js';
+import { DELETED_DRAFT_KEEP_MINUTES } from '../js/config.js';
 import { requestDeletedToast, takeDeletedToast, DELETED_TOAST_WAIT_MS } from '../js/deleted-toast.js';
 import { show } from './helpers.js';
 
@@ -532,6 +534,51 @@ export function collectEditFormTests() {
           ['行の形（全角スペース区切り）', labels[1] === '決済　本番 USD/JPY ▲買い　23:05', labels[1]],
           ['行き先', n.choices[0].hash === '#/trades/trade-1/edit' && n.choices[3].hash === '#/new', n.choices.map((c) => c.hash).join(' ')],
           ['件数の言い方は0件の種類を出さない', buildDraftNotice([items[1], items[3]], NOW).subtext === '決済2件', buildDraftNotice([items[1], items[3]], NOW).subtext],
+        ]);
+      }),
+
+    t('DN-04', '削除して1分以内の記録の決済・編集の下書きは、対象が削除済み（gone）でも消さずに残す（T-33：T-30 の R-10）', '削除から 30秒／60秒／61秒、記録なし、新規の下書き',
+      '30秒・60秒は残す（true）。61秒・記録なし・削除されていない・新規は false（今までどおり）',
+      () => {
+        const now = new Date('2026-10-15T23:00:00+09:00');
+        // deletedAt は保存形式（+09:00）で渡す
+        const jst = (sec) => {
+          const d = new Date(now.getTime() - sec * 1000 + 9 * 3600e3);
+          const p = (x) => String(x).padStart(2, '0');
+          return { id: 'a', deletedAt: `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}+09:00` };
+        };
+        const close = { kind: 'close', tradeId: 'a' };
+        const edit = { kind: 'edit', tradeId: 'a' };
+        const r = [
+          keepsGoneDraft(close, jst(30), now), keepsGoneDraft(edit, jst(60), now), keepsGoneDraft(close, jst(61), now),
+          keepsGoneDraft(close, null, now), keepsGoneDraft(close, { id: 'a', deletedAt: null }, now), keepsGoneDraft({ kind: 'new' }, jst(10), now),
+        ];
+        return verdict([
+          ['30秒・60秒は残す', r[0] === true && r[1] === true, r.join()],
+          ['61秒は消す', r[2] === false, r[2]],
+          ['記録なし・削除されていない・新規は false', r[3] === false && r[4] === false && r[5] === false, r.slice(3).join()],
+          ['残す時間は1分', DELETED_DRAFT_KEEP_MINUTES === 1, DELETED_DRAFT_KEEP_MINUTES],
+        ]);
+      }),
+
+    t('DN-05', '自動保存は「保存済みの画像を外しただけ」の変更も書く（T-33：T-30 の R-08）', '編集の下書きを1回保存 → removedImageIds だけ変えて flush → baseUpdatedAt だけ変えて flush',
+      '3回とも保存される（2回目・3回目を「同じ内容」として飛ばさない）。同じ内容のままの flush は書かない',
+      async () => {
+        const saved = [];
+        const service = { saveDraft: async (d) => { saved.push(JSON.stringify([d.removedImageIds, d.baseUpdatedAt])); return d; }, discardDraft: async () => true };
+        const draft = { kind: 'edit', tradeId: 'a', fields: { memo: 'x' }, uiState: {}, addedImageIds: [], removedImageIds: [], baseUpdatedAt: 'u1' };
+        const saver = createDraftAutosaver({ key: 'edit:a', build: () => ({ ...draft }), isChanged: () => true, service, lifecycle: false });
+        await saver.flush();
+        draft.removedImageIds = ['img-1'];
+        await saver.flush();
+        draft.baseUpdatedAt = 'u2';
+        await saver.flush();
+        await saver.flush(); // 何も変えていない
+        saver.dispose();
+        return verdict([
+          ['保存の回数', saved.length === 3, saved.length],
+          ['外した画像が書かれた', saved[1] === JSON.stringify([['img-1'], 'u1']), saved[1]],
+          ['土台の updatedAt が書かれた', saved[2] === JSON.stringify([['img-1'], 'u2']), saved[2]],
         ]);
       }),
 

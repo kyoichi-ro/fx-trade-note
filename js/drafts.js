@@ -196,7 +196,11 @@ export function createDraftAutosaver({
       return;
     }
     const draft = build();
-    const snapshot = JSON.stringify([draft.fields, draft.uiState, draft.addedImageIds || []]);
+    // 外した画像（removedImageIds）と土台の記録の updatedAt も含める。含めないと、下書きを一度保存したあとに
+    // 「保存済みの画像を外す」だけの操作が「同じ内容」とみなされて書かれず、開き直すと外した操作が戻っていた（T-30 の R-08）
+    const snapshot = JSON.stringify([
+      draft.fields, draft.uiState, draft.addedImageIds || [], draft.removedImageIds || [], draft.baseUpdatedAt ?? null,
+    ]);
     if (snapshot === lastSaved && stored) return;
     try {
       await service.saveDraft(draft);

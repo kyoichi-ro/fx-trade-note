@@ -1270,16 +1270,19 @@ export function collectDbTests() {
         ]);
       }),
 
-    t('SV-26', '画像の縮小：ノイズのような大きな画像でもサイズだけを理由に失敗させない（1024px でやり直す）。向き（EXIF）を正しく扱う', 'prepareImage（ランダムノイズ 2400x1600）／向き6の JPEG 300x200',
-      'ノイズは 250KB を超えても例外にならず、長辺 1024px で返る。向き6の 300x200 は縦長の 200x300 になる（横向きにならない）',
+    // T-33（T-31 の S-01）：ノイズは最初から 1280x853 で作る。2400x1600 から縮小すると、キャンバスの描き方（ソフトウェア／GPU）で
+    // 縮小のなめらかさが変わり、GPU では 1280px の段で 250KB 以内に収まって 1024px のやり直しに進まなかった（処理は仕様どおり）。
+    // 1280x853 なら 1280px の段では縮小が起きずノイズのまま＝必ず 250KB を超え、1024px の段（853×0.8＝682.4 → 682）まで進む
+    t('SV-26', '画像の縮小：ノイズのような大きな画像でもサイズだけを理由に失敗させない（1024px でやり直す）。向き（EXIF）を正しく扱う', 'prepareImage（ランダムノイズ 1280x853）／向き6の JPEG 300x200',
+      'ノイズは 250KB を超えても例外にならず、長辺 1024px（1024x682）で返る。向き6の 300x200 は縦長の 200x300 になる（横向きにならない）',
       async () => {
-        const noise = await prepareImage(await noiseJpegOf(2400, 1600));
+        const noise = await prepareImage(await noiseJpegOf(1280, 853));
         const upright = await jpegOf(300, 200);
         const rotated = await prepareImage(await withExifOrientation(upright, 6));
         const plain = await prepareImage(upright);
         return verdict([
           ['ノイズでも失敗しない', noise.blob.size > 0 && noise.blob.type === 'image/jpeg'],
-          ['ノイズは 1024px のやり直しまで進む', noise.width === 1024 && noise.height === 683, `${noise.width}x${noise.height}`],
+          ['ノイズは 1024px のやり直しまで進む', noise.width === 1024 && noise.height === 682, `${noise.width}x${noise.height}`],
           ['向きなしの 300x200 はそのまま', plain.width === 300 && plain.height === 200, `${plain.width}x${plain.height}`],
           ['向き6の 300x200 は縦長 200x300', rotated.width === 200 && rotated.height === 300, `${rotated.width}x${rotated.height}`],
           ['保存した Blob の実際の向きも縦長', (await sizeOfBlob(rotated.blob)).height === 300, JSON.stringify(await sizeOfBlob(rotated.blob))],
@@ -1322,6 +1325,57 @@ export function collectDbTests() {
           ['数も 0', pool.size() === 0],
         ]);
       }),
+
+    t('SV-29', '編集の保存で外す画像（deleteImageIds）は、その記録の画像だけ消す（T-33：T-30 の R-07）', 'saveTrade(記録A, deleteImageIds: [A の画像, 記録B の画像, ない ID])',
+      'A の画像は消える。B の画像は消えない（B の記録はそのまま画像を読める）。ない ID は無視',
+      () => withTestDb('SV-29', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        await saveRealImage(images, 'r7-a', 'a1');
+        await saveRealImage(images, 'r7-b', 'b1');
+        const a = await trades.saveNewTrade(entryFields({ id: 'r7-a', imageIds: ['a1'] }));
+        await trades.saveNewTrade(entryFields({ id: 'r7-b', imageIds: ['b1'] }));
+        const err = await errorOf(() => trades.saveTrade({ ...a, imageIds: [] }, { deleteImageIds: ['a1', 'b1', 'ghost'] }));
+        return verdict([
+          ['保存できる', err === null, errText(err)],
+          ['A の画像は消える', (await db.getImage('a1')) === null],
+          ['B の画像は消えない', (await db.getImage('b1')) !== null],
+          ['B の記録は画像を指したまま', (await db.getTrade('r7-b')).imageIds.join() === 'b1'],
+        ]);
+      })),
+
+    t('SV-30', '削除→取り消しで、入力途中の決済・編集の下書きも戻る（T-33：T-30 の R-10）', '決済・編集の下書きがある記録を deleteTrade → undoDeleteTrade。別に、削除の前に記録が変わっていた古い下書き',
+      '削除・取り消しの両方で下書きは残り、baseUpdatedAt が記録の updatedAt に付け替わる（取り消し後も「元の記録が変更された」にならない）。追加画像も残る。古い下書きの baseUpdatedAt は変えない',
+      () => withTestDb('SV-30', async (db) => {
+        const clock = makeClock();
+        const trades = createTradeService({ db, now: clock });
+        const images = createImageService({ db, now: clock });
+        const tr = await trades.saveNewTrade(entryFields({ id: 'r10' }));
+        await saveRealImage(images, 'r10', 'x1', { kind: 'exit' });
+        await db.putDraft(sampleDraft({ key: 'close:r10', kind: 'close', tradeId: 'r10', addedImageIds: ['x1'], baseUpdatedAt: tr.updatedAt }));
+        await db.putDraft(sampleDraft({ key: 'edit:r10', kind: 'edit', tradeId: 'r10', baseUpdatedAt: tr.updatedAt }));
+        // 古い下書き（削除より前に記録が変わっていた）：付け替えない
+        const old = await trades.saveNewTrade(entryFields({ id: 'r10-old' }));
+        await db.putDraft(sampleDraft({ key: 'edit:r10-old', kind: 'edit', tradeId: 'r10-old', baseUpdatedAt: '2026-01-01T00:00:00+09:00' }));
+
+        const deleted = await trades.deleteTrade('r10');
+        const afterDelete = await db.getDraft('close:r10');
+        const restored = await trades.undoDeleteTrade('r10', deleted.deletedAt);
+        const closeDraft = await db.getDraft('close:r10');
+        const editDraft = await db.getDraft('edit:r10');
+        const oldDeleted = await trades.deleteTrade('r10-old');
+        const oldDraft = await db.getDraft('edit:r10-old');
+        return verdict([
+          ['削除しても下書きは残る', afterDelete !== null],
+          ['削除で付け替わる', afterDelete && afterDelete.baseUpdatedAt === deleted.updatedAt, afterDelete && afterDelete.baseUpdatedAt],
+          ['取り消しで記録が戻る', restored && restored.deletedAt === null],
+          ['決済の下書きの土台＝戻した記録', closeDraft && closeDraft.baseUpdatedAt === restored.updatedAt, closeDraft && closeDraft.baseUpdatedAt],
+          ['編集の下書きの土台＝戻した記録', editDraft && editDraft.baseUpdatedAt === restored.updatedAt, editDraft && editDraft.baseUpdatedAt],
+          ['下書きの中身・追加画像は残る', closeDraft && closeDraft.addedImageIds.join() === 'x1' && (await db.getImage('x1')) !== null],
+          ['古い下書きは付け替えない', oldDraft && oldDraft.baseUpdatedAt === '2026-01-01T00:00:00+09:00' && oldDeleted.updatedAt !== old.updatedAt, oldDraft && oldDraft.baseUpdatedAt],
+        ]);
+      })),
   ];
 }
 

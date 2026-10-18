@@ -48,7 +48,7 @@ import { isAppError } from '../util.js';
 import { requestRowFlash } from '../row-flash.js';
 import { FAVORITE_GRID_COUNT } from '../config.js';
 import { withSelected } from '../choice-list.js'; // 設定から消された選択済みの値もチップに残す
-import { judgeDraftTarget, DRAFT_STALE_TEXT } from '../draft-notice.js';
+import { judgeDraftTarget, DRAFT_STALE_TEXT, keepsGoneDraft } from '../draft-notice.js';
 import {
   TIMEFRAMES, SESSIONS, SESSION_SEGMENT_LABELS, SL_LABEL, TP_LABEL, PRICE_LABEL, nextSession, sessionNote, visibleIssues, pricePlaceholder,
   LOTS_PLACEHOLDER,
@@ -906,7 +906,8 @@ const screen = {
       return;
     }
     if (!trade || trade.deletedAt != null) {
-      await dropDraft(draftKey);
+      // 削除して1分以内なら下書きは残す（一覧の［取り消す］で記録を戻したとき、入力途中の内容も戻せるように：T-33 R-10）
+      if (!keepsGoneDraft({ kind: DRAFT_KIND.EDIT }, trade)) await dropDraft(draftKey);
       renderMissing(root, nav);
       return;
     }

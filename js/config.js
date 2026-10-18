@@ -53,6 +53,13 @@ export const LOW_STORAGE_BYTES = 10 * 1024 * 1024;
 export const DRAFT_RESTORE_MINUTES = 30;
 export const LIST_FILTER_RESTORE_MINUTES = 30;
 
+/**
+ * 記録を削除してからこの分数のあいだは、その記録の決済・編集の下書きを「対象が削除済み」でも消さずに残す（T-33：T-30 の R-10）。
+ * 削除のトースト「取り消す」（6秒。フォーカス中は止まる）で戻したとき、入力途中の内容と画像も戻せるようにするため。
+ * 過ぎたら一覧などが今までどおり黙って消す。
+ */
+export const DELETED_DRAFT_KEEP_MINUTES = 1;
+
 /** 一覧で最初に描く行数と、下までスクロールするたびに足す行数（analytics 4.9 #5。重ければ T-31 の計測で調整する） */
 export const LIST_PAGE_SIZE = 50;
 

@@ -32,7 +32,7 @@ import { applyTheme } from './ui/theme.js';
 import { getAllDrafts, pickLaunchDraft, discardDraft, DRAFT_KIND } from './drafts.js';
 import { getTrade, getAllTrades } from './trades.js';
 import { requestPersistenceOnce } from './data-protection.js';
-import { judgeDraftTarget, draftTargetHash } from './draft-notice.js';
+import { judgeDraftTarget, draftTargetHash, keepsGoneDraft } from './draft-notice.js';
 import { sweepOrphans } from './images.js';
 import { startServiceWorker } from './sw-update.js';
 
@@ -160,8 +160,8 @@ async function openRecentDraft() {
     }
     const verdict = judgeDraftTarget(draft, target);
     if (verdict === 'ok') break;
-    if (verdict === 'gone') {
-      // 対象が無くなった下書き：黙って消して、次の候補へ
+    if (verdict === 'gone' && !keepsGoneDraft(draft, target)) {
+      // 対象が無くなった下書き：黙って消して、次の候補へ（削除して1分以内の記録の下書きは、取り消しに備えて消さずに候補から外すだけ：T-33 R-10）
       try {
         await discardDraft(draft.key);
       } catch (err) {

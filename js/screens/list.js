@@ -50,7 +50,7 @@ import { showToast } from '../ui/toast.js';
 import { getAllTrades, getTrade, undoDeleteTrade, TRADES_CHANGED } from '../trades.js';
 import { on } from '../events.js';
 import { getAllDrafts, discardDraft, DRAFT_KIND } from '../drafts.js';
-import { judgeDraftTarget, buildDraftNotice, DRAFT_STALE_TEXT } from '../draft-notice.js';
+import { judgeDraftTarget, buildDraftNotice, DRAFT_STALE_TEXT, keepsGoneDraft } from '../draft-notice.js';
 import { takeDeletedToast } from '../deleted-toast.js';
 import { isAppError } from '../util.js';
 import { buildListView, flattenView, nextChunkEnd, summaryRows, defaultFilter, describeFilter, clearCondition,
@@ -610,7 +610,11 @@ async function undoDelete(ctx, id, deletedAt) {
     return;
   }
   if (!restored) return;
-  if (ctx.alive) requestRowFlash(id);
+  if (ctx.alive) {
+    requestRowFlash(id);
+    // 削除の直後に残しておいた入力途中の決済・編集があれば、お知らせ行で続きを開けるようにする（R-10）
+    loadDrafts(ctx);
+  }
   showToast('削除を取り消しました');
 }
 
@@ -618,7 +622,8 @@ async function undoDelete(ctx, id, deletedAt) {
  * 入力途中の下書き（エントリー・決済・編集）を確かめて、お知らせ行に出す（一覧の表示は待たせない）。
  * 下書きごとに対象の記録を見て、draft-notice.js の judgeDraftTarget で判定する：
  *   ok    … お知らせ行の対象にする
- *   gone  … 対象が削除・決済済みなど。お知らせを出す前に黙って消す（design 14.2.10・14.3.8）
+ *   gone  … 対象が削除・決済済みなど。お知らせを出す前に黙って消す（design 14.2.10・14.3.8）。
+ *           ただし削除して1分以内の記録の下書きは、消さずに何も出さない（［取り消す］で戻せるように：T-33 R-10。keepsGoneDraft）
  *   stale … 元の記録が下書きのあとに変更された。消して、種類ごとに「破棄しました」の知らせを出す（architecture 9.3）
  * 記録を読めなかった下書きは、消さずに何も出さない（読めるようになってから案内する）。
  */
@@ -646,6 +651,7 @@ async function loadDrafts(ctx) {
       items.push({ draft, trade });
       continue;
     }
+    if (verdict === 'gone' && keepsGoneDraft(draft, trade)) continue; // 削除の直後。取り消しに備えて残す（R-10）
     try {
       await discardDraft(draft.key);
     } catch (e) {

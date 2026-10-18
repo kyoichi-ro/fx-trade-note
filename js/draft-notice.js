@@ -10,6 +10,8 @@
    ========================================================= */
 import { isClosedTrade } from './filter.js';
 import { formatDraftTime } from './format.js';
+import { isWithinMinutes } from './datetime.js';
+import { DELETED_DRAFT_KEEP_MINUTES } from './config.js';
 
 /** 下書きの種類の並び（お知らせ行の件数の言い方の順：エントリー・決済・編集） */
 const KINDS = ['new', 'close', 'edit'];
@@ -44,6 +46,21 @@ export function judgeDraftTarget(draft, trade) {
   if (draft.kind === 'close' && isClosedTrade(trade)) return 'gone';
   if (draft.baseUpdatedAt != null && draft.baseUpdatedAt !== trade.updatedAt) return 'stale';
   return 'ok';
+}
+
+/**
+ * 'gone'（対象が無い）と判定した下書きでも、今は消さずに残すか（T-33：T-30 の R-10）。
+ * 対象の記録が「削除して1分以内」なら残す（削除のトースト［取り消す］で記録を戻したとき、入力途中の決済・編集と画像も戻せるように）。
+ * 記録そのものが無い・決済済みになった決済の下書き・削除から1分を過ぎたものは false（今までどおり黙って消す）。
+ * 判定は削除日時（deletedAt）だけで行う。端末の時計を戻したなどで削除日時が未来でも「最近」とみなす（isWithinMinutes と同じ：消すより残す）。
+ * @param {object} draft
+ * @param {object|null} trade 対象の記録
+ * @param {Date} [now]
+ * @returns {boolean}
+ */
+export function keepsGoneDraft(draft, trade, now = new Date()) {
+  if (!draft || draft.kind === 'new' || !trade || trade.deletedAt == null) return false;
+  return isWithinMinutes(trade.deletedAt, DELETED_DRAFT_KEEP_MINUTES, now);
 }
 
 /** 下書きの続きを開く URL（architecture 5.1） */
