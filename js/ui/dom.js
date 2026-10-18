@@ -10,11 +10,30 @@
    ・画面を作るときは innerHTML / insertAdjacentHTML / outerHTML を使わず、必ずこの h() を使う。
 
    【T-10】h() と clear()。【T-11】uniqueId()・addIdRef()・removeIdRef()（読み上げ用の id のつなぎ）を追加。
+   【T-33】isDangerousUrl()：javascript: の判定を、制御文字・空白を取り除いてから行う形に強化（T-31 の S-06）。
    SVG アイコンは ui/icons.js が createElementNS で作る（h() は HTML の要素だけを作る）。
    ========================================================= */
 
 /** 属性に入れてはいけない URL（javascript: で始まるものはクリックでプログラムが動くため） */
-const DANGEROUS_URL = /^\s*javascript:/i;
+const DANGEROUS_URL = /^javascript:/i;
+
+/**
+ * URL を判定する前に取り除く文字：制御文字（U+0000〜U+001F・U+007F〜U+009F）と空白（スペース・全角空白などの \s）。
+ * ブラウザは URL を読むとき、先頭・末尾の制御文字と空白を捨て、途中のタブ・改行も捨てるので、
+ * 「java\tscript:」「\x01javascript:」も javascript: として動く（T-33：T-31 の S-06）。判定の前に同じように取り除く
+ * （途中の空白もすべて取り除くので、ブラウザより厳しく判定する側に倒れる）。
+ */
+const URL_IGNORED_CHARS = /[\u0000-\u001F\u007F-\u009F\s]/g;
+
+/**
+ * href・src に入れてはいけない URL か（javascript: の URL）。
+ * 制御文字・空白を取り除いてから、大文字小文字を区別せずに見る。
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isDangerousUrl(value) {
+  return DANGEROUS_URL.test(String(value).replace(URL_IGNORED_CHARS, ''));
+}
 
 /**
  * 要素を作る。
@@ -49,7 +68,7 @@ export function h(tag, attrs = {}, ...children) {
       // style="…" 属性は CSP（style-src 'self'）で無効になるため使わない（architecture.md 14.3）
       throw new TypeError('h(): style 属性は使えません。クラスの付け外しか el.style.xxx を使ってください');
     } else {
-      if ((name === 'href' || name === 'src') && DANGEROUS_URL.test(String(value))) {
+      if ((name === 'href' || name === 'src') && isDangerousUrl(value)) {
         throw new TypeError(`h(): ${name} に javascript: の URL は入れられません`);
       }
       el.setAttribute(name, value === true ? '' : String(value));

@@ -611,6 +611,8 @@ function buildScreen(root, nav, trade, draft, { staleText = '' } = {}) {
     /** 「入力内容を破棄」の確認の説明。画像を追加していたら「追加した画像も削除されます。」を添える（design 14.7.4） */
     discardMessage: () => (images.addedCount() > 0 ? IMAGE_TEXT.discardNote : ''),
     discardChanges: () => discardAll(),
+    /** 入力途中の内容をすぐ下書きに保存する（お知らせ行の［再読み込み］の前：T-33 S-05）。保存・破棄のあとは何もしない */
+    flushDraft: () => (finished ? Promise.resolve() : autosaver.flush()),
     /** 画面を離れる：保存も破棄もしていなければ、待たずに下書きを保存する（architecture 9.2） */
     leave() {
       if (!finished) autosaver.flush();
@@ -716,6 +718,11 @@ const screen = {
 
   discardChanges() {
     return ctrl ? ctrl.discardChanges() : undefined;
+  },
+
+  /** お知らせ行の［再読み込み］の前に、入力途中の内容を下書きへすぐ保存する（router.js の flushCurrentDraft：T-33 S-05） */
+  flushDraft() {
+    return ctrl ? ctrl.flushDraft() : undefined;
   },
 };
 

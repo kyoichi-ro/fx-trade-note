@@ -24,6 +24,7 @@
        discardChanges() {}                  // 入力画面だけ：「入力内容を破棄」を選んだとき（下書きを消す。T-17）
        discardTitle: '…'                    // 入力画面だけ（省略可）：破棄の確認シートの見出し。省略すると「入力内容を破棄しますか？」（T-21）
        discardMessage() { return '…' }      // 入力画面だけ（省略可）：破棄の確認シートの説明。画像を追加していたら「追加した画像も削除されます。」（T-24：design 14.7.4）
+       flushDraft() { return Promise }      // 入力画面だけ（省略可）：入力途中の内容を待たずに下書きへ保存し、書き終わるのを待てる Promise を返す（T-33 S-05）
      };
 
    この層（起動・画面切替）は画面ファイルを読み込むが、画面ファイルからは router.js を import しない。
@@ -174,6 +175,27 @@ export async function back(fallback = HOME) {
     history.back();
   } else {
     replace(fallback);
+  }
+}
+
+/**
+ * 今の画面の入力途中の内容を、すぐに下書きへ保存して書き終わるのを待つ（T-33：T-31 の S-05）。
+ * お知らせ行の［再読み込み］の前に呼ぶ。自動保存は入力が止まって0.5秒後で、ページを閉じる瞬間の保存は書き終わる前に
+ * ページが閉じられることがあるため、直前の入力が下書きに残らなかった。入力画面でなければ何もしない。
+ * 書き込みが遅くても再読み込みを止めないよう、待つのは最大 timeoutMs まで。失敗しても例外は外に出さない。
+ * @param {number} [timeoutMs]
+ * @returns {Promise<void>}
+ */
+export async function flushCurrentDraft(timeoutMs = 1500) {
+  const screen = current;
+  if (!screen || typeof screen.flushDraft !== 'function') return;
+  try {
+    await Promise.race([
+      Promise.resolve(screen.flushDraft()),
+      new Promise((resolve) => { setTimeout(resolve, timeoutMs); }),
+    ]);
+  } catch (err) {
+    console.error('下書きを保存できませんでした', err);
   }
 }
 

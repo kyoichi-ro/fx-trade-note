@@ -1,16 +1,28 @@
 /* =========================================================
    tests/ui.test.js
    画面の部品（js/ui/*.js）を実際に作って確かめるテスト（T-33）。
-   document を使うので requires: 'dom'（ブラウザのテストページだけで実行。Node.js ではスキップ）。
+   document を使うものは requires: 'dom'（ブラウザのテストページだけで実行。Node.js ではスキップ）。
+   UI-04（javascript: の URL の判定）は document を使わないので Node.js でも実行する。
    画像の保存（IndexedDB）は使わず、業務処理（service）を差し替えた偽物で動かす（本物の記録・画像には触れない）。
 
    ID：UI-xx
    ========================================================= */
 import { imageField } from '../js/ui/image-field.js';
+import { h, isDangerousUrl } from '../js/ui/dom.js';
 import { show } from './helpers.js';
 
 const CATEGORY = '画面の部品';
 const t = (id, title, input, expected, run) => ({ category: CATEGORY, id, title, input, expected, run, requires: 'dom' });
+/** document を使わないテスト（Node.js でも実行する） */
+const tn = (id, title, input, expected, run) => ({ category: CATEGORY, id, title, input, expected, run });
+
+/** javascript: の URL の書き方のゆれ（ブラウザはどれも javascript: として実行する：T-31 の S-06） */
+const SNEAKY_JS_URLS = [
+  'javascript:alert(1)', ' JaVaScRiPt:alert(1)', 'java\tscript:alert(1)', 'java\nscript:alert(1)', 'java\rscript:alert(1)',
+  '\x01javascript:alert(1)', '\x00javascript:alert(1)', 'javascript\u3000:alert(1)', '\u3000javascript:alert(1)',
+];
+/** 入れてよい URL（アプリが使う形） */
+const SAFE_URLS = ['#/trades/abc', '#/new', 'blob:http://localhost:8000/1234', 'https://example.com/javascript:', 'icons/icon-192.png'];
 
 /** 確認項目 [説明, 合否, 実際の値] の一覧から合否を作る（db.test.js と同じ形） */
 function verdict(checks) {
@@ -71,6 +83,30 @@ const settle = () => new Promise((r) => { setTimeout(r, 0); });
 
 export function collectUiTests() {
   return [
+    tn('UI-04', 'javascript: の URL の判定は、制御文字・空白を取り除いてから行う（T-33：T-31 の S-06）', 'isDangerousUrl（タブ・改行・制御文字・全角空白・大文字を混ぜた javascript:／アプリが使う URL）',
+      '混ぜたものはすべて true。#/…・blob:・https:（途中に javascript: を含むもの）・相対パスは false',
+      () => {
+        const missed = SNEAKY_JS_URLS.filter((u) => !isDangerousUrl(u));
+        const wrong = SAFE_URLS.filter((u) => isDangerousUrl(u));
+        return verdict([
+          ['見逃しなし', missed.length === 0, missed],
+          ['安全な URL を止めない', wrong.length === 0, wrong],
+        ]);
+      }),
+
+    t('UI-05', 'h() は書き方をゆらした javascript: の URL も href・src に入れない（T-33 S-06）', "h('a', { href: 'java\\tscript:…' }) など",
+      'すべて TypeError（要素を作らない）。#/… の href は入る',
+      () => {
+        const passed = SNEAKY_JS_URLS.filter((u) => {
+          try { h('a', { href: u }); return true; } catch (e) { return !(e instanceof TypeError); }
+        });
+        const okLink = h('a', { href: '#/trades/abc' });
+        return verdict([
+          ['どれも入らない', passed.length === 0, passed],
+          ['#/… は入る', okLink.getAttribute('href') === '#/trades/abc', okLink.getAttribute('href')],
+        ]);
+      }),
+
     t('UI-01', '保存中は「画像を追加」と × を押せない（R-04）', 'imageField（追加済み1枚）→ setDisabled(true) → × を押す／setDisabled(false)',
       '無効中：追加の行と × が disabled、× を押しても外れない／解除後：どちらも押せる',
       async () => {

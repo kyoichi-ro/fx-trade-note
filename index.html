@@ -53,8 +53,26 @@
   <!-- お知らせ行（新しいバージョン・ホーム画面追加の案内など）。中身は JS が入れる -->
   <div id="notice-area"></div>
 
-  <!-- 各画面がここに描画される（router.js が中身を入れ替える） -->
-  <main id="app"></main>
+  <!--
+    各画面がここに描画される（router.js が中身を入れ替える）。
+    中の文は、JS が動き出す前・起動に失敗したときだけ見える固定の文（T-33：T-31 の S-03。真っ白な画面のままにしない）。
+    ・「読み込んでいます…」は、すぐに起動したときにちらつかないよう、1秒たってから見える（css/base.css の .boot）
+    ・起動に必要なファイルが読めない・書き間違いがあるときは、boot-theme.js が「起動できませんでした［再読み込み］」に切り替える
+    文は固定の文字だけ（innerHTML・インラインのスクリプトは使わない：CSP を壊さない）。
+  -->
+  <main id="app">
+    <div class="boot" id="boot">
+      <div class="empty" data-boot="loading">
+        <p class="empty__text">読み込んでいます…</p>
+        <p class="empty__text">表示されない場合は、通信できる場所でアプリを開き直してください。</p>
+      </div>
+      <div class="empty" data-boot="failed" role="alert" hidden>
+        <p class="empty__title">起動できませんでした</p>
+        <p class="empty__text">通信できる場所で、再読み込みしてください。</p>
+        <button type="button" class="btn btn--secondary" id="boot-reload">再読み込み</button>
+      </div>
+    </div>
+  </main>
 
   <!--
     タブバー（下部ナビ）。表示するのは S-01 一覧 / S-08 分析 / S-06 設定 のときだけ（design.md 9.9）。

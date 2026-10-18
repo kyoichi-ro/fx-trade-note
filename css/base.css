@@ -115,6 +115,23 @@ a,
   border: 0;
 }
 
+/* 起動前の固定の文（index.html の #boot：T-33 S-03）。router が最初の画面を描くと入れ替わって消える。
+   すぐ起動したときにちらつかないよう、1秒たってから見せる（動きではなく、表示の切り替えだけ）。起動に失敗したら（.is-failed）すぐ見せる */
+.boot {
+  padding-top: var(--safe-top);
+  opacity: 0;
+  animation: boot-reveal 0.01ms linear 1s forwards;
+}
+.boot.is-failed {
+  opacity: 1;
+  animation: none;
+}
+@keyframes boot-reveal {
+  to {
+    opacity: 1;
+  }
+}
+
 /* JavaScript が無効のときの案内 */
 .noscript {
   padding: calc(var(--safe-top) + var(--sp-4)) var(--sp-4) var(--sp-4);

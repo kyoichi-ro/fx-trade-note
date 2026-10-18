@@ -23,7 +23,7 @@
    T-29：⑥ 永続化リクエストを追加（記録が1件以上あるときだけ。画面の表示を始めたあとに行う）。
    T-28：⑤ Service Worker の登録を追加（中身は sw-update.js。localhost では ?sw=1 のときだけ登録：architecture 18.4）。
    ========================================================= */
-import { startRouter } from './router.js';
+import { startRouter, flushCurrentDraft } from './router.js';
 import { openDb, setHandlers } from './db.js';
 import { showAppNotice } from './ui/notice.js';
 import { startKeyboardWatch, startInputModalityWatch } from './ui/keyboard.js';
@@ -49,8 +49,23 @@ function showAppProblem(kind, text, buttonLabel) {
     iconName: 'warning',
     tone: 'error',
     text,
-    action: buttonLabel ? { label: buttonLabel, onClick: () => location.reload() } : null,
+    action: buttonLabel ? { label: buttonLabel, onClick: () => reloadKeepingDraft() } : null,
   });
+}
+
+/** 再読み込みを始めたか（ボタンを続けて押しても1回だけにする） */
+let reloading = false;
+
+/**
+ * お知らせ行の［再読み込み］：入力画面なら入力途中の内容をすぐ下書きに保存し、書き終わってから再読み込みする（T-33：T-31 の S-05）。
+ * すぐ location.reload() すると、直前（約0.5秒分）の入力が下書きに残らず、開き直したときに消えていたため。
+ * 下書きの保存が遅くても、router 側が最大1.5秒で見切るので、再読み込みは必ず行う。
+ */
+async function reloadKeepingDraft() {
+  if (reloading) return;
+  reloading = true;
+  await flushCurrentDraft();
+  location.reload();
 }
 
 /**
@@ -210,6 +225,8 @@ function scheduleOrphanSweep() {
 }
 
 async function main() {
+  // 動き出した目印（boot-theme.js が、これより前のエラーだけを「起動できませんでした」として扱う：T-33 S-03）
+  document.documentElement.setAttribute('data-booted', '');
   installGlobalErrorHandlers();
   openDatabase();
 
