@@ -9,6 +9,8 @@
    足せるようにした。content が { body, headerRight, footer } を返すと使える（Node だけを返す従来の形もそのまま使える）。
    本文だけがスクロールし、題名・「キャンセル」・下部のボタンは常に見える。
    【T-33】content が { initialFocus } も返せるようにした（最初にフォーカスを置く要素。「その他の通貨ペア」は検索欄：T-32 の U-09）。
+   【T-44】content の2つ目の引数 control で、処理中に閉じられないようにする（setDismissible(false)：「キャンセル」を無効表示にし、
+   背景のタップ・Esc でも閉じない）・「キャンセル」を隠す（setCancelHidden(true)：結果の表示）ことができる（CSV の読み込み：design 14.6.9）。
 
    ・開く・閉じる・フォーカスを戻す・背後のスクロールを止める仕組みは、アクションシートと同じ dialog.js の openModal を使う
      （同時に開くのは1つだけ、という約束をアプリ全体で守るため）。
@@ -22,8 +24,11 @@ import { openModal } from './dialog.js';
 /**
  * ボトムシートを開く。
  * @param {{ title: string, cancelLabel?: string,
- *   content: (finish: (value: any) => void) => (Node | { body: Node, headerRight?: Node|null, footer?: Node|null, initialFocus?: HTMLElement|null }) }} opts
+ *   content: (finish: (value: any) => void, control: { setDismissible: (on: boolean) => void, setCancelHidden: (on: boolean) => void })
+ *     => (Node | { body: Node, headerRight?: Node|null, footer?: Node|null, initialFocus?: HTMLElement|null }) }} opts
  *   content … シートの中身を作る関数。引数の finish(値) を呼ぶとシートを閉じる。
+ *     control.setDismissible(false) の間は「キャンセル」・背景のタップ・Esc で閉じない（finish はいつでも使える）。
+ *     control.setCancelHidden(true) で「キャンセル」を隠す（題名は真ん中のまま）。
  *     返すもの：本文の Node、または { body: 本文, headerRight: 上部の右に置く部品（「すべて解除」など）, footer: 下部に固定する部品（主要ボタン）,
  *       initialFocus: 最初にフォーカスを置く要素（省略すると「キャンセル」） }
  * @returns {Promise<any>} finish に渡した値。キャンセル・背景タップ・Esc なら null
@@ -32,8 +37,18 @@ export function openSheet({ title, cancelLabel = 'キャンセル', content }) {
   const titleId = uniqueId('sheet');
   const dlg = h('dialog', { class: 'dialog dialog--bottom', 'aria-modal': 'true', 'aria-labelledby': titleId });
   const finish = (value) => dlg._finish(value);
-  const cancelBtn = h('button', { type: 'button', class: 'btn btn--text', onClick: () => finish(null) }, cancelLabel);
-  const built = content(finish);
+  let dismissible = true;
+  const cancelBtn = h('button', { type: 'button', class: 'btn btn--text', onClick: () => { if (dismissible) finish(null); } }, cancelLabel);
+  const control = {
+    setDismissible(on) {
+      dismissible = Boolean(on);
+      cancelBtn.disabled = !dismissible;
+    },
+    setCancelHidden(on) {
+      cancelBtn.hidden = Boolean(on);
+    },
+  };
+  const built = content(finish, control);
   const { body, headerRight = null, footer = null, initialFocus = null } = built instanceof Node ? { body: built } : built;
   dlg.append(h('div', { class: 'sheet' },
     // 上端の「つまみ」は見た目だけ（iOS と同じ形。ドラッグで閉じる操作は作らない：キャンセル・背景タップで閉じられる）
@@ -48,5 +63,5 @@ export function openSheet({ title, cancelLabel = 'キャンセル', content }) {
   ));
   // 最初のフォーカスは、指定がなければ「キャンセル」（検索欄にすると iPhone ではすぐキーボードが出て一覧が隠れるため）。
   // 「その他の通貨ペア」は、開いた目的がほぼ検索なので検索欄（T-33 U-09：タップが1つ減る）
-  return openModal(dlg, initialFocus || cancelBtn, null, true);
+  return openModal(dlg, initialFocus || cancelBtn, null, true, { canDismiss: () => dismissible });
 }

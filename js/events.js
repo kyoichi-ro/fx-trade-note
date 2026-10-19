@@ -13,6 +13,7 @@
 
    通知の名前（今あるもの）：
      'trades-changed' … detail = { type: 'add' | 'update' | 'delete' | 'restore', id, trade }
+                        CSV の読み込み（T-44）だけは1回にまとめて detail = { type: 'imported', ids }（id・trade はない）
 
    ・ここは「基礎」の層（architecture 4.3）。window や document を使わない（Node.js でも動く）。
    ========================================================= */

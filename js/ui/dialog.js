@@ -53,8 +53,11 @@ function focusQuietly(el) {
  * @param {HTMLElement} initialFocus 最初にフォーカスを置くボタン
  * @param {*} cancelValue Esc・背景タップなどで閉じたときの値
  * @param {boolean} closeOnBackdrop 背景のタップで閉じるか（アラートは閉じない：design 14.7.3）
+ * @param {{ canDismiss?: () => boolean }} [opts]
+ *   canDismiss … false を返している間は、Esc・背景のタップ・ブラウザの都合で閉じられたときも閉じない（T-44：CSV の取り込み中。
+ *                design 14.6.9「取り込み中は閉じない」）。プログラムからの finish(値) はいつでも閉じられる
  */
-function open(dlg, initialFocus, cancelValue, closeOnBackdrop) {
+function open(dlg, initialFocus, cancelValue, closeOnBackdrop, { canDismiss = () => true } = {}) {
   // 前のものが開いていたら「何もしない」で閉じる（二重に重ならないように）
   if (openEntry) openEntry.finish(openEntry.cancelValue);
 
@@ -78,13 +81,23 @@ function open(dlg, initialFocus, cancelValue, closeOnBackdrop) {
     // Esc キー（Android の戻る操作も cancel になる）
     dlg.addEventListener('cancel', (e) => {
       e.preventDefault();
-      if (closeOnBackdrop) finish(cancelValue); // アクションシートは「何もしない」で閉じる。アラートはボタンでだけ閉じる
+      // アクションシートは「何もしない」で閉じる。アラートはボタンでだけ閉じる。閉じられない間（canDismiss）は何もしない
+      if (closeOnBackdrop && canDismiss()) finish(cancelValue);
     });
-    // 何かの理由で閉じられた場合も、必ず Promise を終わらせる
-    dlg.addEventListener('close', () => finish(cancelValue));
+    // 何かの理由で閉じられた場合も、必ず Promise を終わらせる。
+    // ただし閉じられない間に閉じられた（Esc を続けて押すと、ブラウザが cancel の取り消しを無視して閉じることがある）ときは開き直す
+    dlg.addEventListener('close', () => {
+      if (!done && !canDismiss()) {
+        try {
+          dlg.showModal();
+          return;
+        } catch (_) { /* 開き直せない（画面から外れた等）ときは、下で終わらせる */ }
+      }
+      finish(cancelValue);
+    });
     if (closeOnBackdrop) {
       // 半透明の背景（<dialog> 自体）を押したとき。中のまとまりを押したときは target が中の要素になる
-      dlg.addEventListener('click', (e) => { if (e.target === dlg) finish(cancelValue); });
+      dlg.addEventListener('click', (e) => { if (e.target === dlg && canDismiss()) finish(cancelValue); });
     }
 
     document.body.append(dlg);
@@ -194,6 +207,43 @@ export function alertCsvSaveFailed(message = '共有の画面を開けません�
 }
 
 /**
+ * CSV のファイルとして読めないときのアラート（design 14.6.9 I-1〜I-5。確認シートを出す前なので、記録は何も変わっていない）。
+ * 本文に「記録はそのままです」を付けないのは、取り込みを始めていないため（design 14.6.9）。
+ */
+const IMPORT_FILE_ALERTS = Object.freeze({
+  read: { title: 'ファイルを読み込めませんでした', message: 'もう一度選んでください。' },
+  format: {
+    title: 'このファイルは読み込めません',
+    message: 'このアプリで書き出したCSVを選んでください。NumbersやExcelで開いた場合は、CSV形式で書き出してから選びます。',
+  },
+  encoding: { title: '文字コードが違います', message: 'UTF-8のCSVを選んでください。Excelでは「CSV UTF-8（コンマ区切り）」で保存します。' },
+  empty: { title: '記録がありません', message: 'このCSVには記録の行がありません。' },
+  'too-large': { title: 'ファイルが大きすぎます', message: '読み込めるのは20MBまでです。' },
+});
+
+/**
+ * @param {'read'|'format'|'encoding'|'empty'|'too-large'} kind
+ * @returns {Promise<*>}
+ */
+export function alertImportFile(kind) {
+  return showAlert(IMPORT_FILE_ALERTS[kind] || IMPORT_FILE_ALERTS.read);
+}
+
+/**
+ * CSV を取り込めなかったときのアラート（design 14.6.9「取り込みの失敗」。取り込みは全部か何もなしなので「読み込む前のまま」と言い切れる）。
+ * @param {'write'|'conflict'} kind write＝書き込みの失敗（容量不足の可能性）／conflict＝確認中に記録が変わった
+ * @returns {Promise<*>}
+ */
+export function alertImportFailed(kind) {
+  return showAlert({
+    title: '取り込めませんでした',
+    message: kind === 'conflict'
+      ? '確認中に記録が変更されました。もう一度CSVを読み込んでください。'
+      : '端末の空き容量が不足している可能性があります。記録は読み込む前のままです。',
+  });
+}
+
+/**
  * 今開いているシート・確認・アラートを「何もしない」で閉じる（画面を離れるときの後片付け用）。
  * 一覧を離れたときに絞り込みシートが次の画面の上に残らないようにするため（T-23）。開いていなければ何もしない。
  */
@@ -204,5 +254,6 @@ export function closeOpenDialog() {
 /**
  * ボトムシート（ui/sheet.js）も、アクションシート・アラートと同じ「同時に1つだけ・閉じたらフォーカスを戻す・背後を止める」
  * 仕組みで開くため、共通部分 open() を部品の中だけで使える名前で出す（T-17 で追加）。画面からは直接使わない。
+ * focusQuietly は、シートの中身を入れ替えたあと（CSV の読み込みの結果：T-44）にフォーカスを移すために出す。
  */
-export { open as openModal };
+export { open as openModal, focusQuietly };

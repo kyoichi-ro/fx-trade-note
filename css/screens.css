@@ -724,6 +724,58 @@
 }
 
 /* =========================================================
+   設定：CSVを読み込む（design 14.6.9。T-44）
+   入口の行は「CSVを書き出す」と同じ .export-row、確認シートのファイル名は .export-file を使う。新しい CSS 変数は作らない
+   ========================================================= */
+
+/* 説明文が2つ以上あるとき（確認シートの扱いの説明・結果の注記）は、段落の間を少し空ける */
+.import-sheet .list-group__footer p + p,
+.import-sheet .list-group__footer p + .field-message,
+.import-sheet .list-group__footer .field-message + p {
+  margin-top: var(--sp-1);
+}
+
+/* 取り込み中は「スキップ｜上書き」を薄くする（押せない） */
+.import-sheet .segment.is-disabled {
+  opacity: var(--opacity-disabled);
+}
+
+/* 読めなかった行：行番号（等幅・灰）＋理由（15px）。理由は行番号の右で折り返す */
+.import-issue {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--sp-3);
+  font-size: var(--fs-subhead);
+}
+.import-issue__line {
+  flex-shrink: 0;
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--color-text-sub);
+}
+.import-issue__reason {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 結果の1行目「✓ 取り込みました」：✓ はアクセント色の線画、文字は 17px・600 */
+.import-done {
+  justify-content: flex-start;
+  font-size: var(--fs-headline);
+  font-weight: var(--fw-semibold);
+}
+.import-done__icon {
+  color: var(--color-accent);
+}
+
+/* 取り込み中、ボタンの上に出す「途中でアプリを閉じると…」（13px・灰） */
+.import-sheet__note {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-footnote);
+  color: var(--color-text-sub);
+}
+
+/* =========================================================
    設定：ホーム画面への追加（#/settings/install。design 14.6.6。T-29）
    ========================================================= */
 

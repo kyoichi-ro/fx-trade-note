@@ -35,6 +35,9 @@
    ・削除・削除の取り消しのとき、その記録の決済・編集の下書きの baseUpdatedAt を一緒に付け替える（R-10）。
      削除と取り消しは updatedAt を変えるので、そのままだと取り消したあとに下書きが「元の記録が変更された」と判定されて破棄され、
      入力途中の決済・編集が戻らないため。付け替えるのは「下書きの土台＝削除する直前の記録」のときだけ（それ以外は今までどおり古い下書き）。
+   【T-44：CSV の読み込み】
+   ・buildImportedTrade()：CSV から読んだ記録を保存する形にする（syncStatus は pending、上書きでも端末の画像は残す、updatedAt は CSV の値のまま）。
+   ・importTrades()：1つのトランザクションでまとめて書く（全部入るか何も入らない）。確認中に記録が変わっていたら CONFLICT。
 
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
@@ -189,6 +192,36 @@ export function buildReopenedTrade(stored) {
     ...stored,
     exitPrice: null, exitAt: null, pips: null, profitJpy: null, profitSource: null, quoteToJpyRate: null,
   };
+}
+
+/* ---------------------------------------------------------
+   CSV の読み込み（T-44。design 14.6.9・14.6.11、sheets-setup 7.2）
+   --------------------------------------------------------- */
+
+/**
+ * CSV から読んだ記録（csv-import.js の rowToTrade でチェック済み）を、この端末に保存する形にする（DB に触れない）。
+ * ・syncStatus は 'pending'（取り込んだ記録はシートへ送り直す対象：roadmap T-44）
+ * ・新しい記録：imageIds は空（画像は CSV に無い）、syncedAt は null（この端末からはまだ送っていない）
+ * ・上書き（stored あり）：この端末の imageIds を残す（CSV には画像が無く、消すと取り返せない：design 14.6.11 ②）。
+ *   syncedAt も端末の値を残す（saveTrade と同じ。「この端末から最後に送れた日時」の意味を変えない）
+ * ・それ以外の項目（deletedAt・createdAt・updatedAt を含む）は CSV の値のまま。削除済みの記録は削除済みのまま（14.6.11 ③）。
+ *   updatedAt を CSV の値のまま残す理由（今の時刻にしない）：
+ *     ① シートは「届いた updatedAt が古ければ書かない」（sheets-setup 6.1）。古いバックアップで上書きしても、シートにある
+ *        新しい内容（別の端末の変更を含む）を消さない。新しい時刻にすると、古い内容でシートまで上書きしてしまう
+ *     ② 上書き前と同じ版（updatedAt が同じ）なら、その記録の決済・編集の下書きはそのまま続けられ、違えば「元の記録が
+ *        変更された」と判定される（下書きの照合 baseUpdatedAt：architecture 9.3）。今の時刻にすると、同じ版でも下書きを捨ててしまう
+ * ・status・riskReward・session は recompute() で決める（保存のたびと同じ。session は CSV の値が正しければそのまま）
+ * @param {object} row 32項目の記録（CSV から読んだもの）
+ * @param {object|null} stored この端末に保存されている同じ ID の記録（なければ null）
+ * @returns {object} 32項目の記録
+ */
+export function buildImportedTrade(row, stored) {
+  return normalizeTrade(recompute({
+    ...row,
+    imageIds: stored ? [...(stored.imageIds || [])] : [],
+    syncStatus: 'pending',
+    syncedAt: stored ? stored.syncedAt ?? null : null,
+  }));
 }
 
 /** 口座区分が正しいか（lotUnitSize を設定から読むキーに使うため、打ち間違いは保存前に止める） */
@@ -422,6 +455,65 @@ export function createTradeService({
       return result;
     },
 
+    /**
+     * CSV から読んだ記録をまとめて取り込む（T-44：design 14.6.9・14.6.12）。
+     * ・**1つのトランザクションで全部書く**（途中でアプリが閉じられても、半端に入らない＝全部入るか何も入らない）
+     * ・すでにある記録（同じ ID）は overwrite が false ならスキップ、true なら buildImportedTrade で置き換える
+     * ・snapshot（確認シートを出した時点の、ID ごとの端末の updatedAt。なければ null：csv-import.js の summarizeImport）と、
+     *   書き込む直前の記録を比べ、違っていたら AppError CONFLICT で何も書かない（確認中に別の画面で記録が変わった：
+     *   design 14.6.9「確認中に記録が変更されました」）。スキップする記録は書かないので比べない
+     * ・失敗（容量不足など）は QUOTA / DB_WRITE。何も書かれていない
+     * ・書いたら 'trades-changed'（type: 'imported'）を1回だけ出す（1件ずつ出すと一覧が件数分描き直されるため）
+     * @param {object[]} rows CSV から読んだ記録（csv-import.js の rowToTrade でチェック済み。ID が重ならないこと）
+     * @param {{ overwrite?: boolean, snapshot: Map<string, (string|null)> }} opts
+     * @returns {Promise<{ added: number, overwritten: number, skipped: number, trades: object[] }>} trades は書いた記録
+     */
+    async importTrades(rows, { overwrite = false, snapshot }) {
+      if (!(snapshot instanceof Map)) throw new TypeError('trades：importTrades には確認した時点の snapshot（Map）を渡してください');
+      for (const row of rows) {
+        assertId(row && row.id);
+        normalizeTrade(row); // 6.1 にない項目が混ざっていないかを、DB を開く前に確かめる
+      }
+      let result;
+      await db.runTx([STORE.TRADES], async (ops) => {
+        result = { added: 0, overwritten: 0, skipped: 0, trades: [] };
+        // 同じトランザクションの中で端末の記録を一度に読む（1件ずつ get を待つと、1万件で数秒かかったため）。
+        // 読んでから書き終わるまで、ほかの画面の書き込みはこのトランザクションの後に回される（IndexedDB の決まり）
+        const device = new Map((await ops.getAll(STORE.TRADES)).map((x) => [x.id, x]));
+        const writes = [];
+        // 先に全部を確かめてから書く（確認中に変わった記録が1件でもあれば、何も書かずに CONFLICT）
+        for (const row of rows) {
+          const expected = snapshot.has(row.id) ? snapshot.get(row.id) : null;
+          if (expected !== null && !overwrite) {
+            result.skipped += 1;
+            continue;
+          }
+          const stored = device.get(row.id) || null;
+          if ((stored ? stored.updatedAt : null) !== expected) {
+            throw new AppError('CONFLICT', '確認中に記録が変更されました。もう一度CSVを読み込んでください。');
+          }
+          writes.push([buildImportedTrade(row, stored), stored !== null]);
+        }
+        // 書き込みの要求はまとめて出し、全部の完了を待つ（1つでも失敗すればトランザクションごと取り消される）
+        const pending = [];
+        try {
+          for (const [saved, exists] of writes) pending.push(exists ? ops.put(STORE.TRADES, saved) : ops.add(STORE.TRADES, saved));
+        } catch (e) {
+          // 要求を出す時点で失敗した（保存できない値など）。出し終えた分は取り消しで失敗になるので、その失敗は黙って受け取る
+          for (const p of pending) p.catch(() => {});
+          throw e;
+        }
+        await Promise.all(pending);
+        for (const [saved, exists] of writes) {
+          if (exists) result.overwritten += 1;
+          else result.added += 1;
+          result.trades.push(saved);
+        }
+      });
+      if (result.trades.length > 0) emit(TRADES_CHANGED, { type: 'imported', ids: result.trades.map((t) => t.id) });
+      return result;
+    },
+
     /** 1件取得。見つからなければ null（削除済みもそのまま返す。表示するかは呼び出し側が deletedAt で判断） */
     getTrade: (id) => db.getTrade(id),
 
@@ -490,4 +582,5 @@ export const tradeService = createTradeService();
 
 export const {
   saveNewTrade, saveTrade, closeTrade, reopenTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade, removeTradeImage,
+  importTrades,
 } = tradeService;

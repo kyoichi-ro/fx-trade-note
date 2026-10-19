@@ -20,7 +20,7 @@
    ========================================================= */
 
 /** アプリのバージョン。js/config.js の APP_VERSION と必ず同じ値にする（テスト「リリース確認」で確かめる） */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 /**
  * キャッシュ名の接頭辞。https://ユーザー名.github.io は同じアカウントの他のアプリと Cache Storage を共有するので、
@@ -68,6 +68,7 @@ const SHELL_FILES = [
   './js/close-form.js',
   './js/config.js',
   './js/csv.js',
+  './js/csv-import.js',
   './js/data-protection.js',
   './js/datetime.js',
   './js/db.js',
@@ -99,6 +100,7 @@ const SHELL_FILES = [
   './js/screens/install-guide.js',
   './js/screens/list.js',
   './js/screens/settings-data.js',
+  './js/screens/settings-import.js',
   './js/screens/settings.js',
 
   './js/ui/bars.js',

@@ -14,6 +14,8 @@
       CSV を作っただけでは記録しない（「最後のバックアップから○日」の案内を正しく出すため）
    失敗はアラート（design 14.7.3）。キャンセルは失敗として扱わない。
    【T-29】①〜③を exportCsv() に切り出した（ホーム画面への追加の画面の「CSVを書き出す」でも同じ動きにするため：design 14.6.6）。
+   【T-44】「CSVを読み込む」は見出しのない次のまとまり（screens/settings-import.js）。取り込みの後に「記録の件数」を新しくするため、
+   記録の変更通知（trades-changed）で件数を読み直す。
 
    【「削除済みの記録も含める」を保存しない理由】
    requirements 6.3 に対応する設定キーがなく、docs を変えずに足すとキー名の取り決め（settings-store.js）から外れるため、
@@ -25,7 +27,8 @@ import { switchRow } from '../ui/fields.js';
 import { openSheet } from '../ui/sheet.js';
 import { showToast } from '../ui/toast.js';
 import { alertCsvCreateFailed, alertCsvSaveFailed } from '../ui/dialog.js';
-import { getAllTrades } from '../trades.js';
+import { getAllTrades, TRADES_CHANGED } from '../trades.js';
+import { on } from '../events.js';
 import { getSetting, setSetting } from '../settings-store.js';
 import { nowJst } from '../datetime.js';
 import {
@@ -217,18 +220,22 @@ export function dataGroup() {
   }
 
   // 件数は画面を開いた後に読む（読み込み中も設定画面は操作できる）。読めなくても「—」のまま。書き出しを押すと改めて読み、失敗ならアラート
-  getAllTrades().then((trades) => {
+  const loadCounts = () => getAllTrades().then((trades) => {
     counts = countTrades(trades);
     render();
   }).catch((e) => {
     console.error('記録の件数を読み込めませんでした', e);
   });
+  loadCounts();
   render();
+  // 設定画面を開いたまま記録が増えたとき（CSV の読み込み：T-44。design 14.6.9「閉じたら『記録の件数』を新しい件数に」）は読み直す
+  const stopWatching = on(TRADES_CHANGED, () => { if (alive) loadCounts(); });
 
   return {
     group,
     dispose() {
       alive = false;
+      stopWatching();
     },
   };
 }

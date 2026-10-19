@@ -31,6 +31,8 @@ import { collectEntryFormTests } from './entry-form.test.js';
 import { collectEditFormTests } from './edit-form.test.js';
 import { collectImageTests } from './images.test.js';
 import { collectCsvTests } from './csv.test.js';
+import { collectCsvImportTests } from './csv-import.test.js';
+import { collectCsvImportDbTests } from './csv-import-db.test.js';
 import { collectDataProtectionTests } from './data-protection.test.js';
 import { collectReleaseTests } from './release.test.js';
 import { collectUiTests } from './ui.test.js';
@@ -53,6 +55,8 @@ export function collectAllTests() {
     ...collectEditFormTests(),   // 編集・削除（ED・DN・DL）T-22。記録→入力欄・変更の検出・口座区分変更時の1lot・再計算・保存する記録の組み立て・別の画面で変更されたときの重ね合わせ・下書きの対象の判定とお知らせ行・削除トーストの受け渡し：design 14.5・14.3.8・14.7.5。Node.js でも実行する
     ...collectImageTests(),      // チャート画像（IM）T-24。縮小後の大きさ・JPEG の品質の段階と250KB・サイズが超えても失敗させない・半分ずつ縮める・4枚の判定・imageIds の組み立て・孤立画像の判定・表示用URLの解放・壊れたBlobの見分け・空き容量・決済での画像の追加：architecture 11章・design 14.1.9。Node.js でも実行する
     ...collectCsvTests(),        // CSVエクスポート（CS）T-25。BOM・列の見出しと順・エスケープ・配列の区切り・CSVインジェクション対策・論理削除の含める/除く・ファイル名・1000件・読み戻し・共有シートの使い分け：architecture 14.2・design 14.6.5。Node.js でも実行する
+    ...collectCsvImportTests(),  // CSV読み込み（CI）23件 T-44。往復（書き出し→読み込み）・1000件・BOM/改行・列名で読む・文字コード/形式の見分け・見出しだけ・シートの見え方・読めなかった行の理由と行番号・日時の範囲・矛盾・pips/損益の照合・件数と文言・選択肢の補い・上書きの組み立てと下書きの照合：design 14.6.9・sheets-setup 7.2。Node.js でも実行する
+    ...collectCsvImportDbTests(), // CSV読み込みの保存（CD）9件 T-44。書き出し→削除→読み込みで元に戻る・スキップ/上書き・画像を残す・全部か何もなし・確認中の変更・変更通知・取り込み中は閉じないシート。※ブラウザのみ
     ...collectDataProtectionTests(), // データ保護（DP）15件 T-29。ホーム画面版・iPhone の判定・お知らせ行を出す条件・今の状態の文言・永続化リクエスト（保護済みなら頼まない・1回の起動で1回）・データの保護の値と説明文・使用量の表示：architecture 12.5・design 14.3.8・14.6.1・14.6.2・14.6.6。Node.js でも実行する
     ...collectChoiceListTests(), // 選択肢の編集（CH）35件（T-16。名前のチェック・追加/削除/並び替え・通貨ペアの追加 E-12〜E-16・W-07・初期値の master.js への移動・保存の読み直し：design 14.6.3・14.6.4）。Node.js でも実行する
     ...collectUiTests(),         // 画面の部品（UI）T-33。保存中の画像の追加・× の無効化と whenIdle（R-04）など、document を使うものはブラウザのみ
