@@ -219,10 +219,15 @@ const IMPORT_FILE_ALERTS = Object.freeze({
   encoding: { title: '文字コードが違います', message: 'UTF-8のCSVを選んでください。Excelでは「CSV UTF-8（コンマ区切り）」で保存します。' },
   empty: { title: '記録がありません', message: 'このCSVには記録の行がありません。' },
   'too-large': { title: 'ファイルが大きすぎます', message: '読み込めるのは20MBまでです。' },
+  // T-44 レビュー CI-R01：選択肢に自動で足す名前の上限（csv-import.js の CHOICE_AUTO_ADD_MAX）を超えるファイル
+  'too-many-choices': {
+    title: 'このファイルは読み込めません',
+    message: '選択肢にない根拠・感情・タグの名前が多すぎます（それぞれ100件まで）。',
+  },
 });
 
 /**
- * @param {'read'|'format'|'encoding'|'empty'|'too-large'} kind
+ * @param {'read'|'format'|'encoding'|'empty'|'too-large'|'too-many-choices'} kind
  * @returns {Promise<*>}
  */
 export function alertImportFile(kind) {

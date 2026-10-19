@@ -241,8 +241,10 @@ export function importGroup({ onImported = () => {} } = {}) {
   let busy = false; // 読み込み〜確認シートの間（二重に始めない）
   let alive = true;
 
-  // 見えないファイル選択。CSV だけを選べるようにする（画像のときの「写真ライブラリ」「写真を撮る」を出さない）
-  const input = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+  // 見えないファイル選択。CSV だけを選べるようにする（画像のときの「写真ライブラリ」「写真を撮る」を出さない）。
+  // 隠し方は、iPhone 実機で開けることを確かめた画像の添付（ui/image-field.js）と同じ visually-hidden にそろえる
+  // （display: none の input を click() で開けない iOS の版があっても困らないように：T-44 レビュー CI-R07）
+  const input = h('input', { type: 'file', accept: '.csv,text/csv', class: 'visually-hidden', 'aria-hidden': 'true', tabindex: '-1' });
   const row = h('button', { type: 'button', class: 'list-row export-row', onClick: () => pick() },
     h('span', { class: 'list-row__label' }, 'CSVを読み込む'));
   const group = listGroup({ rows: [row], footer: h('p', {}, ROW_NOTE) });
@@ -299,7 +301,8 @@ export function importGroup({ onImported = () => {} } = {}) {
  * ファイルを読み、確認シートに出す数を求める（確認シートを出す前に全部済ませる：design 14.6.12）。
  * @param {File} file
  * @returns {Promise<{ error: string } | { error: null, parsed: object, summary: object }>}
- *   error：'too-large'（I-5）／'read'（I-1）／'format'（I-2）／'encoding'（I-3）／'empty'（I-4）
+ *   error：'too-large'（I-5）／'read'（I-1）／'format'（I-2）／'encoding'（I-3）／'empty'（I-4）／
+ *          'too-many-choices'（選択肢に足す名前が種類ごとに CHOICE_AUTO_ADD_MAX を超える：T-44 レビュー CI-R01）
  */
 async function readFile(file) {
   // 大きなファイルは中身を読まずに断る（20MB を超えるものを読むと、古い iPhone ではメモリが足りなくなるおそれ）
@@ -313,6 +316,12 @@ async function readFile(file) {
   }
   const parsed = parseImportBytes(bytes);
   if (!parsed.ok) return { error: parsed.error };
+  // 選択肢に足す名前が多すぎるファイルは、確認シートを出す前に断る（どの記録を取り込むか選ぶ前なので、読めた行すべてで数える）
+  try {
+    if (planChoiceAdditions(getSetting('choices'), parsed.rows.map((r) => r.trade)).exceeded) return { error: 'too-many-choices' };
+  } catch (e) {
+    console.warn('選択肢の数を確かめられませんでした', e);
+  }
   let deviceTrades;
   try {
     deviceTrades = await getAllTrades(); // 削除済みを含む（同じ ID の記録は、削除済みでも「すでにある記録」）

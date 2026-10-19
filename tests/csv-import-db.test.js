@@ -21,9 +21,10 @@ import { toJstString } from '../js/datetime.js';
 import { on } from '../js/events.js';
 import { AppError } from '../js/util.js';
 import { openSheet } from '../js/ui/sheet.js';
+import { importGroup } from '../js/screens/settings-import.js';
 import { h } from '../js/ui/dom.js';
 import { TEST_DB_PREFIX } from './db.test.js';
-import { sampleTrade, sampleOpen, uuid } from './csv-import.test.js';
+import { sampleTrade, sampleOpen, uuid, TEST_NOW } from './csv-import.test.js';
 import { show } from './helpers.js';
 
 const CATEGORY = 'CSV読み込み';
@@ -72,7 +73,7 @@ function verdict(checks) {
 /** 記録の一覧を CSV にして（削除済みも含める）、読み込みの準備（読む → 端末と比べる）までを行う */
 async function prepareImport(sourceTrades, deviceTrades) {
   const p = prepareCsv(sourceTrades, { includeDeleted: true });
-  const parsed = parseImportBytes(new TextEncoder().encode(p.text));
+  const parsed = parseImportBytes(new TextEncoder().encode(p.text), { now: TEST_NOW });
   if (!parsed.ok) throw new Error(`CSV を読めません：${parsed.error}`);
   return { parsed, summary: summarizeImport(parsed, deviceTrades), rows: parsed.rows.map((r) => r.trade) };
 }
@@ -301,6 +302,30 @@ export function collectCsvImportDbTests() {
           ['開いたまま', stillOpen], ['キャンセルは無効', cancelDisabled], ['キャンセルを隠せる', hidden],
           ['許したら閉じる', !dlg.isConnected && value === null, value],
         ]);
+      }),
+
+    tDom('CD-10', 'CI-R07：見えないファイル選択は画像の添付（iPhone で確認済み）と同じ visually-hidden。行を押すとその input の click() が呼ばれる',
+      'importGroup() の input の属性・見え方、行を押したときの click',
+      'class が visually-hidden・hidden 属性なし・display は none でない・accept は .csv,text/csv・行を押すと1回 click',
+      () => {
+        const g = importGroup();
+        document.body.append(g.group);
+        try {
+          const input = g.group.querySelector('input[type="file"]');
+          let clicks = 0;
+          input.click = () => { clicks += 1; }; // 本物のファイル選択は開かない
+          g.group.querySelector('button.export-row').click();
+          return verdict([
+            ['visually-hidden', input.classList.contains('visually-hidden'), input.className],
+            ['hidden 属性なし', !input.hasAttribute('hidden')],
+            ['display', getComputedStyle(input).display !== 'none', getComputedStyle(input).display],
+            ['accept', input.getAttribute('accept') === '.csv,text/csv', input.getAttribute('accept')],
+            ['click', clicks === 1, clicks],
+          ]);
+        } finally {
+          g.dispose();
+          g.group.remove();
+        }
       }),
   ];
 }

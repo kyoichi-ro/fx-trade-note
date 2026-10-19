@@ -16,15 +16,26 @@
    ========================================================= */
 import { CSV_COLUMNS, BOM, cellText, escapeCell, prepareCsv, buildCsvBody } from '../js/csv.js';
 import {
-  IMPORT_MAX_BYTES, decodeCsvBytes, parseCsvRecords, findColumns, parseImportText, parseImportBytes, summarizeImport,
+  IMPORT_MAX_BYTES, decodeCsvBytes, parseCsvRecords, findColumns, parseImportText as parseTextAt, parseImportBytes as parseBytesAt, summarizeImport,
   importCount, importButtonLabel, periodLabel, confirmNote, modeNote, newerWarning, resultNotes, planChoiceAdditions, choiceAddedNote,
-  ALL_EXISTING_NOTE,
+  ALL_EXISTING_NOTE, LIST_ITEMS_MAX, CHOICE_AUTO_ADD_MAX, FUTURE_TOLERANCE_MINUTES,
 } from '../js/csv-import.js';
+import { parseQuoteToJpyRate, QUOTE_RATE_MAX_EXCLUSIVE } from '../js/validate.js';
+import { joinList } from '../js/csv.js';
+import { toJstString } from '../js/datetime.js';
 import { buildImportedTrade, computeClose, recompute, normalizeTrade } from '../js/trades.js';
 import { judgeDraftTarget } from '../js/draft-notice.js';
 import { show } from './helpers.js';
 
 const CATEGORY = 'CSV読み込み';
+
+/**
+ * テストの「今」（未来の更新日時の判定：CI-R03）。端末の時計に左右されないよう決まった時刻にする。
+ * テスト用の記録の日時（2026-10-15〜18 ごろ）より後
+ */
+export const TEST_NOW = new Date('2026-10-20T00:00:00+09:00');
+const parseImportText = (text, opts = {}) => parseTextAt(text, { now: TEST_NOW, ...opts });
+const parseImportBytes = (bytes, opts = {}) => parseBytesAt(bytes, { now: TEST_NOW, ...opts });
 const t = (id, title, input, expected, run) => ({ category: CATEGORY, id, title, input, expected, run });
 
 /* ---------------------------------------------------------
@@ -84,7 +95,7 @@ export function variedTrades() {
     // 境界：年 2000・2099、価格の上限の手前、ロットの上限
     sampleTrade({
       id: uuid(8), pair: 'EUR/JPY', entryPrice: 999999.999, exitPrice: 999999.998, lots: 10000000, lotUnitSize: 1,
-      entryAt: '2000-01-01T00:00:00+09:00', exitAt: '2099-12-31T23:59:59+09:00', createdAt: '2000-01-01T00:00:00+09:00', updatedAt: '2099-12-31T23:59:59+09:00',
+      entryAt: '2000-01-01T00:00:00+09:00', exitAt: '2099-12-31T23:59:59+09:00', createdAt: '2000-01-01T00:00:00+09:00', updatedAt: '2026-10-18T00:00:00+09:00',
       slPrice: null, tpPrice: null,
     }),
   ];
@@ -176,7 +187,7 @@ export function collectCsvImportTests() {
           const day = String((i % 28) + 1).padStart(2, '0');
           const at = `2026-09-${day}T${String(i % 24).padStart(2, '0')}:00:00+09:00`;
           const over = { id: uuid(1000 + i), entryAt: at, createdAt: at, updatedAt: at, exitAt: i % 3 === 0 ? null : `2026-09-${day}T23:59:00+09:00`,
-            memo: `メモ${i}`, deletedAt: i % 50 === 0 ? `2026-09-${day}T23:59:30+09:00` : null };
+            memo: `メモ${i}`, deletedAt: i % 50 === 0 ? at : null };
           origs.push(i % 3 === 0 ? sampleOpen(over) : sampleTrade({ ...over, exitPrice: 150 + (i % 7) / 100 }));
         }
         const r = parseImportText(buildCsvBody(origs));
@@ -354,7 +365,8 @@ export function collectCsvImportTests() {
           [{ deletedAt: '0500-01-01T00:00:00+09:00' }, '削除日時が読めません'],
         ];
         const checks = cases.map(([over, want]) => [JSON.stringify(over), reasonWith(over) === want, reasonWith(over)]);
-        const edge = sampleTrade({ entryAt: '2000-01-01T00:00:00+09:00', createdAt: '2000-01-01T00:00:00+09:00', exitAt: '2099-12-31T23:59:59+09:00', updatedAt: '2099-12-31T23:59:59+09:00' });
+        // 更新日時は「今」より先にできない（CI-R03）ので、2099年の境界は決済日時で確かめる
+        const edge = sampleTrade({ entryAt: '2000-01-01T00:00:00+09:00', createdAt: '2000-01-01T00:00:00+09:00', exitAt: '2099-12-31T23:59:59+09:00', updatedAt: '2026-10-18T00:00:00+09:00' });
         checks.push(['境界は読める', reasonWith({}, edge) === null, reasonWith({}, edge)]);
         return verdict(checks);
       }),
@@ -485,7 +497,7 @@ export function collectCsvImportTests() {
         const csv = [
           sampleTrade({ id: uuid(1), imageIds: ['x'] }),
           sampleTrade({ id: uuid(2), entryAt: '2026-09-01T09:00:00+09:00', exitAt: '2026-09-01T10:00:00+09:00' }),
-          sampleTrade({ id: uuid(3), deletedAt: '2026-10-16T00:00:00+09:00', imageIds: ['y', 'z'] }),
+          sampleTrade({ id: uuid(3), deletedAt: '2026-10-16T00:00:00+09:00', updatedAt: '2026-10-16T00:00:00+09:00', imageIds: ['y', 'z'] }),
           sampleOpen({ id: uuid(4) }),
         ];
         const parsed = parseImportText(buildCsvBody(csv));
@@ -579,9 +591,113 @@ export function collectCsvImportTests() {
         const draft = { kind: 'edit', baseUpdatedAt: T1 };
         const csvSame = parseImportText(buildCsvBody([sampleTrade({ updatedAt: T1 })])).rows[0].trade;
         const csvOld = parseImportText(buildCsvBody([sampleTrade()])).rows[0].trade;
-        const csvDel = parseImportText(buildCsvBody([sampleTrade({ deletedAt: T1 })])).rows[0].trade;
+        const csvDel = parseImportText(buildCsvBody([sampleTrade({ deletedAt: T1, updatedAt: T1 })])).rows[0].trade;
         const j = (row) => judgeDraftTarget(draft, buildImportedTrade(row, stored));
         return verdict([['同じ版', j(csvSame) === 'ok', j(csvSame)], ['古い版', j(csvOld) === 'stale', j(csvOld)], ['削除済み', j(csvDel) === 'gone', j(csvDel)]]);
+      }),
+
+    /* ===== T-44 レビューの修正（docs/reviews/T-44.md の CI-R01〜R04） ===== */
+
+    t('CI-24', 'CI-R01：根拠・タグ・感情の長さと個数の上限（1つの名前は選択肢と同じ20文字・根拠とタグは50個まで）',
+      '根拠・タグの名前 20文字／21文字、絵文字20文字、タグ 50個／51個、感情・決済時の感情 21文字、10万文字の感情',
+      '20文字・50個は読める。超えると「タグが長すぎます」「タグが多すぎます」「エントリー時の感情が長すぎます」など',
+      () => {
+        const names = (n) => Array.from({ length: n }, (_, i) => `t${i}`);
+        const cases = [
+          [{ tags: 'あ'.repeat(20) }, null],
+          [{ tags: '🙂'.repeat(20) }, null],
+          [{ tags: `a|${'あ'.repeat(21)}` }, 'タグが長すぎます'],
+          [{ entryReasons: 'い'.repeat(21) }, 'エントリー根拠が長すぎます'],
+          [{ tags: joinList(names(50)) }, null],
+          [{ tags: joinList(names(51)) }, 'タグが多すぎます'],
+          [{ entryReasons: joinList(names(51)) }, 'エントリー根拠が多すぎます'],
+          [{ emotion: 'う'.repeat(20) }, null],
+          [{ emotion: 'う'.repeat(21) }, 'エントリー時の感情が長すぎます'],
+          [{ exitEmotion: 'え'.repeat(21) }, '決済時の感情が長すぎます'],
+          [{ emotion: 'x'.repeat(100000) }, 'エントリー時の感情が長すぎます'],
+        ];
+        const checks = cases.map(([over, want]) => [Object.keys(over)[0] + String(Object.values(over)[0].length), reasonWith(over) === want, reasonWith(over)]);
+        // 上限いっぱいでも1つのセルは Apps Script の 50,000 文字（sheets-setup 11章）に届かない
+        const widest = cellText('tags', sampleTrade({ tags: Array.from({ length: LIST_ITEMS_MAX }, (_, i) => `${'|'.repeat(19)}${i % 10}`) }));
+        checks.push(['50,000文字に届かない', widest.length < 50000, widest.length]);
+        checks.push(['上限の値', LIST_ITEMS_MAX === 50, LIST_ITEMS_MAX]);
+        return verdict(checks);
+      }),
+
+    t('CI-25', 'CI-R01：選択肢に自動で足すのは種類ごとに100件まで。超えると exceeded（画面はアラート）',
+      '選択肢にないタグ 100種類／101種類、感情 101種類（エントリー時と決済時に分けて）',
+      '100種類は全部足す（exceeded false）。101種類は100件で止めて exceeded true',
+      () => {
+        const empty = { entryReasons: [], emotions: [], tags: [] };
+        const withTags = (n) => Array.from({ length: Math.ceil(n / 50) }, (_, k) => sampleTrade({
+          id: uuid(k + 1), tags: Array.from({ length: Math.min(50, n - k * 50) }, (_, i) => `tag${k * 50 + i}`), emotion: null, exitEmotion: null, entryReasons: [],
+        }));
+        const a = planChoiceAdditions(empty, withTags(100));
+        const b = planChoiceAdditions(empty, withTags(101));
+        const emos = Array.from({ length: 101 }, (_, i) => sampleTrade({ id: uuid(i + 1), emotion: `e${i}`, exitEmotion: i === 100 ? 'last' : null, tags: [], entryReasons: [] }));
+        const c = planChoiceAdditions(empty, emos);
+        return verdict([
+          ['上限の値', CHOICE_AUTO_ADD_MAX === 100, CHOICE_AUTO_ADD_MAX],
+          ['100種類', a.added.tags === 100 && !a.exceeded, [a.added.tags, a.exceeded]],
+          ['101種類', b.added.tags === 100 && b.choices.tags.length === 100 && b.exceeded, [b.added.tags, b.exceeded]],
+          ['感情も', c.added.emotions === 100 && c.exceeded, [c.added.emotions, c.exceeded]],
+          ['既にある名前は数えない', !planChoiceAdditions({ ...empty, tags: Array.from({ length: 101 }, (_, i) => `tag${i}`) }, withTags(101)).exceeded],
+        ]);
+      }),
+
+    t('CI-26', 'CI-R02：ID は英小文字の UUID だけ（大文字は小文字に直さず読めない行に）',
+      '①大文字の ID ②同じ ID の小文字の行と大文字の行',
+      '①「IDの形が違います」②小文字の行は読め、大文字の行は「同じIDの行」ではなく「IDの形が違います」',
+      () => {
+        const id = uuid(1).replace(/0/g, 'a');
+        const upper = id.toUpperCase();
+        const head = CSV_COLUMNS.join(',');
+        const line = (c) => CSV_COLUMNS.map((k) => escapeCell(c[k] ?? '')).join(',');
+        const r = parseImportText(`${head}\r\n${line({ ...cellsOf(sampleTrade()), id })}\r\n${line({ ...cellsOf(sampleTrade()), id: upper })}\r\n`);
+        return verdict([
+          ['大文字', reasonWith({ id: upper }) === 'IDの形が違います', reasonWith({ id: upper })],
+          ['小文字は読める', reasonWith({ id }) === null, reasonWith({ id })],
+          ['同一視しない', r.ok && r.rows.length === 1 && r.rows[0].trade.id === id && r.issues[0]?.reason === 'IDの形が違います', r.ok && r.issues],
+        ]);
+      }),
+
+    t('CI-27', 'CI-R03：未来の更新日時（10分を超えて先）・作成日時が更新日時より後・削除日時が更新日時より後は読めない行',
+      '「今」＝2026-10-20 00:00。更新日時 ＋9分59秒／＋10分／＋10分1秒／1日後、作成日時＞更新日時、削除日時＞更新日時、作成日時＝更新日時＝削除日時',
+      '10分までは読める。超えると「更新日時が未来です」。「作成日時が更新日時より後です」「削除日時が更新日時より後です」。同じ時刻は読める',
+      () => {
+        const at = (ms) => toJstString(new Date(TEST_NOW.getTime() + ms));
+        const T = '2026-10-16T00:00:00+09:00';
+        const min = 60 * 1000;
+        const cases = [
+          [{ updatedAt: at(10 * min - 1000) }, null],
+          [{ updatedAt: at(10 * min) }, null],
+          [{ updatedAt: at(10 * min + 1000) }, '更新日時が未来です'],
+          [{ updatedAt: at(24 * 60 * min) }, '更新日時が未来です'],
+          [{ createdAt: '2026-10-15T23:00:11+09:00' }, '作成日時が更新日時より後です'],
+          [{ deletedAt: '2026-10-15T23:00:11+09:00' }, '削除日時が更新日時より後です'],
+          [{ createdAt: T, updatedAt: T, deletedAt: T }, null],
+        ];
+        const checks = cases.map(([over, want]) => [JSON.stringify(over), reasonWith(over) === want, reasonWith(over)]);
+        checks.push(['許すずれは10分', FUTURE_TOLERANCE_MINUTES === 10, FUTURE_TOLERANCE_MINUTES]);
+        return verdict(checks);
+      }),
+
+    t('CI-28', 'CI-R04：円換算レートは 1,000,000 未満（入力画面と同じ parseQuoteToJpyRate・E-08）。保有中なのに円換算レートがある行は読めない',
+      'parseQuoteToJpyRate：999999.999／1000000／1e21 の22桁。CSV：非JPY の決済済みでレート 1000000、非JPY の保有中でレート 150',
+      '999999.999 は読める、1,000,000 以上は E-08。CSV は「円換算レートの値が違います」「保有中なのに円換算レートがあります」',
+      () => {
+        const nonJpyOpen = sampleOpen({ pair: 'EUR/USD', entryPrice: 1.085, slPrice: null, tpPrice: null });
+        const nonJpy = sampleTrade({ pair: 'EUR/USD', entryPrice: 1.085, exitPrice: 1.086, slPrice: null, tpPrice: null, quoteToJpyRate: 150 });
+        const p = (x) => { const r = parseQuoteToJpyRate(x); return r.ok ? r.value : r.error; };
+        return verdict([
+          ['上限の値', QUOTE_RATE_MAX_EXCLUSIVE === 1000000, QUOTE_RATE_MAX_EXCLUSIVE],
+          ['999999.999', p('999999.999') === 999999.999, p('999999.999')],
+          ['1000000', p('1000000') === 'E-08', p('1000000')],
+          ['22桁', p('1000000000000000000000') === 'E-08', p('1000000000000000000000')],
+          ['CSV のレートが大きい', reasonWith({ quoteToJpyRate: '1000000' }, nonJpy) === '円換算レートの値が違います', reasonWith({ quoteToJpyRate: '1000000' }, nonJpy)],
+          ['保有中なのにレート', reasonWith({ quoteToJpyRate: '150' }, nonJpyOpen) === '保有中なのに円換算レートがあります', reasonWith({ quoteToJpyRate: '150' }, nonJpyOpen)],
+          ['保有中でレートなしは読める', reasonWith({}, nonJpyOpen) === null, reasonWith({}, nonJpyOpen)],
+        ]);
       }),
   ];
 }

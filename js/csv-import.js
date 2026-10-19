@@ -33,7 +33,14 @@
      session は CSV の値（選択肢のどれか）を使い、空なら recompute() が entryAt から判定する（保存値を正とする：fx-rules 11.7）。
    ・価格・ロットには入力画面と同じ上限（E-17・E-18）と桁数（E-03・E-04・E-06）、1lot の通貨数には E-07、円換算レートには E-08 を当てる。
 
-   依存（architecture 4.2）：csv（列名と区切りの規則）, trades（computeClose・judgeStatus）, validate, datetime, master, choice-list, util
+   【T-44 レビューの修正（CI-R01〜R04）】
+   ・根拠・タグ・感情の1つの名前は選択肢と同じ20文字まで、根拠・タグの個数は50個まで（LIST_ITEMS_MAX）。選択肢に自動で足すのは
+     種類ごとに100件まで（CHOICE_AUTO_ADD_MAX。超えるファイルは画面がアラートにする）
+   ・ID は英小文字の UUID だけ（大文字は小文字に直さず読めない行に）
+   ・更新日時が今より10分（FUTURE_TOLERANCE_MINUTES）を超えて先、作成日時が更新日時より後、削除日時が更新日時より後の行は読めない行に
+   ・円換算レートは 1,000,000 未満（validate.js の parseQuoteToJpyRate＝入力画面と同じ）。保有中なのに円換算レートがある行は読めない行に
+
+   依存（architecture 4.2）：csv（列名と区切りの規則）, trades（computeClose・judgeStatus）, validate, datetime, master, choice-list, config, util
    ========================================================= */
 import { CSV_COLUMNS, unguardFormula, splitList } from './csv.js';
 import { computeClose, judgeStatus } from './trades.js';
@@ -41,6 +48,8 @@ import { parsePrice, parseLots, parseLotUnitSize, parseQuoteToJpyRate, normalize
 import { parseJst, jstParts, INPUT_YEAR_MIN, INPUT_YEAR_MAX } from './datetime.js';
 import { getPairSpec, SESSION_LABELS, TIMEFRAME_LABELS, EXIT_REASON_LABELS } from './master.js';
 import { checkChoiceName } from './choice-list.js';
+import { CHOICE_NAME_MAX_LENGTH } from './config.js';
+import { countChars } from './util.js';
 
 /** 読み込めるファイルの大きさの上限（design 14.6.9 I-5。1000件で約0.5MB なので、20MB は数万件分の余裕がある） */
 export const IMPORT_MAX_BYTES = 20 * 1024 * 1024;
@@ -51,8 +60,30 @@ export const ISSUE_LIST_MAX = 20;
 /** メモの上限（requirements 6.1「最大2,000文字程度」。入力欄の maxlength と同じ：ui/fields.js textareaRow） */
 const MEMO_MAX_LENGTH = 2000;
 
-/** ID の形（UUID）。このアプリの ID は util.js の newId（UUID v4）。Apps Script も UUID の形かを確かめる（sheets-setup 10.2 #3） */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * ID の形（UUID・英小文字）。このアプリの ID は util.js の newId（小文字の UUID）で、Apps Script も小文字だけを受け付ける（gas/Code.gs の ID_FORMAT）。
+ * 大文字を小文字に直して同じ記録とみなすことはしない（T-44 レビュー CI-R02：手で直された CSV なので、読めなかった行として知らせる）
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * 根拠・タグの1つの記録に付けられる個数の上限（T-44 レビュー CI-R01）。入力画面では選択肢から選ぶので上限はないが、
+ * 50個を超える記録は手で作られた CSV でしか起きない。50個 × 20文字（区切りのエスケープを含めても約2,000文字）なら、
+ * Apps Script が受け付けない 50,000 文字（sheets-setup 11章・gas/Code.gs の MAX_TEXT_CHARS）に十分届かない
+ */
+export const LIST_ITEMS_MAX = 50;
+
+/**
+ * 1回の読み込みで選択肢に足せる名前の数（種類ごと。T-44 レビュー CI-R01）。これを超えるファイルは確認シートを出さずにアラートにする
+ * （画面 settings-import.js）。機種変更後に使ってきたタグなどを戻すには十分で、エントリー画面のタグの欄が数千個のチップになるのを防ぐ
+ */
+export const CHOICE_AUTO_ADD_MAX = 100;
+
+/**
+ * 更新日時が「今」よりこの分数を超えて先なら読めない行にする（T-44 レビュー CI-R03）。数分の時計のずれは許す。
+ * 未来の updatedAt で取り込むと、そのあと端末で編集した updatedAt（今）の方が古くなり、シートが書き込みを断る（sheets-setup 6.1）
+ */
+export const FUTURE_TOLERANCE_MINUTES = 10;
 
 /** CSV の数値の形（半角数字・小数点1つ・先頭のマイナスだけ）。空白・全角・カンマ・指数表記・「.5」「150.」は読めない */
 const CSV_NUMBER = /^-?\d+(?:\.\d+)?$/;
@@ -257,15 +288,21 @@ function rowReader(cells, columns) {
     if (r.error === 'E-17') fail(`${LABELS[key]}が大きすぎます`);
     return fail(`${LABELS[key]}の小数の桁が多すぎます`); // E-03・E-04（E-01 は CSV_NUMBER で先に止まる）
   };
-  /** 根拠・タグ（「|」でつないだ1つのセル）。空の要素（「a||b」）は読めない */
+  /**
+   * 根拠・タグ（「|」でつないだ1つのセル）。空の要素（「a||b」）は読めない。
+   * 1つの名前は選択肢と同じ20文字まで（数え方も同じ countChars）、個数は LIST_ITEMS_MAX まで（CI-R01）
+   */
   const list = (key) => {
     const items = splitList(text(key));
     if (items.some((x) => x === '')) fail(`${LABELS[key]}の値が違います`);
+    if (items.length > LIST_ITEMS_MAX) fail(`${LABELS[key]}が多すぎます`);
+    if (items.some((x) => countChars(x) > CHOICE_NAME_MAX_LENGTH)) fail(`${LABELS[key]}が長すぎます`);
     return items;
   };
-  /** 任意の文字（感情）。空なら null */
+  /** 任意の文字（感情）。空なら null。選択肢と同じ20文字まで（CI-R01） */
   const optionalText = (key) => {
     const v = text(key);
+    if (countChars(v) > CHOICE_NAME_MAX_LENGTH) fail(`${LABELS[key]}が長すぎます`);
     return v === '' ? null : v;
   };
   return { raw, text, numberText, choice, dateTime, price, list, optionalText };
@@ -278,11 +315,12 @@ function rowReader(cells, columns) {
  * （保存のときに recompute() で求める）。
  * @param {string[]} cells
  * @param {Map<string, number>} columns findColumns の結果
+ * @param {{ now?: Date }} [opts] now … 「今」（未来の更新日時の判定。テストで決まった時刻を渡す）
  * @returns {{ ok: true, trade: object, imageCount: number } | { ok: false, reason: string }}
  */
-export function rowToTrade(cells, columns) {
+export function rowToTrade(cells, columns, { now = new Date() } = {}) {
   try {
-    return { ok: true, ...readRow(rowReader(cells, columns)) };
+    return { ok: true, ...readRow(rowReader(cells, columns), now) };
   } catch (e) {
     if (e instanceof RowError) return { ok: false, reason: e.reason };
     throw e;
@@ -290,7 +328,7 @@ export function rowToTrade(cells, columns) {
 }
 
 /** rowToTrade の中身（チェックの順番＝読めなかった理由に出す「最初の問題」の順番） */
-function readRow(r) {
+function readRow(r, now) {
   // ① ID
   const id = r.text('id');
   if (id === '') fail('IDがありません');
@@ -347,6 +385,11 @@ function readRow(r) {
   const createdAt = r.dateTime('createdAt', { required: true });
   const updatedAt = r.dateTime('updatedAt', { required: true });
   const deletedAt = r.dateTime('deletedAt');
+  // 日時の前後（CI-R03）。保存の処理では「作成 ≦ 削除 ＝ 更新 ≦ 今」になる（削除は updatedAt と同じ時刻を付ける：trades.js）。
+  // 固定形式なので文字の比較がそのまま時刻の順（architecture 6.6）
+  if (parseJst(updatedAt).getTime() > now.getTime() + FUTURE_TOLERANCE_MINUTES * 60 * 1000) fail('更新日時が未来です');
+  if (createdAt > updatedAt) fail('作成日時が更新日時より後です');
+  if (deletedAt !== null && deletedAt > updatedAt) fail('削除日時が更新日時より後です');
 
   // ⑦ 決済（ステータスと決済の値が合っているか、pips・損益を計算し直して一致するか）
   const exitPrice = r.price('exitPrice', pair);
@@ -384,6 +427,7 @@ function readClose(r, t) {
     // 保有中は決済の値がすべて空（決済の取り消しも空に戻す：fx-rules 4.5）
     if (t.exitPrice !== null) fail('保有中なのに決済価格があります');
     if (t.exitAt !== null) fail('保有中なのに決済日時があります');
+    if (t.quoteToJpyRate !== null) fail('保有中なのに円換算レートがあります'); // 決済の取り消しは null に戻す（CI-R04）
     if (pipsText !== null) fail('保有中なのにpipsがあります');
     if (profitText !== null) fail('保有中なのに損益（円）があります');
     if (source !== null) fail('保有中なのに損益の算出方法があります');
@@ -421,11 +465,12 @@ function readClose(r, t) {
  * 行番号は「見出しを1行目として数えた番号」（design 14.6.9。メモの中の改行は数えない＝Numbers・Googleスプレッドシートの行番号と同じ）。
  * 全部空の行は飛ばす（行番号は進める）。同じ ID の2回目以降の行は「同じIDの行がほかにあります（n行目）」。
  * @param {string} text BOM を除いた文字
+ * @param {{ now?: Date }} [opts] now … 「今」（未来の更新日時の判定）
  * @returns {{ ok: false, error: 'format'|'empty' } |
  *   { ok: true, rows: {line: number, trade: object, imageCount: number}[], issues: {line: number, reason: string}[] }}
  *   format … 見出しが合わない（I-2）／empty … 見出しの行しかない（I-4）
  */
-export function parseImportText(text) {
+export function parseImportText(text, { now = new Date() } = {}) {
   const { records, unterminated } = parseCsvRecords(text);
   if (records.length === 0) return { ok: false, error: 'format' };
   const columns = findColumns(records[0]);
@@ -455,7 +500,7 @@ export function parseImportText(text) {
       return;
     }
     if (id !== '') firstLineOfId.set(id, line);
-    const r = rowToTrade(cells, columns);
+    const r = rowToTrade(cells, columns, { now });
     if (r.ok) rows.push({ line, trade: r.trade, imageCount: r.imageCount });
     else issues.push({ line, reason: r.reason });
   });
@@ -466,12 +511,13 @@ export function parseImportText(text) {
 /**
  * 選んだファイルの中身（バイト列）を読む。大きさの確認（I-5）は読む前に画面側で File.size で行う（大きなファイルを読み込まないため）。
  * @param {Uint8Array} bytes
+ * @param {{ now?: Date }} [opts]
  * @returns {ReturnType<typeof parseImportText> | { ok: false, error: 'encoding' }}
  */
-export function parseImportBytes(bytes) {
+export function parseImportBytes(bytes, opts = {}) {
   const decoded = decodeCsvBytes(bytes);
   if (!decoded.ok) return decoded;
-  return parseImportText(decoded.text);
+  return parseImportText(decoded.text, opts);
 }
 
 /* ---------------------------------------------------------
@@ -605,13 +651,17 @@ const CHOICE_SOURCES = Object.freeze([
  * ・削除済みの記録の名前は足さない（一覧に出ない記録のために選択肢を増やさない）
  * ・選択肢に足せない名前（21文字以上・前後に空白がある）は足さない（記録の中の名前はそのまま残る）。名前のチェックは選択肢の編集と同じ checkChoiceName
  * ・通貨ペアは「よく使う通貨ペア」に足さない（並びが変わるため：design 14.6.11 ⑤）
+ * ・1回に足すのは種類ごとに max 個まで（CI-R01）。超える分は足さず、exceeded を true にする
+ *   （画面は確認シートを出す前にこれで調べ、超えるファイルはアラートにする。取り込みのときは念のための歯止め）
  * @param {{ entryReasons: string[], emotions: string[], tags: string[] }} choices 今の選択肢（設定 choices）
  * @param {object[]} trades 取り込んだ記録
- * @returns {{ choices: object, added: { entryReasons: number, emotions: number, tags: number }, total: number }}
+ * @param {{ max?: number }} [opts]
+ * @returns {{ choices: object, added: { entryReasons: number, emotions: number, tags: number }, total: number, exceeded: boolean }}
  */
-export function planChoiceAdditions(choices, trades) {
+export function planChoiceAdditions(choices, trades, { max = CHOICE_AUTO_ADD_MAX } = {}) {
   const next = { entryReasons: [...choices.entryReasons], emotions: [...choices.emotions], tags: [...choices.tags] };
   const added = { entryReasons: 0, emotions: 0, tags: 0 };
+  let exceeded = false;
   for (const t of trades) {
     if (t.deletedAt != null) continue;
     for (const [kind, , pick] of CHOICE_SOURCES) {
@@ -619,12 +669,16 @@ export function planChoiceAdditions(choices, trades) {
         if (typeof name !== 'string') continue;
         const r = checkChoiceName(name, next[kind]);
         if (!r.ok || r.name !== name) continue;
+        if (added[kind] >= max) {
+          exceeded = true;
+          continue;
+        }
         next[kind].push(name);
         added[kind] += 1;
       }
     }
   }
-  return { choices: next, added, total: added.entryReasons + added.emotions + added.tags };
+  return { choices: next, added, total: added.entryReasons + added.emotions + added.tags, exceeded };
 }
 
 /** 結果の「タグ2件・感情1件を選択肢に加えました。」（足したものがなければ空の文字） */

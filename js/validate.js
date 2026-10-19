@@ -140,14 +140,20 @@ export function parseLotUnitSize(input) {
 }
 
 /**
- * 円換算レート（非JPYペアの決済時）を読み取る。E-08（数値でない／0以下／小数第4位以下まである）。
+ * 円換算レートの上限（これ以上は E-08。T-44 レビュー CI-R04・fx-expert）。価格の上限 E-17 と同じ 1,000,000 未満。
+ * 円換算レート（決済通貨/JPY）は現実には数百程度。上限がないと 1e21 以上の値が保存でき、CSV に「1e+21」と書き出されて読み戻せなかった
+ */
+export const QUOTE_RATE_MAX_EXCLUSIVE = 1_000_000;
+
+/**
+ * 円換算レート（非JPYペアの決済時）を読み取る。E-08（数値でない／0以下／1,000,000以上／小数第4位以下まである）。
  * 空欄は「自動計算しない（損益を手入力する）」という意味なので value: null で通す（空欄どうしの E-11 は別関数）。
  */
 export function parseQuoteToJpyRate(input) {
   const text = normalizeNumberText(input);
   if (text === '') return { ok: true, value: null, empty: true };
   const value = toNumberOrNull(text);
-  if (value === null || value <= 0 || countDecimals(text) > 3) return { ok: false, error: 'E-08' };
+  if (value === null || value <= 0 || value >= QUOTE_RATE_MAX_EXCLUSIVE || countDecimals(text) > 3) return { ok: false, error: 'E-08' };
   return { ok: true, value };
 }
 
