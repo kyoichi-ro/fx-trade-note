@@ -682,8 +682,10 @@ function selfTestRun_(sheet, report) {
       tokensEqual_(stored, stored) && !tokensEqual_(changed, stored) && !tokensEqual_(stored + 'x', stored) && !tokensEqual_(undefined, stored), '照合の結果が違う');
   }
 
+  // ids[0]〜[7]：前半の8件（5.5 の値。後半で上書きしないので、CSV に書き出して確かめられる）
+  // ids[8]：上書き・古い内容の確認用／ids[9]：削除の印の確認用／ids[10]：受け付けない値の確認用
   const ids = [];
-  for (let i = 0; i < 10; i += 1) ids.push(Utilities.getUuid().toLowerCase());
+  for (let i = 0; i < 11; i += 1) ids.push(Utilities.getUuid().toLowerCase());
   const memos = ['001', '1e3', 'TRUE', '50%', "'=1+1", "''=x", "'普通", 'カンマ,と"引用符"と\n改行'];
   const records = memos.map(function (memo, i) {
     const usd = i !== 1; // 2件目だけ EUR/USD（価格の桁 5）
@@ -720,17 +722,23 @@ function selfTestRun_(sheet, report) {
   check('#11 -37.7（pips）', vals[0][col('pips')] === -37.7 && disp[0][col('pips')] === '-37.7', [vals[0][col('pips')], disp[0][col('pips')]]);
   check('#12 UUID（id）がそのまま', same(0, 'id', ids[0]), vals[0][col('id')]);
 
-  // 上書き・古い内容・削除の印・受け付けない値
-  const newer = selfTestRecord_(ids[0], { memo: '上書きした', updatedAt: '2026-10-16T09:05:01+09:00' });
-  const older = selfTestRecord_(ids[0], { memo: '古い内容', updatedAt: '2026-10-16T09:04:59+09:00' });
-  const deleted = selfTestRecord_(ids[1], { deletedAt: '2026-10-16T09:06:00+09:00', updatedAt: '2026-10-16T09:06:00+09:00' });
-  const unguarded = selfTestRecord_(ids[8], { memo: '=1+1' });
+  // 上書き・古い内容・削除の印・受け付けない値。前半の8行（2〜9行目）は触らず、別の id の行（10・11行目）で確かめる
+  const base = upsertRecords_(sheet, [selfTestRecord_(ids[8], { memo: '上書き前' }), selfTestRecord_(ids[9], {})]);
+  const newer = selfTestRecord_(ids[8], { memo: '上書きした', updatedAt: '2026-10-16T09:05:01+09:00' });
+  const older = selfTestRecord_(ids[8], { memo: '古い内容', updatedAt: '2026-10-16T09:04:59+09:00' });
+  const deleted = selfTestRecord_(ids[9], { deletedAt: '2026-10-16T09:06:00+09:00', updatedAt: '2026-10-16T09:06:00+09:00' });
+  const unguarded = selfTestRecord_(ids[10], { memo: '=1+1' });
   const second = upsertRecords_(sheet, [newer, older, deleted, unguarded]);
-  const results = second.map(function (r) { return r.result + (r.reason ? ':' + r.reason : ''); });
-  check('上書き・古いので書かない・削除の印・印のない = を受け付けない', results.join(',') === 'updated,stale,updated,rejected:FORMULA', results.join(','));
-  check('上書きしても行は増えない（見出し＋8行）', sheet.getLastRow() === 9, sheet.getLastRow());
-  check('上書きした内容が残り、古い内容で戻らない', sheet.getRange(2, col('memo') + 1).getValue() === '上書きした', sheet.getRange(2, col('memo') + 1).getValue());
-  check('削除日時（deletedAt）が入った', sheet.getRange(3, col('deletedAt') + 1).getValue() === '2026-10-16T09:06:00+09:00', sheet.getRange(3, col('deletedAt') + 1).getValue());
+  const resultText = function (rs) { return rs.map(function (r) { return r.result + (r.reason ? ':' + r.reason : ''); }).join(','); };
+  const results = resultText(base) + ' → ' + resultText(second);
+  check('上書き・古いので書かない・削除の印・印のない = を受け付けない', results === 'added,added → updated,stale,updated,rejected:FORMULA', results);
+  check('上書きしても行は増えない（見出し＋10行）', sheet.getLastRow() === 11, sheet.getLastRow());
+  check('上書きした内容が残り、古い内容で戻らない', sheet.getRange(10, col('memo') + 1).getValue() === '上書きした', sheet.getRange(10, col('memo') + 1).getValue());
+  check('削除日時（deletedAt）が入った', sheet.getRange(11, col('deletedAt') + 1).getValue() === '2026-10-16T09:06:00+09:00', sheet.getRange(11, col('deletedAt') + 1).getValue());
+  // 前半の8行が後半の確認で変わっていないこと（CSV に書き出して 5.5 を確かめるための前提）
+  const after = sheet.getRange(2, 1, 8, COLUMN_COUNT).getValues();
+  const unchanged = after.every(function (row, r) { return row.every(function (x, c) { return x === vals[r][c]; }); });
+  check('前半の8行（2〜9行目）は後半の確認で変わっていない', unchanged, unchanged ? '' : '前半の行が書き換わった');
 }
 
 /** 自己テスト用の記録（アプリが送るのと同じ形。値は桁の形を示すための例で、実際のレートではない） */
