@@ -83,6 +83,45 @@ function reloadOnce() {
   location.reload();
 }
 
+/** 「最新のバージョンを確認」で、新しい版のファイルの保存（インストール）を待つ最長の時間 */
+export const UPDATE_INSTALL_TIMEOUT_MS = 30 * 1000;
+
+/**
+ * 設定の「最新のバージョンを確認」：今すぐ新しい版を確かめる（2026-10-26 オーナー要望）。
+ * 前面に戻ったときの自動の確認（1時間おき）を待たずに確かめるためのもの。見つかったら保存し終えて待機中になるまで待つ。
+ * @returns {Promise<'waiting'|'latest'|'offline'|'unavailable'>}
+ *   waiting … 新しい版が待機中（［更新］で切り替えられる）／latest … いまの版が最新
+ *   offline … 確かめられなかった（電波がないなど）／unavailable … Service Worker を使っていない（開発中・古いブラウザ）
+ */
+export async function checkForUpdateNow() {
+  if (!registration) return 'unavailable';
+  if (isUpdateWaiting()) return 'waiting';
+  lastCheckedAt = Date.now();
+  try {
+    await registration.update();
+  } catch (err) {
+    console.info('新しい版を確かめられませんでした（オフラインなど）', err);
+    return 'offline';
+  }
+  if (registration.installing) await waitUntilInstalled(registration.installing);
+  return isUpdateWaiting() ? 'waiting' : 'latest';
+}
+
+/** 新しい版の保存（インストール）が終わる（待機中・失敗のどちらか）まで待つ。長くかかるときは見切る */
+function waitUntilInstalled(worker) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      worker.removeEventListener('statechange', onChange);
+      resolve();
+    };
+    const onChange = () => { if (worker.state !== 'installing') done(); };
+    const timer = setTimeout(done, UPDATE_INSTALL_TIMEOUT_MS);
+    worker.addEventListener('statechange', onChange);
+    onChange();
+  });
+}
+
 /**
  * Service Worker を登録する（app.js の起動処理 ⑤）。待たなくてよい（失敗しても例外を外に出さない）。
  * @param {{ onUpdatedElsewhere?: () => void }} [opts]

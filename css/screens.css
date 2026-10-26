@@ -698,7 +698,8 @@
   color: var(--color-accent);
   text-align: left;
 }
-.export-row:disabled {
+.export-row:disabled,
+.action-row:disabled {
   opacity: var(--opacity-disabled);
 }
 /* 「作成中」のとき：回転アイコンと文字を並べる */

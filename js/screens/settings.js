@@ -18,6 +18,8 @@
    【T-28 で足した範囲】
    ・このアプリについて：新しい版が待機中のとき、「バージョン」の行の下に「新しいバージョンに更新」（アクセント色の文字）。
      押すと一覧のお知らせ行の［更新］と同じ（js/sw-update.js の applyUpdate：切り替えて再読み込み）。design 14.6.1
+     2026-10-26（オーナー要望）：待機中でないときも「最新のバージョンを確認」として同じ行をいつも出し、押すと今すぐ確かめる
+     （checkForUpdateNow。見つかれば「新しいバージョンに更新」に変わる。最新ならトースト「最新のバージョンです」）
    【T-44 で足した範囲】
    ・データの続き（見出しのないまとまり）：CSVを読み込む（中身は screens/settings-import.js）。取り込んだあとは、
      「記録の件数」（settings-data.js が記録の変更通知で読み直す）と選択肢の登録数（足した選択肢の分）を新しくする
@@ -39,7 +41,7 @@ import { isAppError } from '../util.js';
 import { dataGroup } from './settings-data.js';
 import { importGroup } from './settings-import.js';
 import { readPersisted, readUsage, protectionLabel, protectionNote, formatUsage } from '../data-protection.js';
-import { isUpdateWaiting, applyUpdate, UPDATE_READY } from '../sw-update.js';
+import { isUpdateWaiting, applyUpdate, checkForUpdateNow, UPDATE_READY } from '../sw-update.js';
 import { on } from '../events.js';
 
 /**
@@ -213,12 +215,37 @@ function aboutGroup() {
   usageRow.hidden = true;
   const note = h('p', {}, protectionNote(null));
 
-  // 新しいバージョンに更新：待機中の版があるときだけ見せる。設定を開いている間に見つかったときも出す（UPDATE_READY）。
-  // 設定の画面には入力途中の内容がない（値はその場で保存済み）ので、押したらすぐ再読み込みしてよい
-  const updateRow = h('button', { type: 'button', class: 'list-row action-row', onClick: () => applyUpdate() },
-    h('span', { class: 'list-row__label' }, '新しいバージョンに更新'));
-  updateRow.hidden = !isUpdateWaiting();
-  const stopUpdateWatch = on(UPDATE_READY, () => { updateRow.hidden = false; });
+  // バージョンの行の下の1行（いつも出す）。
+  // ・新しい版が待機中なら「新しいバージョンに更新」：押すと切り替えて再読み込み。設定を開いている間に見つかったときも切り替わる（UPDATE_READY）。
+  //   設定の画面には入力途中の内容がない（値はその場で保存済み）ので、押したらすぐ再読み込みしてよい
+  // ・それ以外は「最新のバージョンを確認」：押すと今すぐ確かめる（2026-10-26 オーナー要望。自動の確認は前面に戻ったとき1時間おき）
+  const updateLabel = h('span', { class: 'list-row__label' }, '');
+  const updateRow = h('button', { type: 'button', class: 'list-row action-row', onClick: () => onUpdateRow() }, updateLabel);
+  let checking = false;
+  const showWaiting = (waiting) => {
+    updateLabel.textContent = waiting ? '新しいバージョンに更新' : '最新のバージョンを確認';
+    updateRow.dataset.waiting = waiting ? '1' : '';
+  };
+  const onUpdateRow = async () => {
+    if (updateRow.dataset.waiting) {
+      applyUpdate();
+      return;
+    }
+    if (checking) return;
+    checking = true;
+    updateRow.disabled = true;
+    updateLabel.textContent = '確認しています…';
+    const result = await checkForUpdateNow();
+    checking = false;
+    if (!alive) return;
+    updateRow.disabled = false;
+    showWaiting(result === 'waiting');
+    if (result === 'latest') showToast('最新のバージョンです');
+    else if (result === 'offline') showToast('確認できませんでした。電波のある場所でもう一度試してください', { iconName: 'warning' });
+    else if (result === 'unavailable') showToast('このブラウザでは確認できません', { iconName: 'warning' });
+  };
+  showWaiting(isUpdateWaiting());
+  const stopUpdateWatch = on(UPDATE_READY, () => { if (!checking) showWaiting(true); });
 
   const group = listGroup({
     header: 'このアプリについて',
