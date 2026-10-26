@@ -10,7 +10,8 @@
        メニュー「FXトレード記録 → 合言葉を設定する」で入れます（docs/sheets-setup.md 12章）。
      - Apps Script の URL（公開すると発行されるアドレス）もここには書きません。アプリの設定画面に入れます。
    ・使い方：スプレッドシートの「拡張機能 → Apps Script」を開き、最初からある Code.gs の中身を
-     このファイルの中身で置き換えて保存 → ウェブアプリとして公開します（手順は 12章）。
+     このファイルの中身で置き換えて保存 → 左の「サービス ＋」から「Google Sheets API」を追加
+     （識別子は Sheets のまま）→ ウェブアプリとして公開します（手順は 12章）。
      アプリ（PWA）のオフライン用キャッシュには入れません（ブラウザで動かすものではないため）。
 
    【このファイルがすること】
@@ -39,7 +40,7 @@ const APP_ID = 'fx-trade-note';
 /** ★要求と応答の形の版。形を変えるときだけ上げる（アプリ側も同時に直す） */
 const PROTOCOL_VERSION = 1;
 /** このコードの版（応答と「設定を確認する」に出す。コードを貼り直したかの目印） */
-const SCRIPT_VERSION = '1.0.0';
+const SCRIPT_VERSION = '1.1.0'; // 1.1.0：書き込みを方式 C（Sheets API の RAW）に切り替え（2026-10-26）
 
 /** ★同期用のタブの名前（sheets-setup 3章。変えない） */
 const SHEET_NAME = 'trades';
@@ -68,12 +69,14 @@ const LOCK_WAIT_MS = 10000;
 
 /**
  * 書き込みの方式（sheets-setup 5.2・5.5）。
- * false（既定）：方式 A。セルの表示形式を先に「@（書式なしテキスト）」などにしてから、普通の書き込み（setValues）で書く。
- * true        ：方式 C。Google Sheets API の「そのまま書く（RAW）」指定で書く。自己テストで「'」が消えるなど
- *               5.5 の結果が期待どおりでなかったときだけ true にする。その場合は Apps Script の左側の
- *               「サービス ＋」から「Google Sheets API」を追加する（識別子は Sheets のまま）。
+ * true（既定） ：方式 C。表示形式を先に設定してから、Google Sheets API の「そのまま書く（RAW）」指定で値を書く。
+ *               Apps Script の左側の「サービス ＋」から「Google Sheets API」を追加しておくこと（識別子は Sheets のまま）。
+ *               2026-10-26 の本物の Google での自己テストで、方式 A では先頭の「'」が1つ取り除かれた（5.5 の #4〜#6 が NG）ため、
+ *               こちらに決定した。
+ * false        ：方式 A。セルの表示形式を「@（書式なしテキスト）」などにしてから、普通の書き込み（setValues）で書く。
+ *               「'=1+1」が「=1+1」になるなど、アプリの CSV と同じにならないので使わない（比較のために残してある）。
  */
-const USE_SHEETS_API = false;
+const USE_SHEETS_API = true;
 
 /** 削除済みの行（AD 列 deletedAt に値がある行）を灰色の文字にする条件付き書式（sheets-setup 3章） */
 const DELETED_ROW_FORMULA = '=$AD2<>""';
@@ -156,6 +159,14 @@ const ERROR_MESSAGES = {
   USE_POST: 'このURLはFXトレード記録アプリからの送信専用です（ブラウザで開いてこの表示が出れば、公開はできています）。',
 };
 
+/** 方式 C なのに「サービス」に Google Sheets API が追加されていないときの説明（INTERNAL の error.reason と一緒に返す） */
+const SHEETS_API_MISSING_MESSAGE = 'Apps Script の「サービス」に Google Sheets API が追加されていません（左の「サービス ＋」→ Google Sheets API → 追加）。何も書いていません。';
+
+/** 方式 C で、詳細サービス Sheets が使えない（追加されていない）か */
+function sheetsApiMissing_() {
+  return USE_SHEETS_API && typeof Sheets === 'undefined';
+}
+
 /* =========================================================
    1. ウェブアプリの入口
    ========================================================= */
@@ -225,6 +236,8 @@ function handlePing_() {
   if (!ss) return fail_('ping', 'NO_SPREADSHEET');
   const st = inspectSheet_(ss, SHEET_NAME);
   if (st.state === 'mismatch') return fail_('ping', 'HEADER_MISMATCH', st.mismatch);
+  // 書き込みに使うサービスが無いと、接続テストは通っても記録を書けないので、ここで知らせる
+  if (sheetsApiMissing_()) return fail_('ping', 'INTERNAL', { reason: 'SHEETS_API_NOT_ADDED', message: SHEETS_API_MISSING_MESSAGE });
   // state：'ready'（準備済み）／'missing'（タブがまだ無い）／'empty'（タブが空）。missing・empty は最初の書き込みで準備する
   return ok_('ping', { sheet: { name: SHEET_NAME, state: st.state } });
 }
@@ -239,6 +252,8 @@ function handleUpsert_(records) {
   const ss = getSpreadsheet_();
   if (!ss) return fail_('upsert', 'NO_SPREADSHEET');
   if (records.length === 0) return ok_('upsert', { results: [], counts: countResults_([]) });
+  // サービスが無いまま書き始めると、表示形式だけ設定された行が残るので、書く前に断る
+  if (sheetsApiMissing_()) return fail_('upsert', 'INTERNAL', { reason: 'SHEETS_API_NOT_ADDED', message: SHEETS_API_MISSING_MESSAGE });
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_WAIT_MS)) return fail_('upsert', 'BUSY');
@@ -645,6 +660,10 @@ function runSelfTest() {
     notify_('書き込みの自己テスト', ERROR_MESSAGES.NO_SPREADSHEET);
     return;
   }
+  if (sheetsApiMissing_()) {
+    notify_('書き込みの自己テスト', SHEETS_API_MISSING_MESSAGE + '\n追加して保存してから、もう一度実行してください。');
+    return;
+  }
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_WAIT_MS)) {
     notify_('書き込みの自己テスト', ERROR_MESSAGES.BUSY);
@@ -700,6 +719,7 @@ function selfTestRun_(sheet, report) {
   });
   const first = upsertRecords_(sheet, records);
   check('8件を追加した', first.every(function (r) { return r.result === 'added'; }), JSON.stringify(first));
+  SpreadsheetApp.flush(); // Sheets API で書いた値を、確実に読み戻せるようにしてから読む
 
   const vals = sheet.getRange(2, 1, 8, COLUMN_COUNT).getValues();
   const disp = sheet.getRange(2, 1, 8, COLUMN_COUNT).getDisplayValues();
@@ -729,6 +749,7 @@ function selfTestRun_(sheet, report) {
   const deleted = selfTestRecord_(ids[9], { deletedAt: '2026-10-16T09:06:00+09:00', updatedAt: '2026-10-16T09:06:00+09:00' });
   const unguarded = selfTestRecord_(ids[10], { memo: '=1+1' });
   const second = upsertRecords_(sheet, [newer, older, deleted, unguarded]);
+  SpreadsheetApp.flush();
   const resultText = function (rs) { return rs.map(function (r) { return r.result + (r.reason ? ':' + r.reason : ''); }).join(','); };
   const results = resultText(base) + ' → ' + resultText(second);
   check('上書き・古いので書かない・削除の印・印のない = を受け付けない', results === 'added,added → updated,stale,updated,rejected:FORMULA', results);
