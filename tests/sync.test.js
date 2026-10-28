@@ -365,7 +365,7 @@ function pingTests() {
           unreachable: 'Apps Scriptに接続できませんでした。URLと、デプロイの「アクセスできるユーザー」が「全員」になっているかを確認してください。',
           timeout: '応答がありませんでした。時間をおいてもう一度試してください。',
           notApp: 'このアプリ用のApps Scriptではないようです。URLを確認してください。',
-          scriptError: 'Apps Scriptでエラーが起きました。手順書の「シートの準備」を確認してください。',
+          scriptError: 'Apps Scriptでエラーが起きました。スプレッドシートのメニュー「FXトレード記録」→「設定を確認する」で原因を確かめてください（手順書の「困ったとき」）。',
         };
         return verdict([
           ['T-OK', pingResultText('ok', '22:40') === '接続できました（22:40）', pingResultText('ok', '22:40')],
