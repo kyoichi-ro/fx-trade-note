@@ -21,7 +21,7 @@
 
    【使い始めるタスク】全キーの窓口（初期値・確認・読み書き）はここで用意し、各キーは使うタスクで使い始める
    （T-15：lotUnitSize.*・theme、T-16：favoritePairs・choices（根拠・感情・タグの初期値は T-16 で master.js へ移した）、T-17：lastInput、T-23：listFilter、
-     T-25：lastExportAt、T-40：gasUrl・syncToken）。
+     T-25：lastExportAt、T-40：gasUrl・syncToken、T-41：syncLastError）。
    ・T-40：gasUrl・syncToken は「秘密の設定」（secret）。読めないときの警告・保存できない値のエラー文にも中身を出さない。
 
    ・層は「保存の窓口」（architecture 4.3）。画面の部品は import しない。
@@ -102,6 +102,25 @@ function checkListFilter(v) {
   return v;
 }
 
+/** 同期の最後のエラーの種類（js/sync-sender.js の SYNC_ERROR_KINDS と同じ） */
+const SYNC_ERROR_KINDS = ['offline', 'timeout', 'unreachable', 'notApp', 'badResponse', 'badToken', 'scriptError', 'rejected'];
+/** Apps Script のエラーコード・受け付けない理由（英大文字・数字・_ だけ。応答の変な文字をそのまま残さない） */
+const SAFE_CODE = /^[A-Z0-9_]{1,40}$/;
+
+/**
+ * 同期の最後のエラー（T-41。roadmap 7.20 #1・sheets-setup 9.1 の A）：
+ * { at, kind, code, reason, count, ids }。URL・合言葉は入れない（画面の写真を人に見せても漏れないように）。
+ * ids は受け付けられなかった記録の id（最大10件・64文字まで）、count はその件数（kind が rejected のとき）。形が違えば初期値（null）
+ */
+function checkSyncLastError(v) {
+  if (!isPlainObject(v) || typeof v.at !== 'string' || !JST_FORMAT.test(v.at) || !SYNC_ERROR_KINDS.includes(v.kind)) return undefined;
+  const code = (x) => (x === null || (typeof x === 'string' && SAFE_CODE.test(x)));
+  if (!code(v.code) || !code(v.reason)) return undefined;
+  if (!Number.isSafeInteger(v.count) || v.count < 0) return undefined;
+  if (!Array.isArray(v.ids) || v.ids.length > 10 || v.ids.some((x) => typeof x !== 'string' || x === '' || x.length > 64)) return undefined;
+  return { at: v.at, kind: v.kind, code: v.code, reason: v.reason, count: v.count, ids: [...v.ids] };
+}
+
 /** 「なし（null）」が初期値の項目用：null か、check を通った値 */
 const orNull = (check) => (v) => (v === null ? null : check(v));
 
@@ -125,6 +144,8 @@ const DEFINITIONS = Object.freeze({
   // secret：Apps Script の URL・合言葉。壊れた値の警告や保存できない値のエラー文にも中身を出さない（design 14.6.8・T-40）
   gasUrl: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)), secret: true },
   syncToken: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)), secret: true },
+  // T-41：同期の最後のエラー（roadmap 7.20 #1。requirements 6.3 への追記は pm に申し送り）。次に送信が成功したら null に戻す
+  syncLastError: { default: () => null, check: orNull(checkSyncLastError) },
 });
 
 /** 警告・エラー文に出す値。秘密の設定（URL・合言葉）は中身の代わりに決まった文字を出す（T-40） */

@@ -36,6 +36,7 @@ import { collectCsvImportDbTests } from './csv-import-db.test.js';
 import { collectDataProtectionTests } from './data-protection.test.js';
 import { collectReleaseTests } from './release.test.js';
 import { collectSyncTests } from './sync.test.js';
+import { collectSyncSendTests } from './sync-send.test.js';
 import { collectUiTests } from './ui.test.js';
 
 /** すべてのテストの定義を、表示する順番（architecture 13.2 の表の順）で集める */
@@ -61,6 +62,7 @@ export function collectAllTests() {
     ...collectDataProtectionTests(), // データ保護（DP）15件 T-29。ホーム画面版・iPhone の判定・お知らせ行を出す条件・今の状態の文言・永続化リクエスト（保護済みなら頼まない・1回の起動で1回）・データの保護の値と説明文・使用量の表示：architecture 12.5・design 14.3.8・14.6.1・14.6.2・14.6.6。Node.js でも実行する
     ...collectChoiceListTests(), // 選択肢の編集（CH）35件（T-16。名前のチェック・追加/削除/並び替え・通貨ペアの追加 E-12〜E-16・W-07・初期値の master.js への移動・保存の読み直し：design 14.6.3・14.6.4）。Node.js でも実行する
     ...collectSyncTests(),       // スプレッドシート同期の設定（SY・SP・SS・SC・SG）T-40。URL・合言葉の入力チェック（U-1〜U-4・K-1〜K-4）と gas/Code.gs との一致・接続テストの送り方と結果の振り分け（にせものの fetch）・時間切れ・URL と合言葉を console に出さない・CSP・Service Worker が横取りしない・設定の同期グループの画面（SG はブラウザのみ、SC-02 は Node.js のみ）：design 14.6.8・sheets-setup 11章
+    ...collectSyncSendTests(),   // スプレッドシートへの送信（SQ・SA・SB）T-41。Apps Script との約束（要求の形・応答の振り分け・一時的な失敗の見分け・gas/Code.gs の列との一致）、自動送信（送るきっかけ・CSV と同じ値・結果の反映・送信中の編集・ループしない・1つずつ20件ずつ・未設定・設定の問題・失敗しても壊れない・秘密）：sheets-setup 4.3・6章・10章・11章、architecture 3.3・20.2。SB は本物の IndexedDB でブラウザのみ
     ...collectUiTests(),         // 画面の部品（UI）T-33。保存中の画像の追加・× の無効化と whenIdle（R-04）など、document を使うものはブラウザのみ
     ...collectReleaseTests(),    // リリース確認（RL・SU）8件 T-28＋RL-06・RL-07（T-33：APP_VERSION の上げ忘れ。RL-06 は git を使うので Node.js だけ）。sw.js と config.js のバージョンの一致・キャッシュの一覧（SHELL_FILES）の書き忘れ／消し忘れ・Service Worker を登録するかの判定と更新の確認の間隔：architecture 12章・13.2・18.4。Node.js でも実行する（ブラウザでは fetch でファイルを読む）
   ];

@@ -10,6 +10,8 @@
    ・保存の関数（共有シート・ダウンロード）は navigator / document を「呼ばれたときに」触る。読み込んだだけでは触らないので
      Node.js からも import できる。テストでは env 引数ににせものを渡して確かめる。
 
+   【T-41】スプレッドシートへ送る値も、ここの cellText を使う sheetRowValues で作る（シートのセルと CSV のセルを同じにするため）。
+
    依存（architecture 4.2）：db（項目名 TRADE_KEYS だけ）, datetime, format
    ========================================================= */
 import { TRADE_KEYS } from './db.js';
@@ -34,6 +36,15 @@ export const CSV_COLUMNS = Object.freeze(TRADE_KEYS.map((k) => (k === 'imageIds'
 
 /** 区切りで1つのセルにまとめる配列の項目 */
 const LIST_COLUMNS = Object.freeze(['entryReasons', 'tags']);
+
+/**
+ * 数値の列（docs/sheets-setup.md 4.1 の型が「数値」の11列。gas/Code.gs の COLUMN_DEFS で文字・日時・ID 以外の列）。
+ * CSV ではどれも文字だが、シートへ送るときは JSON の数値で送る（sheetRowValues：T-41）。
+ */
+export const CSV_NUMBER_COLUMNS = Object.freeze([
+  'entryPrice', 'lots', 'lotUnitSize', 'slPrice', 'tpPrice', 'riskReward', 'exitPrice', 'pips', 'profitJpy', 'quoteToJpyRate', 'imageCount',
+]);
+const NUMBER_COLUMN_SET = new Set(CSV_NUMBER_COLUMNS);
 
 /* ---------------------------------------------------------
    セルの文字づくり
@@ -120,6 +131,29 @@ export function cellText(column, trade) {
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
   if (Array.isArray(v)) return guardFormula(joinList(v));
   return guardFormula(String(v));
+}
+
+/**
+ * スプレッドシートへ送る1件分の「列名 → 値」（docs/sheets-setup.md 4.3・6.3・10.1。T-41 の js/sync.js が使う）。
+ * 作り方を CSV と2か所に書かないよう、ここで cellText を使って作る（シートのセルの文字がアプリの CSV と同じになる：sheets-setup 5.4・7章）。
+ * ・文字の列（21列）… cellText と同じ文字（null は空の文字、配列は joinList、数式になりうる文字は先頭に「'」）
+ * ・数値の列（11列）… JSON の数値。未入力・有限でない値（NaN など）・数値でない値は null。imageCount は imageIds の要素数
+ * ・syncStatus は 'synced'、syncedAt は送る時刻（成功したあと記録とシートの行が32列とも同じ値になるように：6.3）
+ * 下書き・画像そのもの・imageIds は送らない（列に無い）。
+ * @param {object} trade 32項目の記録
+ * @param {{ syncedAt: string }} opts 送る時刻（日本時間の固定形式）
+ * @returns {Object<string, (string|number|null)>} CSV_COLUMNS の32の名前をキーにした値
+ */
+export function sheetRowValues(trade, { syncedAt }) {
+  const values = {};
+  for (const c of CSV_COLUMNS) {
+    if (c === 'imageCount') values[c] = Array.isArray(trade.imageIds) ? trade.imageIds.length : 0;
+    else if (NUMBER_COLUMN_SET.has(c)) values[c] = typeof trade[c] === 'number' && Number.isFinite(trade[c]) ? trade[c] : null;
+    else values[c] = cellText(c, trade);
+  }
+  values.syncStatus = 'synced';
+  values.syncedAt = syncedAt;
+  return values;
 }
 
 /**

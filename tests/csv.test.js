@@ -9,6 +9,7 @@
    ・1000 件でも動くこと、書き出した CSV を読み戻して元の値と一致すること（読み戻しはテスト側の小さなパーサーで行う。
      アプリ本体のインポートは Phase 2 の T-44 で、ここでは作らない）
    ・共有シートの使い分け（canUseShareSheet）と共有の結果（shareCsvFile）をにせものの navigator で確かめる
+   ・スプレッドシートへ送る値（sheetRowValues：T-41）が CSV のセルと同じ作り方であること（CS-30・CS-31）
    IndexedDB・localStorage・DOM を使わないので、Node.js でもブラウザでも実行する。
 
    ID：CS-xx（CSV）
@@ -17,6 +18,7 @@ import {
   BOM, CSV_COLUMNS, guardFormula, unguardFormula, joinList, splitList, cellText, escapeCell,
   selectForExport, countTrades, buildCsvBody, csvFileName, prepareCsv,
   recordCountLabel, exportCountLabel, exportNote, createCsvFile, canUseShareSheet, shareCsvFile,
+  sheetRowValues, CSV_NUMBER_COLUMNS,
 } from '../js/csv.js';
 import { TRADE_KEYS } from '../js/db.js';
 import { show } from './helpers.js';
@@ -560,6 +562,54 @@ export function collectCsvTests() {
           ['files だけを渡す', ok.calls.length === 1 && Object.keys(ok.calls[0]).join() === 'files' && ok.calls[0].files[0] === file, Object.keys(ok.calls[0] || {}).join()],
           ['キャンセルは失敗にしない', r2 === 'cancelled', r2],
           ['それ以外は投げ直す', r3 === 'NotAllowedError', r3],
+        ]);
+      }),
+
+    t('CS-30', 'シートへ送る値（sheetRowValues：T-41）は CSV のセルと同じ作り方。数値の列は JSON の数値、文字の列は cellText',
+      '決済済み・保有中・数式になりうる文字・配列・画像2枚・NaN／文字の入った数値の列',
+      'sheets-setup 4.3：文字の21列は cellText と同じ文字（null は空の文字・「\'」の印・| でつなぐ）、数値の11列は数値か null、'
+        + 'imageCount は枚数、syncStatus は synced・syncedAt は送る時刻。列は CSV_COLUMNS の32列だけ',
+      () => {
+        const at = '2026-10-28T10:00:00+09:00';
+        const samples = [
+          trade({ imageIds: ['a', 'b'], memo: '=HYPERLINK("x")', tags: ['指|標', '-逆'], emotion: '@冷静' }),
+          openTrade(),
+          trade({ entryPrice: Number.NaN, lots: '1', pips: Infinity, profitJpy: -1885, quoteToJpyRate: 149.85 }),
+        ];
+        const checks = [];
+        for (const [n, tr] of samples.entries()) {
+          const v = sheetRowValues(tr, { syncedAt: at });
+          checks.push([`#${n + 1} 列は32列・CSV と同じ並び`, Object.keys(v).join() === CSV_COLUMNS.join(), Object.keys(v).join()]);
+          for (const c of CSV_COLUMNS) {
+            if (c === 'syncStatus' || c === 'syncedAt') continue;
+            if (CSV_NUMBER_COLUMNS.includes(c)) {
+              const raw = c === 'imageCount' ? tr.imageIds.length : tr[c];
+              const want = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+              checks.push([`#${n + 1} ${c}（数値）`, v[c] === want, v[c]]);
+              // 数値の列は、CSV のセルの文字を数に直したものと同じ（未入力・NaN は CSV でも空欄）
+              const cell = cellText(c, tr);
+              checks.push([`#${n + 1} ${c} と CSV のセル`, want === null ? (cell === '' || typeof raw !== 'number') : String(want) === cell, cell]);
+            } else {
+              checks.push([`#${n + 1} ${c}（文字）`, v[c] === cellText(c, tr) && typeof v[c] === 'string', v[c]]);
+            }
+          }
+          checks.push([`#${n + 1} syncStatus・syncedAt`, v.syncStatus === 'synced' && v.syncedAt === at, `${v.syncStatus} ${v.syncedAt}`]);
+        }
+        const first = sheetRowValues(samples[0], { syncedAt: at });
+        checks.push(['数式になりうる文字に印', first.memo === '\'=HYPERLINK("x")' && first.emotion === '\'@冷静', `${first.memo} ${first.emotion}`]);
+        checks.push(['配列は | でつなぐ（中の | は \\|）', first.tags === '指\\|標|-逆', first.tags]);
+        checks.push(['imageCount は枚数', first.imageCount === 2, first.imageCount]);
+        checks.push(['記録は書き換えない', samples[0].syncStatus === 'pending' && samples[0].syncedAt === null, samples[0].syncStatus]);
+        return verdict(checks);
+      }),
+
+    t('CS-31', '数値の列（CSV_NUMBER_COLUMNS）は sheets-setup 4.1 の11列', 'CSV_NUMBER_COLUMNS',
+      "entryPrice・lots・lotUnitSize・slPrice・tpPrice・riskReward・exitPrice・pips・profitJpy・quoteToJpyRate・imageCount（どれも CSV_COLUMNS にある）",
+      () => {
+        const want = ['entryPrice', 'lots', 'lotUnitSize', 'slPrice', 'tpPrice', 'riskReward', 'exitPrice', 'pips', 'profitJpy', 'quoteToJpyRate', 'imageCount'];
+        return verdict([
+          ['11列', CSV_NUMBER_COLUMNS.length === 11 && want.every((c) => CSV_NUMBER_COLUMNS.includes(c)), CSV_NUMBER_COLUMNS.join()],
+          ['どれも CSV の列', CSV_NUMBER_COLUMNS.every((c) => CSV_COLUMNS.includes(c)), ''],
         ]);
       }),
   ];

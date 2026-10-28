@@ -59,10 +59,16 @@ export function syncGroup({ ping = pingAppsScript, now = nowJst, store = realSto
   let shown = null;
 
   // ---- 入力欄 ----
+  // 保存済みの値も、開いたときに入力チェックにかける（T-40 レビュー SY-R02）。設定画面を通らずに入った誤った値
+  // （手で書き換えた など）は、行を赤にしてエラー文を出し、接続テストを押せなくする。記録の送信も、その値では送らない（sync.js の readSyncConfig）
   const fields = [
-    { key: 'gasUrl', check: checkGasUrl, error: null },
-    { key: 'syncToken', check: checkSyncToken, error: null },
-  ].map((f) => ({ ...f, saved: store.get(f.key) }));
+    { key: 'gasUrl', check: checkGasUrl },
+    { key: 'syncToken', check: checkSyncToken },
+  ].map((f) => {
+    const saved = store.get(f.key);
+    const r = saved === null ? { ok: true } : f.check(saved);
+    return { ...f, saved, error: r.ok ? null : r.message };
+  });
   const [urlField, tokenField] = fields;
 
   const url = stackedLineRow({
@@ -208,8 +214,9 @@ export function syncGroup({ ping = pingAppsScript, now = nowJst, store = realSto
     running = false;
     if (!alive) return;
     setTesting(false);
-    // 実行中に URL・合言葉が変わっていたら、この結果は古い設定のものなので捨てる
-    if (started === generation && out.result !== 'aborted') {
+    // 実行中に URL・合言葉が変わっていたら、この結果は古い設定のものなので捨てる。
+    // notConfigured（保存値が入力チェックを通らず、何も送っていない）は、欄のエラー文がすでに出ているので結果としては出さない
+    if (started === generation && out.result !== 'aborted' && out.result !== 'notConfigured') {
       shown = { result: out.result, time: now().slice(11, 16) }; // 確かめた時刻（時:分）
       live.textContent = pingResultText(shown.result, shown.time);
     }

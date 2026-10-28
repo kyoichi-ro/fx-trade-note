@@ -12,7 +12,8 @@
      ⑦ 下書きの確認（30分以内なら入力画面を自動で開く） ← T-17（drafts.js）
      ⑧ ルーター開始                 ← T-10
      ⑨ 孤立画像の掃除（画面の表示が終わったあと） ← T-24（images.js の sweepOrphans：architecture 11.6）
-   ①〜⑨ をすべて行う（⑤ は T-28 で追加）。
+     ⑩ スプレッドシートへの自動送信の開始（記録の変更通知を受けて送る） ← T-41（sync-sender.js：architecture 3.3）
+   ①〜⑩ をすべて行う（⑤ は T-28 で追加）。
    T-11：お知らせ行を共通部品 ui/notice.js（#notice-area に出す showAppNotice）に置き換えた（design 9.16）。
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
    T-17：⑦ 下書きの確認を追加（30分以内の新規エントリーの下書きがあれば、一覧 → 入力画面の順に履歴を作って入力画面を開く）。
@@ -22,6 +23,7 @@
    （対象が無い・削除済み・決済済みの決済 → 黙って消す／元の記録が下書きのあとに変わっていた → 自動では開かず、消さずに一覧のお知らせ行へ任せる）。
    T-29：⑥ 永続化リクエストを追加（記録が1件以上あるときだけ。画面の表示を始めたあとに行う）。
    T-28：⑤ Service Worker の登録を追加（中身は sw-update.js。localhost では ?sw=1 のときだけ登録：architecture 18.4）。
+   T-41：⑩ スプレッドシートへの自動送信を追加（URL・合言葉が未設定なら何も送らない。起動時・オンライン復帰時の再送は T-42）。
    ========================================================= */
 import { startRouter, flushCurrentDraft } from './router.js';
 import { openDb, setHandlers } from './db.js';
@@ -35,6 +37,7 @@ import { requestPersistenceOnce } from './data-protection.js';
 import { judgeDraftTarget, draftTargetHash, keepsGoneDraft } from './draft-notice.js';
 import { sweepOrphans } from './images.js';
 import { startServiceWorker } from './sw-update.js';
+import { startAutoSync } from './sync-sender.js';
 
 /**
  * アプリ全体の問題を、画面上部の #notice-area にお知らせ行として出す（architecture 4.5・15.1、design 9.16）。
@@ -239,6 +242,10 @@ async function main() {
 
   // ⑤ Service Worker の登録（オフライン対応・新しい版の確認）。待たずに先へ進む（起動を遅らせない。失敗してもアプリは動く）
   startServiceWorker({ onUpdatedElsewhere: showUpdatedElsewhere });
+
+  // ⑩ スプレッドシートへの自動送信（記録の変更通知を受け取り始める）。最初の画面より前につなぎ、起動直後の保存も送る。
+  // 送信は保存の処理とは別に動くので、起動も保存も待たせない
+  startAutoSync();
 
   // ⑦ 下書きの確認（30分以内なら入力画面を自動で開く）
   await openRecentDraft();

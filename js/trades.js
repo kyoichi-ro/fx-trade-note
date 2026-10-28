@@ -39,6 +39,10 @@
    ・buildImportedTrade()：CSV から読んだ記録を保存する形にする（syncStatus は pending、上書きでも端末の画像は残す、updatedAt は CSV の値のまま）。
    ・importTrades()：1つのトランザクションでまとめて書く（全部入るか何も入らない）。確認中に記録が変わっていたら CONFLICT。
 
+   【T-41：スプレッドシートへの送信の結果】
+   ・markSyncResults()：送信の結果（syncStatus・syncedAt）だけを書き戻す。updatedAt は変えず、送ったときから記録が変わっていたら
+     書き戻さない。'trades-changed' は出さない（送信のきっかけにしないため）。
+
    変更を保存したら events.js の 'trades-changed' で知らせる（一覧の再描画・Phase 2 の送信が受け取る：3.3）。
    通知は IndexedDB への書き込みが確定（complete）してから出す。
 
@@ -514,6 +518,46 @@ export function createTradeService({
       return result;
     },
 
+    /**
+     * スプレッドシートへの送信の結果を記録に書き戻す（T-41：js/sync-sender.js が呼ぶ。sheets-setup 6.3・10.3）。
+     * ・変えるのは syncStatus と syncedAt だけ。**updatedAt は変えない**（architecture 3.3：編集画面の競合の検出〔expectedUpdatedAt〕と
+     *   下書きの照合〔baseUpdatedAt〕を誤って働かせないため）
+     * ・**送ったときと同じ updatedAt のときだけ**書き戻す（architecture 20.2）。加えて sameAsSent を渡すと、それが true のときだけ
+     *   （updatedAt は秒単位なので、同じ秒の中の変更〔削除の直後の「取り消す」など〕は updatedAt では見分けられない：R-05）。
+     *   送っている間に変わった記録は pending のまま残り、その変更の通知で改めて送られる
+     * ・syncStatus：'synced' なら syncedAt も渡された「送る時刻」にする。'error'（受け付けられなかった）なら syncedAt は前回のまま
+     * ・記録が無いときは何もしない。削除済みでも書き戻す（削除済みの記録も送る：sheets-setup 6.2）
+     * ・1つのトランザクションでまとめて書く。**'trades-changed' は出さない**（出すと送信のきっかけになり、送信 → 書き戻し → 送信 … と
+     *   繰り返すため。一覧・詳細はまだ同期の状態を表示していないので、描き直す必要もない〔表示は T-43〕）
+     * @param {Array<{ id: string, updatedAt: string, syncStatus: ('synced'|'error'), syncedAt?: string,
+     *   sameAsSent?: (stored: object) => boolean }>} entries
+     * @returns {Promise<string[]>} 書き戻した記録の id（送っている間に変わったものは含まない）
+     */
+    async markSyncResults(entries) {
+      for (const e of entries) {
+        assertId(e && e.id);
+        if (e.syncStatus !== 'synced' && e.syncStatus !== 'error') throw new TypeError("trades：syncStatus は 'synced' か 'error' で渡してください");
+      }
+      if (entries.length === 0) return [];
+      const marked = [];
+      await db.runTx([STORE.TRADES], async (ops) => {
+        marked.length = 0;
+        for (const e of entries) {
+          const stored = await ops.get(STORE.TRADES, e.id);
+          if (!stored || stored.updatedAt !== e.updatedAt) continue;
+          if (e.sameAsSent && !e.sameAsSent(stored)) continue;
+          const next = normalizeTrade({
+            ...stored,
+            syncStatus: e.syncStatus,
+            syncedAt: e.syncStatus === 'synced' ? e.syncedAt : stored.syncedAt,
+          });
+          await ops.put(STORE.TRADES, next);
+          marked.push(e.id);
+        }
+      });
+      return [...marked];
+    },
+
     /** 1件取得。見つからなければ null（削除済みもそのまま返す。表示するかは呼び出し側が deletedAt で判断） */
     getTrade: (id) => db.getTrade(id),
 
@@ -582,5 +626,5 @@ export const tradeService = createTradeService();
 
 export const {
   saveNewTrade, saveTrade, closeTrade, reopenTrade, getTrade, getAllTrades, deleteTrade, undoDeleteTrade, removeTradeImage,
-  importTrades,
+  importTrades, markSyncResults,
 } = tradeService;

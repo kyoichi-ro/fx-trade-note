@@ -24,10 +24,11 @@ export const TEST_PREFIX = 'fxnote-test:';
 /**
  * requirements.md 6.3 のキー名（テスト側で独立に書き写したもの。並び順も表のとおり）。
  * settings-store.js の SETTING_KEYS と見比べ、どちらかが打ち間違えていたら不合格になるようにする。
+ * syncLastError（同期の最後のエラー）は T-41 で追加（roadmap 7.20 #1 の決定。requirements 6.3 への追記は pm に申し送り済み）。
  */
 const REQ_6_3 = [
   'lotUnitSize.demo', 'lotUnitSize.real', 'favoritePairs', 'lastInput', 'listFilter', 'choices', 'theme',
-  'lastExportAt', 'gasUrl', 'syncToken',
+  'lastExportAt', 'gasUrl', 'syncToken', 'syncLastError',
 ];
 
 /* ---------------------------------------------------------
@@ -113,7 +114,7 @@ export function cleanupTestSettings() {
 
 export function collectSettingsStoreTests() {
   return [
-    t('ST-01', 'キー名が requirements 6.3 と完全に一致する（10個・並び順も同じ）',
+    t('ST-01', 'キー名が requirements 6.3 と完全に一致する（11個・並び順も同じ。syncLastError は T-41 で追加）',
       'SETTING_KEYS', REQ_6_3.join(', '),
       () => ({ actual: SETTING_KEYS.join(', '), pass: sameArray([...SETTING_KEYS], REQ_6_3) })),
 

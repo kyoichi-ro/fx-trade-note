@@ -7,11 +7,13 @@
    ・SS-xx：設定の保存（settings-store.js）が URL・合言葉の中身を警告・エラー文に出さないこと（にせものの保存場所を使う）
    ・SC-xx：CSP の connect-src（architecture 14.3）と、Service Worker（sw.js）が Apps Script への通信を横取りしないこと
    ・SG-xx：設定の「スプレッドシート同期」グループの画面（screens/settings-sync.js）。document を使うのでブラウザだけ
+   T-41 で足したもの：SY-05（送る直前の URL・合言葉の確認 readSyncConfig：SY-R02）、SP-09（誤った保存値では接続テストも送らない）、
+   SS-03（syncLastError の保存値の確かめ方）、SG-12（誤った保存値で開いたときの画面）。記録の送信は tests/sync-send.test.js
    本物の Apps Script には送らない（URL・合言葉はオーナーしか持っていない）。下の URL・合言葉はテスト用の作りもの。
    本物の設定（fxnote:）にも触れない（画面のテストは接頭辞 fxnote-test: のにせものの保存場所を使う）。
    ========================================================= */
 import {
-  checkGasUrl, checkSyncToken, SYNC_INPUT_MESSAGES, TOKEN_FORMAT, TOKEN_MIN_LENGTH, TOKEN_MAX_LENGTH,
+  checkGasUrl, checkSyncToken, readSyncConfig, SYNC_INPUT_MESSAGES, TOKEN_FORMAT, TOKEN_MIN_LENGTH, TOKEN_MAX_LENGTH,
   pingAppsScript, classifyPingResponse, pingResultText, PING_RESULT_TEXTS, PING_TIMEOUT_MS, SYNC_APP_ID, SYNC_PROTOCOL_VERSION,
 } from '../js/sync.js';
 import { createSettingsStore } from '../js/settings-store.js';
@@ -25,19 +27,19 @@ const td = (id, title, input, expected, run) => ({ category: CATEGORY, id, title
 const IS_NODE = typeof window === 'undefined';
 
 /** テスト用の作りものの URL・合言葉（本物ではない） */
-const FAKE_URL = 'https://script.google.com/macros/s/FAKE-DEPLOYMENT-ID-FOR-TESTS/exec';
-const FAKE_TOKEN = 'fake-token-for-tests-0123';
+export const FAKE_URL = 'https://script.google.com/macros/s/FAKE-DEPLOYMENT-ID-FOR-TESTS/exec';
+export const FAKE_TOKEN = 'fake-token-for-tests-0123';
 const BASE = 'https://script.google.com/macros/s/FAKE-ID';
 
 /** 確認項目 [名前, 合否, 実際の値] の並びから結果を作る（不合格の項目だけ実際の値を出す） */
-function verdict(checks) {
+export function verdict(checks) {
   const failed = checks.filter(([, ok]) => !ok);
   if (failed.length === 0) return { actual: `確認${checks.length}項目すべて一致`, pass: true };
   return { actual: failed.map(([label, , detail]) => `×${label}（実際：${show(detail)}）`).join('／'), pass: false };
 }
 
 /** プロジェクトのファイルを文字で読む（Node.js は直接、ブラウザは同じサーバーから） */
-async function readText(path) {
+export async function readText(path) {
   const url = new URL(`../${path}`, import.meta.url);
   if (IS_NODE) {
     const fs = await import('node:fs/promises');
@@ -53,7 +55,7 @@ async function readText(path) {
    --------------------------------------------------------- */
 
 /** 呼ばれ方を覚える fetch。handler(url, init) の結果を返す */
-function fakeFetch(handler) {
+export function fakeFetch(handler) {
   const calls = [];
   const fn = (url, init) => {
     calls.push({ url, init });
@@ -64,16 +66,16 @@ function fakeFetch(handler) {
 }
 
 /** 応答を返す（body がオブジェクトなら JSON の文字にする。Apps Script はいつも 200） */
-const reply = (body, status = 200) => fakeFetch(async () => ({
+export const reply = (body, status = 200) => fakeFetch(async () => ({
   status, ok: status >= 200 && status < 300, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
 }));
 
 /** Apps Script の応答の共通部分（sheets-setup 11.4） */
-const gas = (extra) => ({ app: 'fx-trade-note', v: 1, script: '1.1.0', ...extra });
-const gasError = (code, extra = {}) => gas({ action: null, ok: false, error: { code, message: '（開発者向けの説明）', ...extra } });
+export const gas = (extra) => ({ app: 'fx-trade-note', v: 1, script: '1.1.0', ...extra });
+export const gasError = (code, extra = {}) => gas({ action: null, ok: false, error: { code, message: '（開発者向けの説明）', ...extra } });
 
 /** 打ち切られるまで終わらない fetch（本物と同じく、打ち切られたら AbortError で失敗する） */
-const hangUntilAbort = () => fakeFetch((url, init) => new Promise((resolve, reject) => {
+export const hangUntilAbort = () => fakeFetch((url, init) => new Promise((resolve, reject) => {
   init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
 }));
 
@@ -90,12 +92,12 @@ const slowBody = () => fakeFetch(async (url, init) => ({
 }));
 
 /** 通信できない（CORS で読めない・DNS など。本物は TypeError: Failed to fetch／Load failed）。message にわざと URL・合言葉を入れる */
-const networkError = () => fakeFetch(async () => {
+export const networkError = () => fakeFetch(async () => {
   throw new TypeError(`Failed to fetch ${FAKE_URL} ${FAKE_TOKEN}`);
 });
 
 /** 開発者ツールへの出し先のにせもの（何が出たかを覚える） */
-function fakeLog() {
+export function fakeLog() {
   const lines = [];
   return { lines, warn: (...a) => lines.push(a), info: (...a) => lines.push(a), error: (...a) => lines.push(a), log: (...a) => lines.push(a) };
 }
@@ -116,7 +118,7 @@ function deepText(v, depth = 0) {
 }
 
 /** console の出力をすべて受け止めながら fn を動かし、出たものを返す（終わったら元に戻す） */
-async function captureConsole(fn) {
+export async function captureConsole(fn) {
   const names = ['log', 'info', 'warn', 'error', 'debug'];
   const original = {};
   const logged = [];
@@ -133,7 +135,7 @@ async function captureConsole(fn) {
 }
 
 /** 出たものの中に secrets のどれかが入っていれば、その行を返す */
-const leaked = (logged, secrets) => logged.map((args) => args.map((a) => deepText(a)).join(' '))
+export const leaked = (logged, secrets) => logged.map((args) => args.map((a) => deepText(a)).join(' '))
   .filter((line) => secrets.some((s) => line.includes(s)));
 
 /* ---------------------------------------------------------
@@ -244,6 +246,24 @@ function inputTests() {
           ['PROTOCOL_VERSION', Number(pick(/const PROTOCOL_VERSION = (\d+);/)) === SYNC_PROTOCOL_VERSION, pick(/const PROTOCOL_VERSION = (\d+);/)],
           // チェックを通った合言葉は、Apps Script の式でも必ず通る（12〜128 の境目と記号）
           ['チェックを通った値は TOKEN_FORMAT も通る', TOKEN_CASES.filter(([, e, v]) => e === 'ok' && v).every(([, , v]) => new RegExp(format).test(v)), ''],
+        ]);
+      }),
+    t('SY-05', '送る直前の確認（readSyncConfig：T-40 レビュー SY-R02）：URL・合言葉が入力チェックを通るときだけ送ってよい値を返す',
+      '正しい組・前後の空白・空・null・/dev・http・別のホスト・11文字・空白入り・全角・数値', '正しい組だけ { url, token }（前後の空白を除く）、ほかは null',
+      () => {
+        const ok = readSyncConfig(FAKE_URL, FAKE_TOKEN);
+        const trimmed = readSyncConfig(`  ${FAKE_URL}\n`, ` ${FAKE_TOKEN} `);
+        const nulls = [
+          ['URL が空', '', FAKE_TOKEN], ['合言葉が空', FAKE_URL, ''], ['URL が null', null, FAKE_TOKEN], ['合言葉が null', FAKE_URL, null],
+          ['/dev', `${BASE}/dev`, FAKE_TOKEN], ['http', FAKE_URL.replace('https', 'http'), FAKE_TOKEN],
+          ['別のホスト', 'https://example.com/macros/s/FAKE-ID/exec', FAKE_TOKEN], ['googleusercontent', 'https://script.googleusercontent.com/macros/echo?x=1', FAKE_TOKEN],
+          ['11文字', FAKE_URL, 'abcdefghijk'], ['空白入り', FAKE_URL, 'abcdef ghijklm'], ['全角', FAKE_URL, 'ａｂｃｄｅｆｇｈｉｊｋｌ'],
+          ['数値', FAKE_URL, 123456789012345], ['オブジェクト', { href: FAKE_URL }, FAKE_TOKEN],
+        ];
+        return verdict([
+          ['正しい組', ok && ok.url === FAKE_URL && ok.token === FAKE_TOKEN, ok],
+          ['前後の空白を除く', trimmed && trimmed.url === FAKE_URL && trimmed.token === FAKE_TOKEN, trimmed],
+          ...nulls.map(([label, u, k]) => [`${label} → null`, readSyncConfig(u, k) === null, readSyncConfig(u, k)]),
         ]);
       }),
   ];
@@ -412,6 +432,23 @@ function pingTests() {
           ['reason は null', r.reason === null, r.reason],
         ]);
       }),
+    t('SP-09', '保存済みの URL・合言葉が入力チェックを通らないときは、接続テストでも何も送らない（SY-R02）',
+      '/dev の URL・http の URL・11文字の合言葉・空白入りの合言葉・空', 'notConfigured・fetch は呼ばれない・console に URL・合言葉が出ない',
+      async () => {
+        const cases = [[`${BASE}/dev`, FAKE_TOKEN], [FAKE_URL.replace('https', 'http'), FAKE_TOKEN], [FAKE_URL, 'abcdefghijk'], [FAKE_URL, `${FAKE_TOKEN} x`], ['', FAKE_TOKEN], [FAKE_URL, null]];
+        const f = reply(gas({ action: 'ping', ok: true, sheet: { name: 'trades', state: 'ready' } }));
+        const results = [];
+        const logged = await captureConsole(async () => {
+          for (const [url, token] of cases) results.push((await pingAppsScript({ url, token, fetchImpl: f, isOnline: () => true })).result);
+        });
+        const bad = leaked(logged, [FAKE_URL, FAKE_TOKEN, 'FAKE-ID']);
+        return verdict([
+          ['どれも notConfigured', results.every((r) => r === 'notConfigured'), results],
+          ['fetch は呼ばれない', f.calls.length === 0, f.calls.length],
+          ['画面の文は無い（出さない）', pingResultText('notConfigured') === null, pingResultText('notConfigured')],
+          ['URL・合言葉が console に出ない', bad.length === 0, bad.join(' | ')],
+        ]);
+      }),
   ];
 }
 
@@ -419,7 +456,7 @@ function pingTests() {
    SS：設定の保存が URL・合言葉を出さない
    --------------------------------------------------------- */
 
-function fakeStorage() {
+export function fakeStorage() {
   const map = new Map();
   return { map, getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => { map.set(k, String(v)); }, removeItem: (k) => { map.delete(k); } };
 }
@@ -460,6 +497,36 @@ function storeTests() {
           ['合言葉：中身が出ない', !a.includes(FAKE_TOKEN), a],
           ['URL：中身が出ない', b.startsWith('TypeError') && !b.includes(FAKE_URL), b],
           ['ほかの設定は値を出す（今までどおり）', c.includes('purple'), c],
+        ]);
+      }),
+    t('SS-03', '同期の最後のエラー（syncLastError：T-41・roadmap 7.20 #1）の保存値の確かめ方',
+      '正しい形・null・kind が違う・時刻の形が違う・code に変な文字・id が11件・count が負・項目が足りない', '正しい形と null だけ保存・読み込みでき、ほかは保存せず TypeError／読むと初期値（null）',
+      () => {
+        const store = createSettingsStore({ storage: fakeStorage(), prefix: 'fxnote-test:' });
+        const good = { at: '2026-10-28T10:00:00+09:00', kind: 'rejected', code: null, reason: 'FORMULA', count: 2, ids: ['id-1', 'id-2'] };
+        const saved = store.set('syncLastError', good);
+        const back = store.get('syncLastError');
+        const rejects = [
+          ['kind が違う', { ...good, kind: 'other' }],
+          ['時刻の形が違う', { ...good, at: '2026-10-28 10:00' }],
+          ['code に変な文字', { ...good, code: `${FAKE_URL}` }],
+          ['reason に小文字', { ...good, reason: 'formula' }],
+          ['id が11件', { ...good, ids: Array.from({ length: 11 }, (_, i) => `id-${i}`) }],
+          ['id が65文字', { ...good, ids: ['x'.repeat(65)] }],
+          ['count が負', { ...good, count: -1 }],
+          ['ids が無い', { at: good.at, kind: 'offline', code: null, reason: null, count: 0 }],
+          ['文字', 'offline'],
+        ];
+        const thrown = rejects.map(([label, v]) => {
+          try { store.set('syncLastError', v); return [label, false]; } catch (e) { return [label, e instanceof TypeError]; }
+        });
+        store.set('syncLastError', null);
+        return verdict([
+          ['正しい形は保存できる', JSON.stringify(saved) === JSON.stringify(good), saved],
+          ['読み戻すと同じ', JSON.stringify(back) === JSON.stringify(good), back],
+          ...thrown.map(([label, ok]) => [`${label} → 保存しない`, ok, ok]),
+          ['null（エラーなし）に戻せる', store.get('syncLastError') === null, store.get('syncLastError')],
+          ['初期値は null', store.getDefault('syncLastError') === null, store.getDefault('syncLastError')],
         ]);
       }),
   ];
@@ -857,6 +924,31 @@ function groupTests() {
             ['属性に出ない', !secrets.some((s) => html.includes(s)), ''],
             ['トーストに出ない', !m.toasts.some((x) => secrets.some((s) => x.includes(s))), m.toasts],
             ['console に出ない', leaked(logged, secrets).length === 0, leaked(logged, secrets).join(' | ')],
+          ]);
+        } finally { m.cleanup(); }
+      }),
+    td('SG-12', '保存済みの値が入力チェックを通らないまま開いたとき（手で書き換えた など：SY-R02）：行を赤・エラー文・接続テストは押せない',
+      '保存値 URL＝/dev の URL・合言葉＝11文字（設定画面を通らずに保存された値）', 'URL・合言葉の行が赤、U-3・K-2 の文、接続テストは押せない。直して離れると消えて押せる',
+      async () => {
+        const m = await mountGroup({ gasUrl: `${BASE}/dev`, syncToken: 'abcdefghijk' });
+        try {
+          const msgs = m.messages();
+          const red = [m.urlBox, m.tokenBox].map((el) => el.closest('.form-row').classList.contains('is-error'));
+          const disabled = m.testRow.disabled;
+          m.testRow.click();
+          const pinged = m.pings.length;
+          m.type(m.urlBox, FAKE_URL);
+          m.leave(m.urlBox);
+          m.type(m.tokenBox, FAKE_TOKEN);
+          m.leave(m.tokenBox);
+          return verdict([
+            ['エラー文（URL → 合言葉）', msgs.length === 2 && msgs[0] === SYNC_INPUT_MESSAGES['U-3'] && msgs[1] === SYNC_INPUT_MESSAGES['K-2'], msgs],
+            ['両方の行が赤', red.every(Boolean), red],
+            ['接続テストは押せない', disabled === true, disabled],
+            ['押しても送らない', pinged === 0, pinged],
+            ['直すとエラー文が消える', m.messages().length === 0, m.messages()],
+            ['直すと押せる', m.testRow.disabled === false, m.testRow.disabled],
+            ['直した値を保存', m.store.get('gasUrl') === FAKE_URL && m.store.get('syncToken') === FAKE_TOKEN, ''],
           ]);
         } finally { m.cleanup(); }
       }),
