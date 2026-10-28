@@ -20,7 +20,7 @@
    ========================================================= */
 
 /** アプリのバージョン。js/config.js の APP_VERSION と必ず同じ値にする（テスト「リリース確認」で確かめる） */
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.2.0';
 
 /**
  * キャッシュ名の接頭辞。https://ユーザー名.github.io は同じアカウントの他のアプリと Cache Storage を共有するので、
@@ -86,6 +86,7 @@ const SHELL_FILES = [
   './js/router.js',
   './js/row-flash.js',
   './js/settings-store.js',
+  './js/sync.js',
   './js/sw-update.js',
   './js/trades.js',
   './js/util.js',
@@ -101,6 +102,7 @@ const SHELL_FILES = [
   './js/screens/list.js',
   './js/screens/settings-data.js',
   './js/screens/settings-import.js',
+  './js/screens/settings-sync.js',
   './js/screens/settings.js',
 
   './js/ui/bars.js',
@@ -230,7 +232,9 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // GET 以外（Phase 2 のスプレッドシートへの送信など）は触らない。送信をキャッシュすると同期が壊れるため
+  // GET 以外（Phase 2 のスプレッドシートへの送信など）は触らない。送信をキャッシュすると同期が壊れるため。
+  // Apps Script への送信（T-40 の接続テスト・T-41 の送信）は別のオリジンへの POST なので、ここで素通しになる。
+  // 応答の転送先（script.googleusercontent.com）はブラウザが追いかけるので、この Service Worker には届かない
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);

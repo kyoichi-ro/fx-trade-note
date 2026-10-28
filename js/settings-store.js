@@ -22,6 +22,7 @@
    【使い始めるタスク】全キーの窓口（初期値・確認・読み書き）はここで用意し、各キーは使うタスクで使い始める
    （T-15：lotUnitSize.*・theme、T-16：favoritePairs・choices（根拠・感情・タグの初期値は T-16 で master.js へ移した）、T-17：lastInput、T-23：listFilter、
      T-25：lastExportAt、T-40：gasUrl・syncToken）。
+   ・T-40：gasUrl・syncToken は「秘密の設定」（secret）。読めないときの警告・保存できない値のエラー文にも中身を出さない。
 
    ・層は「保存の窓口」（architecture 4.3）。画面の部品は import しない。
    ========================================================= */
@@ -121,9 +122,15 @@ const DEFINITIONS = Object.freeze({
   },
   theme: { default: () => 'auto', check: (v) => (THEMES.includes(v) ? v : undefined) },
   lastExportAt: { default: () => null, check: orNull((v) => (typeof v === 'string' && JST_FORMAT.test(v) ? v : undefined)) },
-  gasUrl: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)) },
-  syncToken: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)) },
+  // secret：Apps Script の URL・合言葉。壊れた値の警告や保存できない値のエラー文にも中身を出さない（design 14.6.8・T-40）
+  gasUrl: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)), secret: true },
+  syncToken: { default: () => null, check: orNull((v) => (isNonEmptyString(v) ? v : undefined)), secret: true },
 });
+
+/** 警告・エラー文に出す値。秘密の設定（URL・合言葉）は中身の代わりに決まった文字を出す（T-40） */
+function shown(def, v) {
+  return def.secret ? '（秘密の値のため表示しません）' : v;
+}
 
 /** requirements 6.3 のキー名の一覧（接頭辞なし） */
 export const SETTING_KEYS = Object.freeze(Object.keys(DEFINITIONS));
@@ -188,12 +195,12 @@ export function createSettingsStore({ storage = defaultStorage, prefix = LS_PREF
     try {
       parsed = JSON.parse(raw);
     } catch (e) {
-      console.warn(`設定「${key}」の保存値が壊れているため、初期値を使います`, raw);
+      console.warn(`設定「${key}」の保存値が壊れているため、初期値を使います`, shown(def, raw));
       return def.default();
     }
     const checked = def.check(parsed);
     if (checked === undefined) {
-      console.warn(`設定「${key}」の保存値の形が違うため、初期値を使います`, parsed);
+      console.warn(`設定「${key}」の保存値の形が違うため、初期値を使います`, shown(def, parsed));
       return def.default();
     }
     return copy(checked);
@@ -212,7 +219,7 @@ export function createSettingsStore({ storage = defaultStorage, prefix = LS_PREF
     const def = definitionOf(key);
     const checked = def.check(value);
     if (checked === undefined) {
-      throw new TypeError(`settings-store：「${key}」に保存できない値です（${JSON.stringify(value)}）`);
+      throw new TypeError(`settings-store：「${key}」に保存できない値です（${shown(def, JSON.stringify(value))}）`);
     }
     try {
       const s = getStorage();

@@ -2,6 +2,7 @@
    js/ui/fields.js
    入力部品（design.md 8.5・9.2・9.3・9.4、14.1.8 の入力チェックの出し方）：
      ・フォーム行（ラベル左・値右）          numberRow / textRow / textareaRow / dateTimeRow / switchRow
+     ・伏せ字の行・縦積みの1行（T-40：設定のスプレッドシート同期） secretRow / stackedLineRow
      ・チェックの行（1つだけ選ぶ・iOS「設定」と同じ） checkRows（T-15 で追加：設定のテーマ）
      ・セグメント切替（買い/売り・デモ/本番） segment
      ・チップ選択（根拠・感情・タグなど）     chips
@@ -60,6 +61,102 @@ export function textRow({ label, name = '', value = '', placeholder = '', type =
   });
   const row = h('label', { class: 'form-row' }, h('span', { class: 'form-row__label' }, label), input);
   return { row, input };
+}
+
+/**
+ * 伏せ字の入力行（合言葉。design 14.6.8・14.6.12。T-40 で追加）：ラベル左、伏せ字の欄（右揃え）、右端に文字ボタン「表示」。
+ * ・「表示」を押すと文字を見せ、ボタンは「隠す」になる（aria-pressed）。押しても欄のフォーカス・入力中の文字はそのまま
+ *   （ボタンを押した瞬間に欄から離れると、欄から離れたときのチェック・保存が走ってしまうため、mousedown の既定の動きを止める）
+ * ・欄が空の間は「表示」を押せない
+ * ・作るたびに伏せ字から始まる（設定画面を開くたびに伏せ字に戻る）
+ * ・中に文字ボタンがあるので行全体を <label> にはせず、ラベルは for で入力欄と結ぶ（dateTimeRow と同じ）
+ * ・値は属性（value="…"）ではなくプロパティで入れる（秘密の値を HTML の属性に残さないため）
+ * @param {{ label: string, value?: string, placeholder?: string, enterkeyhint?: string, onInput?: Function, onBlur?: Function }} opts
+ * @returns {{ row: HTMLDivElement, input: HTMLInputElement, toggle: HTMLButtonElement, update: () => void }}
+ *   update … 欄の値をプログラムから入れ替えたあとに呼ぶ（「表示」を押せるかを合わせ直す）
+ */
+export function secretRow({ label, value = '', placeholder = '', enterkeyhint = 'done', onInput, onBlur }) {
+  const id = uniqueId('secret');
+  const input = h('input', {
+    class: 'form-row__input', type: 'password', id, placeholder: placeholder || null, enterkeyhint,
+    // 自動修正・大文字化・入力候補を止める（合言葉の文字が勝手に変わらないように）
+    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false',
+    onBlur,
+  });
+  input.value = value;
+  const toggle = h('button', {
+    type: 'button', class: 'btn btn--text form-row__action', 'aria-pressed': 'false', 'aria-controls': id,
+    onMousedown: (e) => e.preventDefault(),
+    onClick: () => {
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      toggle.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+      toggle.textContent = reveal ? '隠す' : '表示';
+    },
+  }, '表示');
+  const update = () => { toggle.disabled = input.value === ''; };
+  input.addEventListener('input', (e) => { update(); if (onInput) onInput(e); });
+  update();
+  const row = h('div', { class: 'form-row' },
+    h('label', { class: 'form-row__label', for: id }, label),
+    input,
+    toggle,
+  );
+  return { row, input, toggle, update };
+}
+
+/**
+ * 縦積みの1行の入力（Apps Script の URL。design 14.6.8・14.6.12。T-40 で追加）：1行目にラベル、2行目に等幅・左揃え・幅いっぱいの欄。
+ * ・長い URL を折り返して全体を見せるため <textarea rows="1"> を使い、入力に合わせて maxRows 行まで伸ばす（それより長いと欄の中でスクロール）
+ * ・改行は入れさせない：改行キーは onEnter（次の欄へ進むなど）に回し、貼り付けで混ざった改行は取り除く
+ *   （日本語入力の変換を確定する Enter では動かない）
+ * @param {{ label: string, value?: string, placeholder?: string, maxRows?: number, inputmode?: string,
+ *   enterkeyhint?: string, onInput?: Function, onBlur?: Function, onEnter?: Function }} opts
+ * @returns {{ row: HTMLLabelElement, textarea: HTMLTextAreaElement, resize: () => void }}
+ *   resize … 欄の値をプログラムから入れ替えたあとに呼ぶ（高さを合わせ直す）
+ */
+export function stackedLineRow({
+  label, value = '', placeholder = '', maxRows = 4, inputmode = 'text', enterkeyhint = 'next', onInput, onBlur, onEnter,
+}) {
+  const textarea = h('textarea', {
+    class: 'form-row__textarea form-row__textarea--line', rows: '1', placeholder: placeholder || null, inputmode, enterkeyhint,
+    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false',
+    onBlur,
+  });
+  textarea.value = value;
+
+  const resize = () => {
+    // 1行の高さ × maxRows を上限にして、入力に合わせて伸ばす（field-sizing は iOS 16 で使えないため JS で合わせる）
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 0;
+    textarea.style.height = 'auto';
+    const full = textarea.scrollHeight;
+    const max = lineHeight ? lineHeight * maxRows : full;
+    textarea.style.height = `${Math.min(full, max)}px`;
+    textarea.classList.toggle('is-scroll', full > max + 1);
+  };
+
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    if (onEnter) onEnter(e);
+    else textarea.blur();
+  });
+  textarea.addEventListener('input', (e) => {
+    // 貼り付けなどで混ざった改行は取り除く（URL の途中に改行は入らないため）。カーソルは末尾からの位置を保つ
+    if (/[\r\n]/.test(textarea.value)) {
+      const fromEnd = textarea.value.length - textarea.selectionEnd;
+      textarea.value = textarea.value.replace(/[\r\n]+/g, '');
+      const pos = Math.max(0, textarea.value.length - fromEnd);
+      textarea.setSelectionRange(pos, pos);
+    }
+    resize();
+    if (onInput) onInput(e);
+  });
+  // 画面に置かれてから高さを測る（置かれる前は scrollHeight が 0）
+  requestAnimationFrame(resize);
+
+  const row = h('label', { class: 'form-row form-row--stacked' }, h('span', { class: 'form-row__label' }, label), textarea);
+  return { row, textarea, resize };
 }
 
 /**

@@ -826,3 +826,48 @@
   margin: 0;
   font-size: var(--fs-body);
 }
+
+/* =========================================================
+   設定：スプレッドシート同期（design 14.6.8・14.6.12。T-40）
+   接続テストの行は「新しいバージョンに更新」と同じ .action-row。新しい CSS 変数は作らない
+   ========================================================= */
+
+/* Apps Script URL の欄：ラベルの下に等幅・左揃え・幅いっぱい。1行から始めて入力に合わせて最大4行まで伸びる
+   （高さは fields.js の stackedLineRow が合わせる）。等幅は l・I・0・O を見分けやすくするため（.export-file__name と同じ字体） */
+.form-row__textarea--line {
+  min-height: 0;
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+/* 4行を超えたときだけ欄の中でスクロールできるようにする */
+.form-row__textarea--line.is-scroll {
+  overflow-y: auto;
+}
+/* エラー①：縦積みの欄の文字も赤に（.form-row__input と同じ扱い） */
+.form-row.is-error .form-row__textarea {
+  color: var(--color-danger);
+}
+
+/* 接続テストの「確認中」：回転アイコン（16px）と文字を並べる */
+.sync-test.is-busy {
+  gap: var(--sp-2);
+}
+
+/* 接続テストの成功の文：✓（アクセント色・16px）＋灰の文字（失敗は .field-message の赤の ⚠＋文） */
+.sync-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  margin: 0;
+  line-height: var(--lh-normal);
+}
+.sync-result__icon {
+  flex-shrink: 0;
+  color: var(--color-accent);
+  /* 1行目の文字の高さの真ん中にそろえる（.field-message__icon と同じ） */
+  margin-top: calc((var(--fs-footnote) * var(--lh-normal) - var(--icon-xs)) / 2);
+}
+/* 結果の文と説明文の間（エラー文と説明文の間と同じ） */
+.sync-result + .sync-note {
+  margin-top: var(--sp-2);
+}

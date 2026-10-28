@@ -11,8 +11,10 @@
   <!--
     CSP（読み込んでよいものを自分のサイトに限る。XSS の被害を抑える：architecture.md 14.3 の Phase 1 の内容）。
     インラインの <script> や style="…" 属性はこの設定で動かなくなるため、使わない。
+    Phase 2（T-40）：connect-src に Apps Script の2つのドメインを追加（architecture.md 14.3 の「Phase 2 で追加」）。
+    送り先は script.google.com で、応答は script.googleusercontent.com へ転送されて返るため、両方が要る。
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>FXトレードノート</title>
   <!--
     ホーム画面に追加するための設定（T-27・design.md 15章）。パスは GitHub Pages のサブパスで動くよう相対パス。

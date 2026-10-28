@@ -23,8 +23,10 @@
    【T-44 で足した範囲】
    ・データの続き（見出しのないまとまり）：CSVを読み込む（中身は screens/settings-import.js）。取り込んだあとは、
      「記録の件数」（settings-data.js が記録の変更通知で読み直す）と選択肢の登録数（足した選択肢の分）を新しくする
+   【T-40 で足した範囲】
+   ・スプレッドシート同期（テーマとデータの間）：Apps Script URL・合言葉・接続テスト（中身は screens/settings-sync.js）
    【まだ作らないもの（担当タスク）】
-   ・スプレッドシート同期 … Phase 2（T-40）
+   ・スプレッドシート同期の「同期状態 ›」の行 … T-43（#/settings/sync と一緒に足す：design 14.6.8）
    ========================================================= */
 import { h } from '../ui/dom.js';
 import { largeTitle } from '../ui/bars.js';
@@ -40,6 +42,7 @@ import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
 import { dataGroup } from './settings-data.js';
 import { importGroup } from './settings-import.js';
+import { syncGroup } from './settings-sync.js';
 import { readPersisted, readUsage, protectionLabel, protectionNote, formatUsage } from '../data-protection.js';
 import { isUpdateWaiting, applyUpdate, checkForUpdateNow, UPDATE_READY } from '../sw-update.js';
 import { on } from '../events.js';
@@ -308,6 +311,7 @@ function choicesGroup() {
 }
 
 let lotUnit = null;
+let sync = null;
 let data = null;
 let importer = null;
 let about = null;
@@ -320,6 +324,7 @@ export default {
   mount(root) {
     lotUnit = lotUnitGroup();
     const choices = choicesGroup();
+    sync = syncGroup();
     data = dataGroup();
     importer = importGroup({ onImported: () => choices.refresh() });
     about = aboutGroup();
@@ -336,12 +341,15 @@ export default {
         // ③ テーマ
         themeGroup(),
 
-        // ④ データ（CSV の書き出し：T-25。design 14.6.1 の並び＝テーマの次、「このアプリについて」の前）
+        // ④ スプレッドシート同期（T-40。design 14.6.8：テーマとデータの間。自動で控えを送る仕組みを、手動の CSV より上に置く）
+        sync.group,
+
+        // ⑤ データ（CSV の書き出し：T-25。design 14.6.1 の並び＝スプレッドシート同期の次、「このアプリについて」の前）
         data.group,
-        // ⑤ データの続き：CSVを読み込む（T-44。design 14.6.9：見出しのない2つ目のまとまり）
+        // ⑥ データの続き：CSVを読み込む（T-44。design 14.6.9：見出しのない2つ目のまとまり）
         importer.group,
 
-        // ⑥ このアプリについて（バージョン・データの保護・使用量・ホーム画面への追加方法と、データ保護の説明文）
+        // ⑦ このアプリについて（バージョン・データの保護・使用量・ホーム画面への追加方法と、データ保護の説明文）
         about.group,
       ),
     );
@@ -350,6 +358,11 @@ export default {
   unmount() {
     if (lotUnit) lotUnit.commitFocused();
     lotUnit = null;
+    if (sync) {
+      sync.commitFocused();
+      sync.dispose();
+    }
+    sync = null;
     if (data) data.dispose();
     data = null;
     if (importer) importer.dispose();
