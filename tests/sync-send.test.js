@@ -1,20 +1,27 @@
 /* =========================================================
    tests/sync-send.test.js
-   スプレッドシートへの記録の送信（T-41）のテスト。docs/sheets-setup.md 4.3・6章・10.1・10.3・11.3〜11.5、architecture 3.3・20.2。
+   スプレッドシートへの記録の送信（T-41）と未送信の再送（T-42）のテスト。docs/sheets-setup.md 4.3・6章・10.1・10.3・11.3〜11.5、architecture 3.3・20.2。
    ・SQ-xx：Apps Script との約束（js/sync.js の buildUpsertRecords・classifyUpsertResponse・upsertToAppsScript）。
             要求の形・送り方、応答の振り分け、一時的な失敗の見分け、gas/Code.gs の列の定義との一致、秘密が console に出ないこと
    ・SA-xx：自動送信（js/sync-sender.js）。本物の業務処理（trades.js の createTradeService）を、メモリの中のにせものの DB で動かし、
             にせものの Apps Script（fetch）に送る。送るきっかけ（保存・決済・編集・決済の取り消し・削除・削除の取り消し・画像の削除・
             CSV の取り込み）、送る値が CSV と同じ作り方、結果の反映、送っている間の編集、ループしないこと、1つずつ・20件ずつ、
             未設定のとき送らないこと、設定の問題のとき繰り返さないこと、失敗しても記録が壊れないこと、syncLastError、秘密
-   ・SB-xx：本物の IndexedDB（別名のテスト用 DB）での書き戻し（trades.js の markSyncResults）と、一連の操作。ブラウザだけ
+   ・SR-xx：未送信の再送（T-42）。起動時・オンライン復帰・前面に戻ったとき（1分おき）・待ってからの再送（30秒・2分・10分）・
+            「今すぐ同期」（manual）・接続テストの成功での再開（SS-R02）、二重に送らないこと、送信中に保存した記録の取りこぼし（SS-R01）、
+            受け付けられなかった記録の知らせの持ち越し（SS-R03）、受け付けられなかった記録を自動で繰り返さないこと、1分40件（SS-R04）、
+            オフラインで記録が壊れないこと、秘密。時計・タイマー・window・document はにせもの（本物の30秒・1分を待たない）
+   ・SB-xx：本物の IndexedDB（別名のテスト用 DB）での書き戻し（trades.js の markSyncResults）と、一連の操作、未送信の読み出し（T-42）。ブラウザだけ
    本物の Apps Script には送らない。本物の設定（fxnote:）にも触れない（startAutoSync は呼ばない：本物の URL・合言葉で送ってしまうため）。
    ========================================================= */
 import {
   buildUpsertRecords, classifyUpsertResponse, upsertToAppsScript, isTransientSyncFailure, readSyncConfig,
-  SYNC_BATCH_SIZE, UPSERT_TIMEOUT_MS,
+  SYNC_BATCH_SIZE, UPSERT_TIMEOUT_MS, SYNC_RECORDS_PER_MINUTE,
 } from '../js/sync.js';
-import { createSyncSender, connectSender, idsFromChange, sameSheetContent, SYNC_ERROR_KINDS } from '../js/sync-sender.js';
+import {
+  createSyncSender, connectSender, connectResendTriggers, idsFromChange, sameSheetContent, unsentIdsInOrder, rejectedInfoOf, unsentLoader,
+  SYNC_ERROR_KINDS, RESEND_DELAY_MS, VISIBLE_RESEND_INTERVAL_MS, RETRY_DELAYS_MS,
+} from '../js/sync-sender.js';
 import { sheetRowValues, CSV_COLUMNS, CSV_NUMBER_COLUMNS } from '../js/csv.js';
 import { createTradeService, TRADES_CHANGED } from '../js/trades.js';
 import { STORE, createDb, MIGRATIONS } from '../js/db.js';
@@ -157,31 +164,67 @@ function fakeGas({ decide = () => null, hold = null, failWith = () => null } = {
  *   isOnline?: () => boolean, log?: object, timeoutMs?: number, wrap?: object }} [opts]
  *   wrap … loadTrades・markResults・saveLastError をわざと失敗させるときの差し替え
  */
+/**
+ * にせものの時計（ミリ秒）と、待つ・予約するのにせもの（T-42）。
+ * sleep は待たずに時計を進める（1分あたりの上限で待った時間を waits に残す）。setTimer は予約を timers に積むだけで、
+ * テストが fire() で呼ぶ（本物の30秒・2分・10分を待たない）。
+ */
+function fakeTime() {
+  const time = { ms: 1_000_000, waits: [], timers: [] };
+  time.nowMs = () => time.ms;
+  time.sleep = async (d) => { time.waits.push(d); time.ms += d; };
+  time.setTimer = (fn, ms) => {
+    const handle = { fn, ms, cleared: false, fired: false };
+    time.timers.push(handle);
+    return handle;
+  };
+  time.clearTimer = (handle) => { if (handle) handle.cleared = true; };
+  /** 取り消されていない予約（まだ呼んでいないもの） */
+  time.live = () => time.timers.filter((h) => !h.cleared && !h.fired);
+  /** いちばん古い予約を呼ぶ（時計もその分進める） */
+  time.fire = () => {
+    const h = time.live()[0];
+    if (!h) return null;
+    h.fired = true;
+    time.ms += h.ms;
+    h.fn();
+    return h;
+  };
+  return time;
+}
+
 function setup({
   fetchImpl = fakeGas(), url = FAKE_URL, token = FAKE_TOKEN, clock = makeClock(), batchSize, isOnline = () => true,
-  log = fakeLog(), timeoutMs, wrap = {},
+  log = fakeLog(), timeoutMs, wrap = {}, time = fakeTime(), recordsPerMinute,
 } = {}) {
   const db = memoryDb();
   const svc = createTradeService({ db, now: clock, getLotUnitSize: () => 10000 });
   const cfg = { url, token };
   // syncLastError は本物の settings-store の確かめ方を通す（形が違えば TypeError）。保存場所はにせもの
   const store = createSettingsStore({ storage: fakeStorage(), prefix: 'fxnote-test:' });
+  const unsentLoads = [];
   const deps = {
     getConfig: () => readSyncConfig(cfg.url, cfg.token),
     loadTrades: (ids) => Promise.all(ids.map((id) => svc.getTrade(id))),
     markResults: (entries) => svc.markSyncResults(entries),
-    loadUnsentIds: async () => (await svc.getAllTrades()).filter((x) => x.syncStatus !== 'synced').map((x) => x.id),
+    // 本物（startAutoSync）と同じ：自動は pending だけ、「今すぐ同期」は error も。作った順に並べる
+    loadUnsentIds: async ({ includeErrors } = {}) => {
+      unsentLoads.push(Boolean(includeErrors));
+      const statuses = includeErrors ? ['pending', 'error'] : ['pending'];
+      return unsentIdsInOrder((await svc.getAllTrades()).filter((x) => statuses.includes(x.syncStatus)));
+    },
     readLastError: () => store.get('syncLastError'),
     saveLastError: (v) => { store.set('syncLastError', v); },
   };
   const sender = createSyncSender({
-    ...deps, ...wrap, now: clock, fetchImpl, isOnline, log, batchSize, timeoutMs,
+    ...deps, ...wrap, now: clock, fetchImpl, isOnline, log, batchSize, timeoutMs, recordsPerMinute,
+    nowMs: time.nowMs, sleep: time.sleep, setTimer: time.setTimer, clearTimer: time.clearTimer,
   });
   const events = [];
   const offEvents = on(TRADES_CHANGED, (d) => events.push(d));
   const off = connectSender(sender);
   return {
-    db, svc, sender, cfg, store, fetchImpl, log, events,
+    db, svc, sender, cfg, store, fetchImpl, log, events, time, unsentLoads,
     lastError: () => store.get('syncLastError'),
     idle: () => withLimit(sender.whenIdle(), '送信'),
     cleanup() { off(); offEvents(); },
@@ -591,6 +634,7 @@ function senderTests() {
           return verdict([
             ['同時に送るのは1つ', f.maxInFlight() === 1, f.maxInFlight()],
             ['件数', f.bodies.map((b) => b.records.length).join() === '20,20,6', f.bodies.map((b) => b.records.length).join()],
+            ['1分に40件まで：3回目は1回目から1分たつまで待った（T-42・SS-R04）', SYNC_RECORDS_PER_MINUTE === 40 && s.time.waits.length === 1 && s.time.waits[0] === 60000, s.time.waits],
             ['取り込んだ順に送り、保存した1件は最後', f.bodies.flatMap((b) => b.records.map((r) => r.values.id)).join() === [...rows.map((r) => r.id), uuid(1)].join(), ''],
             ['全部 synced', all.length === 46 && all.every((x) => x.syncStatus === 'synced'), all.filter((x) => x.syncStatus !== 'synced').length],
           ]);
@@ -806,6 +850,658 @@ function senderTests() {
 }
 
 /* ---------------------------------------------------------
+   SR：未送信の再送（T-42）。起動時・オンライン復帰・前面に戻ったとき・待ってからの再送・「今すぐ同期」・
+   接続テストの成功（SS-R02）・送信中の取りこぼし（SS-R01）・受け付けられなかった記録の知らせ（SS-R03）・1分の上限（SS-R04）
+   --------------------------------------------------------- */
+
+/** 送った記録の id（送った順。同じ id が何回送られたか数えるため） */
+const sentIds = (f) => f.bodies.flatMap((b) => b.records.map((r) => r.values.id));
+const countOf = (list, id) => list.filter((x) => x === id).length;
+
+/**
+ * 再送のきっかけ（connectResendTriggers）を、にせものの window・document・タイマーでつなぐ。
+ * 時計は送信のしくみと同じもの（s.time）を使う（前回の送信からの時間を比べるため）。
+ */
+function wireTriggers(s) {
+  const win = new EventTarget();
+  const doc = new EventTarget();
+  doc.visibilityState = 'visible';
+  const timers = [];
+  const off = connectResendTriggers(s.sender, {
+    win, doc, nowMs: s.time.nowMs,
+    setTimer: (fn, ms) => { const h = { fn, ms, done: false }; timers.push(h); return h; },
+    clearTimer: (h) => { h.done = true; },
+  });
+  return {
+    timers,
+    off,
+    waiting: () => timers.filter((h) => !h.done),
+    /** 予約された再送を呼ぶ（無ければ false） */
+    fire: () => {
+      const h = timers.find((x) => !x.done);
+      if (!h) return false;
+      h.done = true;
+      h.fn();
+      return true;
+    },
+    online: () => win.dispatchEvent(new Event('online')),
+    show: (state = 'visible') => {
+      doc.visibilityState = state;
+      doc.dispatchEvent(new Event('visibilitychange'));
+    },
+  };
+}
+
+/** 1回目の要求だけ、外から release(answer) されるまで止める Apps Script（answer：'ok'・'BUSY'・'unreachable'・'timeout'） */
+function gatedGas() {
+  const good = fakeGas();
+  let gate = null;
+  let first = true;
+  const f = fakeFetch(async (url, init) => {
+    if (!first) return good(url, init);
+    first = false;
+    good.bodies.push(JSON.parse(init.body));
+    const answer = await new Promise((r) => { gate = r; });
+    if (answer === 'BUSY') return { status: 200, ok: true, text: async () => JSON.stringify(gas({ action: 'upsert', ok: false, error: { code: 'BUSY' } })) };
+    if (answer === 'unreachable') throw new TypeError('Failed to fetch');
+    if (answer === 'timeout') return new Promise(() => {}); // 時間切れ（timeoutMs）で打ち切られる
+    good.bodies.pop();
+    return good(url, init);
+  });
+  f.sheet = good.sheet;
+  f.bodies = good.bodies;
+  f.isHeld = () => gate !== null;
+  f.release = (answer) => { const g = gate; gate = null; g(answer); };
+  return f;
+}
+
+function resendTests() {
+  return [
+    t('SR-01', '起動時の再送：未設定のあいだに溜まった未送信（削除済み・CSV の取り込みも含む）を、起動の2秒後にまとめて送る',
+      '未設定で保存2件（1件は削除）＋CSV の取り込み1件 → 設定 → 再送のきっかけをつなぐ（起動）→ 2秒の予約を呼ぶ',
+      'つないだ時点では送らず、予約を呼ぶと1回で3件（作った順）を送って全件 synced。シートは3行・重複なし。もう一度起動しても送らない',
+      async () => {
+        const s = setup({ url: null });
+        try {
+          await s.svc.saveNewTrade(entry(1));
+          await s.svc.deleteTrade((await s.svc.saveNewTrade(entry(2))).id);
+          await s.svc.importTrades([importedRow(3)], { snapshot: new Map() });
+          await s.idle();
+          const before = s.fetchImpl.calls.length;
+          s.cfg.url = FAKE_URL;
+          const tr = wireTriggers(s);
+          const waiting = tr.waiting().map((h) => h.ms);
+          const atConnect = s.fetchImpl.calls.length;
+          tr.fire();
+          await s.idle();
+          const all = await s.svc.getAllTrades();
+          const tr2 = wireTriggers(s);
+          tr2.fire();
+          await s.idle();
+          tr.off();
+          tr2.off();
+          return verdict([
+            ['未設定のあいだは送らない', before === 0, before],
+            ['起動の再送は2秒後の予約', waiting.join() === String(RESEND_DELAY_MS) && RESEND_DELAY_MS === 2000, waiting],
+            ['つないだ時点では送らない', atConnect === 0, atConnect],
+            ['1回で3件・作った順（取り込んだ記録が先）', s.fetchImpl.bodies.length >= 1 && s.fetchImpl.bodies[0].records.map((r) => r.values.id).join() === [uuid(3), uuid(1), uuid(2)].join(), sentIds(s.fetchImpl)],
+            ['削除済みも送る', s.fetchImpl.bodies[0].records[2].values.deletedAt !== '', s.fetchImpl.bodies[0].records[2].values.deletedAt],
+            ['全件 synced', all.length === 3 && all.every((x) => x.syncStatus === 'synced'), all.map((x) => x.syncStatus)],
+            ['シートは3行・記録と同じ', s.fetchImpl.sheet.size === 3 && all.every((x) => deepEqual(s.fetchImpl.sheet.get(x.id), sheetRowValues(x, { syncedAt: x.syncedAt }))), s.fetchImpl.sheet.size],
+            ['自動の読み出しは pending だけ', s.unsentLoads.every((x) => x === false), s.unsentLoads],
+            ['2回目の起動では送らない（未送信なし）', s.fetchImpl.calls.length === 1, s.fetchImpl.calls.length],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-02', 'オンライン復帰の再送：オフラインで3件保存（1件は決済も）→ online → 3件を1回で送って全件 synced',
+      'navigator.onLine が false のあいだに保存・決済 → true にして online イベントを2回 → 予約を呼ぶ',
+      'オフラインのあいだは fetch 0回・記録は保存したとおり pending・syncLastError は offline・待ってからの再送は予約しない。復帰後は1回で3件、syncLastError は消える',
+      async () => {
+        const net = { online: false };
+        const s = setup({ isOnline: () => net.online });
+        try {
+          const tr = wireTriggers(s);
+          tr.fire(); // 起動の再送（まだ何もない）
+          await s.idle();
+          const saved = [];
+          saved.push(await s.svc.saveNewTrade(entry(1)));
+          saved.push(await s.svc.saveNewTrade(entry(2)));
+          saved.push(await s.svc.saveNewTrade(entry(3)));
+          await s.idle();
+          saved[0] = await s.svc.closeTrade(uuid(1), { exitPrice: 150.4, exitAt: '2026-10-15T23:00:00+09:00' });
+          await s.idle();
+          const offlineState = saved.map((x) => deepEqual(s.db.raw(x.id), x));
+          const err = s.lastError();
+          const retry = s.time.live().length;
+          const kept = s.sender.queuedCount();
+          net.online = true;
+          tr.online();
+          tr.online();
+          const waiting = tr.waiting().length;
+          tr.fire();
+          await s.idle();
+          const all = await s.svc.getAllTrades();
+          tr.off();
+          return verdict([
+            ['オフラインのあいだは送らない', s.fetchImpl.bodies.length === 1, s.fetchImpl.bodies.length],
+            ['記録は保存したとおり（pending）', offlineState.every(Boolean), offlineState],
+            ['syncLastError は offline', err && err.kind === 'offline', err],
+            ['オフラインでは待ってからの再送を予約しない（online を待つ）', retry === 0, retry],
+            ['送る列に3件残っている（SS-R01）', kept === 3, kept],
+            ['online が2回でも予約は1つ', waiting === 1, waiting],
+            ['復帰後は1回で3件', s.fetchImpl.bodies[0].records.length === 3, s.fetchImpl.bodies[0].records.length],
+            ['決済の値を送った', s.fetchImpl.bodies[0].records[0].values.status === 'closed', s.fetchImpl.bodies[0].records[0].values.status],
+            ['全件 synced・updatedAt は保存のまま', all.every((x) => x.syncStatus === 'synced' && x.updatedAt === saved.find((y) => y.id === x.id).updatedAt), all.map((x) => x.syncStatus)],
+            ['syncLastError は消える', s.lastError() === null, s.lastError()],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-03', '前面に戻ったときの再送：前回の送信・確認から1分たったときだけ。裏に回ったときは何もしない',
+      '未送信1件 → 前面 → 送信 → 30秒後に未送信1件 → 前面（送らない）・裏（送らない）→ 61秒後に前面（送る）→ すぐ前面（予約しない）→ つなぐのをやめる',
+      '予約の数 1・0・0・1・0、送信は2回、つなぐのをやめたら online でも予約しない',
+      async () => {
+        const s = setup();
+        try {
+          const tr = wireTriggers(s);
+          tr.fire();
+          await s.idle();
+          const pendingOne = async (n) => {
+            s.cfg.url = null;
+            await s.svc.saveNewTrade(entry(n));
+            await s.idle();
+            s.cfg.url = FAKE_URL;
+          };
+          const counts = [];
+          await pendingOne(1);
+          tr.show();
+          counts.push(tr.waiting().length);
+          tr.fire();
+          await s.idle();
+          await pendingOne(2);
+          s.time.ms += 30 * 1000;
+          tr.show();
+          counts.push(tr.waiting().length);
+          tr.show('hidden');
+          counts.push(tr.waiting().length);
+          s.time.ms += 31 * 1000;
+          tr.show();
+          counts.push(tr.waiting().length);
+          tr.fire();
+          await s.idle();
+          tr.show();
+          counts.push(tr.waiting().length);
+          tr.off();
+          tr.online();
+          const afterOff = tr.waiting().length;
+          return verdict([
+            ['予約の数（前面・30秒後・裏・61秒後・すぐ）', counts.join() === '1,0,0,1,0', counts],
+            ['間隔は1分', VISIBLE_RESEND_INTERVAL_MS === 60000, VISIBLE_RESEND_INTERVAL_MS],
+            ['送信は2回（1件ずつ）', sentIds(s.fetchImpl).join() === [uuid(1), uuid(2)].join(), sentIds(s.fetchImpl)],
+            ['どちらも synced', ['1', '2'].every((n) => s.db.raw(uuid(Number(n))).syncStatus === 'synced'), ''],
+            ['つなぐのをやめたら予約しない', afterOff === 0, afterOff],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-04', '二重に送らない：再送のきっかけが重なっても、送信中に同じ記録を読み出しても、1件は1回だけ送る',
+      '未送信5件 → 自動の再送を3回同時に → 1回目の応答を待たせている間に自動の再送・「今すぐ同期」・online → 応答',
+      '未送信の読み出しは重なりを1つにまとめる、fetch は1回、どの記録も1回だけ送る、シートは5行、全件 synced',
+      async () => {
+        const f = gatedGas();
+        const s = setup({ fetchImpl: f, url: null });
+        try {
+          for (let n = 1; n <= 5; n += 1) await s.svc.saveNewTrade(entry(n));
+          await s.idle();
+          s.cfg.url = FAKE_URL;
+          const counts = await Promise.all([s.sender.requestUnsent(), s.sender.requestUnsent(), s.sender.requestUnsent()]);
+          const loadsAtStart = s.unsentLoads.length;
+          await waitFor(() => f.isHeld(), '1回目の送信');
+          const tr = wireTriggers(s);
+          const again = await s.sender.requestUnsent();
+          const manual = s.sender.syncNow();
+          tr.online();
+          tr.fire();
+          tr.fire();
+          await tick();
+          f.release('ok');
+          await manual;
+          await s.idle();
+          tr.off();
+          const all = await s.svc.getAllTrades();
+          const ids = sentIds(f);
+          return verdict([
+            ['同時の3回は同じ結果（5件）', counts.every((c) => c === 5), counts],
+            ['未送信の読み出しは1回にまとめた', loadsAtStart === 1, loadsAtStart],
+            ['送信中の再送も5件を読み出した', again === 5, again],
+            ['fetch は1回', f.calls.length === 1, f.calls.length],
+            ['どの記録も1回だけ', all.every((x) => countOf(ids, x.id) === 1), ids],
+            ['シートは5行', f.sheet.size === 5, f.sheet.size],
+            ['全件 synced', all.every((x) => x.syncStatus === 'synced'), all.map((x) => x.syncStatus)],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-05', 'SS-R01：一時的な失敗のとき、その送信中に保存した記録も送る列に残し、次のきっかけで一緒に送る',
+      '記録1を送っている間に記録2・3を保存 → 応答が BUSY／届かない／時間切れ → BUSY は次の保存、ほかは30秒後の再送で',
+      '失敗の直後：3件とも pending・内容は同じ・列に3件・30秒後の再送を予約。次のきっかけで 1・2・3（・4）を1回で送り全件 synced・syncLastError は消える',
+      async () => {
+        const checks = [];
+        for (const answer of ['BUSY', 'unreachable', 'timeout']) {
+          const f = gatedGas();
+          const s = setup({ fetchImpl: f, timeoutMs: answer === 'timeout' ? 200 : undefined });
+          try {
+            const saved = [await s.svc.saveNewTrade(entry(1))];
+            await waitFor(() => f.isHeld(), '1回目の送信');
+            saved.push(await s.svc.saveNewTrade(entry(2)));
+            saved.push(await s.svc.saveNewTrade(entry(3)));
+            f.release(answer); // 時間切れは、release の前に200ミリ秒で打ち切られている
+            await s.idle();
+            checks.push([`${answer}：1回だけ送った`, f.calls.length === 1, f.calls.length]);
+            checks.push([`${answer}：3件とも pending・内容は同じ`, saved.every((x) => deepEqual(s.db.raw(x.id), x)), saved.map((x) => s.db.raw(x.id).syncStatus)]);
+            checks.push([`${answer}：送る列に3件（失敗した回の1件＋送信中に保存した2件）`, s.sender.queuedCount() === 3 && s.sender.isPaused(), s.sender.queuedCount()]);
+            checks.push([`${answer}：30秒後の再送を予約`, s.time.live().length === 1 && s.time.live()[0].ms === 30000, s.time.live().map((h) => h.ms)]);
+            checks.push([`${answer}：syncLastError`, s.lastError() && s.lastError().kind === (answer === 'BUSY' ? 'scriptError' : answer), s.lastError()]);
+            let expectIds = [uuid(1), uuid(2), uuid(3)];
+            if (answer === 'BUSY') {
+              await s.svc.saveNewTrade(entry(4)); // 次の保存（新しいきっかけ）
+              expectIds = [...expectIds, uuid(4)];
+            } else {
+              s.time.fire(); // 30秒後の再送
+            }
+            await s.idle();
+            const all = await s.svc.getAllTrades();
+            checks.push([`${answer}：次のきっかけで1回にまとめて送る`, f.calls.length === 2 && f.bodies[f.bodies.length - 1].records.map((r) => r.values.id).join() === expectIds.join(), f.bodies.map((b) => b.records.map((r) => r.values.id.slice(-1)).join(''))]);
+            checks.push([`${answer}：全件 synced`, all.every((x) => x.syncStatus === 'synced'), all.map((x) => x.syncStatus)]);
+            checks.push([`${answer}：syncLastError は消え、再送の予約も消える`, s.lastError() === null && s.time.live().length === 0, s.lastError()]);
+            checks.push([`${answer}：シートは重複なし`, f.sheet.size === expectIds.length, f.sheet.size]);
+          } finally { s.cleanup(); }
+        }
+        return verdict(checks);
+      }),
+
+    t('SR-06', '待ってからの再送の間隔：30秒・2分・10分の3回まで。それでも失敗したら予約せず次のきっかけを待つ。成功で最初に戻る',
+      '届かない Apps Script で保存 → 予約を順に呼ぶ → 保存 → 直して自動の再送 → また失敗／オフライン／設定の問題',
+      '予約 30000・120000・600000 → 予約なし。成功後の失敗は 30000 から。オフラインは予約しない。設定の問題は予約を消す',
+      async () => {
+        const mode = { v: 'down' };
+        const good = fakeGas();
+        const f = fakeFetch((url, init) => {
+          if (mode.v === 'down') return Promise.reject(new TypeError('Failed to fetch'));
+          if (mode.v === 'header') return reply(gas({ action: 'upsert', ok: false, error: { code: 'HEADER_MISMATCH', column: 'C' } }))(url, init);
+          return good(url, init);
+        });
+        const net = { online: true };
+        const s = setup({ fetchImpl: f, isOnline: () => net.online });
+        try {
+          const delays = [];
+          await s.svc.saveNewTrade(entry(1));
+          await s.idle();
+          for (let i = 0; i < 3; i += 1) {
+            delays.push(s.time.live().map((h) => h.ms).join() || '-');
+            s.time.fire();
+            await s.idle();
+          }
+          delays.push(s.time.live().map((h) => h.ms).join() || '-');
+          const gaveUp = s.log.lines.some((l) => String(l[0]).includes('続けて失敗したため'));
+          await s.svc.saveNewTrade(entry(2));
+          await s.idle();
+          const afterSave = s.time.live().length;
+          const callsDown = f.calls.length;
+          mode.v = 'up';
+          await s.sender.requestUnsent();
+          await s.idle();
+          const allSynced = (await s.svc.getAllTrades()).every((x) => x.syncStatus === 'synced');
+          mode.v = 'down';
+          await s.svc.saveNewTrade(entry(3));
+          await s.idle();
+          const reset = s.time.live().map((h) => h.ms).join();
+          mode.v = 'header';
+          s.time.fire();
+          await s.idle();
+          const afterHeader = s.time.live().length;
+          const blocked = s.sender.isBlocked();
+          // オフライン（別のしくみで）
+          const s2 = setup({ isOnline: () => false });
+          let offlineRetry;
+          try {
+            await s2.svc.saveNewTrade(entry(1));
+            await s2.idle();
+            offlineRetry = s2.time.live().length;
+          } finally { s2.cleanup(); }
+          return verdict([
+            ['予約の間隔', delays.join(' / ') === '30000 / 120000 / 600000 / -', delays],
+            ['3回でやめたことを開発者ツールに出す', gaveUp, s.log.lines.map((l) => l[0])],
+            ['やめたあとの保存では送るが予約しない', afterSave === 0 && callsDown === 5, `${afterSave}/${callsDown}`],
+            ['直ったら自動の再送で全件 synced', allSynced, ''],
+            ['成功のあとの失敗は30秒から', reset === '30000', reset],
+            ['設定の問題では予約を消して止める', afterHeader === 0 && blocked, `${afterHeader}/${blocked}`],
+            ['オフラインでは予約しない', offlineRetry === 0, offlineRetry],
+            ['間隔の定数', RETRY_DELAYS_MS.join() === '30000,120000,600000', RETRY_DELAYS_MS],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-07', 'SS-R02：設定の問題で止まったあと、シートを直して接続テストが成功すると、自動の送信を再開して未送信を送る',
+      'HEADER_MISMATCH で2件 → 自動の再送・online・前面では送らない → シートを直す → resumeAfterTest（接続テストの成功）',
+      '止めている間は fetch も未送信の読み出しもしない。再開で2件を1回で送り synced・止めるのをやめる・syncLastError は消える',
+      async () => {
+        const broken = { v: true };
+        const good = fakeGas();
+        const f = fakeFetch((url, init) => (broken.v
+          ? reply(gas({ action: 'upsert', ok: false, error: { code: 'HEADER_MISMATCH', column: 'C' } }))(url, init)
+          : good(url, init)));
+        const s = setup({ fetchImpl: f });
+        try {
+          await s.svc.saveNewTrade(entry(1));
+          await s.idle();
+          await s.svc.saveNewTrade(entry(2));
+          await s.idle();
+          const tr = wireTriggers(s);
+          tr.fire();
+          tr.online();
+          tr.fire();
+          s.time.ms += 2 * 60 * 1000;
+          tr.show();
+          tr.fire();
+          await s.sender.requestUnsent();
+          await s.idle();
+          tr.off();
+          const whileBlocked = { calls: f.calls.length, loads: s.unsentLoads.length, blocked: s.sender.isBlocked(), err: s.lastError() };
+          broken.v = false;
+          const n = await s.sender.resumeAfterTest();
+          await s.idle();
+          const all = await s.svc.getAllTrades();
+          return verdict([
+            ['止めている間は送らない（最初の1回だけ）', whileBlocked.calls === 1, whileBlocked.calls],
+            ['止めている間は未送信も読み出さない', whileBlocked.loads === 0, whileBlocked.loads],
+            ['止めていた・syncLastError は HEADER_MISMATCH', whileBlocked.blocked && whileBlocked.err && whileBlocked.err.code === 'HEADER_MISMATCH', whileBlocked.err],
+            ['再開で2件を読み出す（pending だけ）', n === 2 && s.unsentLoads.join() === 'false', `${n}/${s.unsentLoads}`],
+            ['1回で2件を送る', f.calls.length === 2 && good.bodies[0].records.length === 2, f.calls.length],
+            ['全件 synced', all.every((x) => x.syncStatus === 'synced'), all.map((x) => x.syncStatus)],
+            ['止めるのをやめた・syncLastError は消える', !s.sender.isBlocked() && s.lastError() === null, s.lastError()],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-08', 'SS-R03：受け付けられなかった記録の知らせは、オフライン・設定の問題で上書きされても rejected 欄に残り、直ったら rejected に戻る',
+      '記録1が rejected → オフラインで記録2 → オンラインで記録3 → 見出し違いで記録4 → 直して接続テストの成功 → 記録1を直す',
+      'offline・scriptError の syncLastError に rejected { at, reason, count, ids } が付く。成功のあとは kind: rejected（最初の時刻・id）に戻る。記録1が synced になったら消える',
+      async () => {
+        const reject = new Set([uuid(1)]);
+        const mode = { v: 'up' };
+        const good = fakeGas({ decide: (r) => (reject.has(r.values.id) ? { id: r.values.id, result: 'rejected', reason: 'BAD_DATETIME', column: 'entryAt' } : null) });
+        const f = fakeFetch((url, init) => (mode.v === 'header'
+          ? reply(gas({ action: 'upsert', ok: false, error: { code: 'HEADER_MISMATCH', column: 'C' } }))(url, init)
+          : good(url, init)));
+        const net = { online: true };
+        const s = setup({ fetchImpl: f, isOnline: () => net.online });
+        try {
+          await s.svc.saveNewTrade(entry(1));
+          await s.idle();
+          const first = s.lastError();
+          net.online = false;
+          await s.svc.saveNewTrade(entry(2));
+          await s.idle();
+          const offline = s.lastError();
+          net.online = true;
+          await s.svc.saveNewTrade(entry(3));
+          await s.idle();
+          const back = s.lastError();
+          mode.v = 'header';
+          await s.svc.saveNewTrade(entry(4));
+          await s.idle();
+          const header = s.lastError();
+          mode.v = 'up';
+          await s.sender.resumeAfterTest();
+          await s.idle();
+          const resumed = s.lastError();
+          const status1 = s.db.raw(uuid(1)).syncStatus;
+          reject.delete(uuid(1));
+          await s.svc.saveTrade({ ...s.db.raw(uuid(1)), memo: '直した' });
+          await s.idle();
+          const carried = { at: first.at, reason: 'BAD_DATETIME', count: 1, ids: [uuid(1)] };
+          return verdict([
+            ['最初は rejected', first && first.kind === 'rejected' && first.reason === 'BAD_DATETIME' && first.ids.join() === uuid(1), first],
+            ['オフラインでも知らせを持ち越す', offline && offline.kind === 'offline' && deepEqual(offline.rejected, carried), offline],
+            ['オンラインで成功 → rejected に戻る（最初の時刻）', back && deepEqual(back, { at: first.at, kind: 'rejected', code: null, reason: 'BAD_DATETIME', count: 1, ids: [uuid(1)] }), back],
+            ['設定の問題でも持ち越す', header && header.kind === 'scriptError' && header.code === 'HEADER_MISMATCH' && deepEqual(header.rejected, carried), header],
+            ['直って再開 → rejected に戻る', resumed && resumed.kind === 'rejected' && resumed.ids.join() === uuid(1) && resumed.rejected === undefined, resumed],
+            ['記録1は error のまま（接続テストでは送らない）', status1 === 'error', status1],
+            ['記録1を直して受け付けられたら消える', s.db.raw(uuid(1)).syncStatus === 'synced' && s.lastError() === null, s.lastError()],
+            ['rejectedInfoOf', deepEqual(rejectedInfoOf(offline), carried) && deepEqual(rejectedInfoOf(first), carried) && rejectedInfoOf(null) === null
+              && rejectedInfoOf({ ...offline, rejected: undefined }) === null, ''],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-09', '受け付けられなかった記録（error）は、自動では送り直さない（起動・online・前面・待ってからの再送）。「今すぐ同期」と、記録を直したときだけ送る',
+      'rejected の記録1 → 起動・online・前面の再送 → 届かない失敗のあと30秒後の再送（記録2）→ 今すぐ同期 → 記録1を直す',
+      '記録1を送るのは 最初・今すぐ同期・直したとき の3回だけ。自動の読み出しは pending だけ',
+      async () => {
+        const reject = new Set([uuid(1)]);
+        const down = { v: false };
+        const good = fakeGas({ decide: (r) => (reject.has(r.values.id) ? 'rejected' : null) });
+        const f = fakeFetch((url, init) => (down.v ? Promise.reject(new TypeError('Failed to fetch')) : good(url, init)));
+        const s = setup({ fetchImpl: f });
+        try {
+          await s.svc.saveNewTrade(entry(1));
+          await s.idle();
+          const tr = wireTriggers(s);
+          tr.fire();
+          await s.idle();
+          tr.online();
+          tr.fire();
+          await s.idle();
+          s.time.ms += 2 * 60 * 1000;
+          tr.show();
+          tr.fire();
+          await s.idle();
+          const autoCount = countOf(sentIds(good), uuid(1));
+          down.v = true;
+          await s.svc.saveNewTrade(entry(2));
+          await s.idle();
+          down.v = false;
+          s.time.fire();
+          await s.idle();
+          const afterRetry = { one: countOf(sentIds(good), uuid(1)), two: s.db.raw(uuid(2)).syncStatus };
+          const n = await s.sender.syncNow();
+          const afterManual = { one: countOf(sentIds(good), uuid(1)), status: s.db.raw(uuid(1)).syncStatus };
+          reject.delete(uuid(1));
+          await s.svc.saveTrade({ ...s.db.raw(uuid(1)), memo: '直した' });
+          await s.idle();
+          tr.off();
+          return verdict([
+            ['自動の再送では送らない（最初の1回だけ）', autoCount === 1, autoCount],
+            ['待ってからの再送でも送らない（記録2は送る）', afterRetry.one === 1 && afterRetry.two === 'synced', afterRetry],
+            ['自動の読み出しは pending だけ', s.unsentLoads.slice(0, -1).every((x) => x === false), s.unsentLoads],
+            ['今すぐ同期は error も読み出して送る', n === 1 && s.unsentLoads[s.unsentLoads.length - 1] === true && afterManual.one === 2, `${n}/${afterManual.one}`],
+            ['今すぐ同期でもまた受け付けられなければ error', afterManual.status === 'error', afterManual.status],
+            ['直したら自動で送って synced', countOf(sentIds(good), uuid(1)) === 3 && s.db.raw(uuid(1)).syncStatus === 'synced', s.db.raw(uuid(1)).syncStatus],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-10', '「今すぐ同期」（syncNow）：未設定なら何もしない。設定の問題で止めていても送る。オフラインなら送らず記録はそのまま。送り終わるまで待つ',
+      '未設定で syncNow → 合言葉違いで止める → Apps Script 側を直して syncNow → オフラインで保存して syncNow → 全部 synced で syncNow',
+      '0・fetch なし／2件を送って終わるまで待つ／offline・pending／0・fetch なし',
+      async () => {
+        const broken = { v: true };
+        const good = fakeGas();
+        const f = fakeFetch((url, init) => (broken.v ? reply(gasError('BAD_TOKEN'))(url, init) : good(url, init)));
+        const net = { online: true };
+        const s = setup({ fetchImpl: f, url: null, isOnline: () => net.online });
+        try {
+          const unset = await s.sender.syncNow();
+          const unsetCalls = f.calls.length;
+          const unsetLoads = s.unsentLoads.length;
+          s.cfg.url = FAKE_URL;
+          await s.svc.saveNewTrade(entry(1));
+          await s.idle();
+          await s.svc.saveNewTrade(entry(2));
+          await s.idle();
+          const blocked = s.sender.isBlocked() && f.calls.length === 1;
+          broken.v = false;
+          const n = await s.sender.syncNow(); // 終わるまで待つ（whenIdle を呼ばない）
+          const right = [1, 2].map((k) => s.db.raw(uuid(k)).syncStatus);
+          net.online = false;
+          const saved = await s.svc.saveNewTrade(entry(3));
+          const nOff = await s.sender.syncNow();
+          const offState = { err: s.lastError(), same: deepEqual(s.db.raw(uuid(3)), saved), calls: f.calls.length };
+          net.online = true;
+          await s.sender.syncNow();
+          const callsBefore = f.calls.length;
+          const none = await s.sender.syncNow();
+          return verdict([
+            ['未設定：0・送らない・読み出さない', unset === 0 && unsetCalls === 0 && unsetLoads === 0, `${unset}/${unsetCalls}/${unsetLoads}`],
+            ['合言葉違いで止めた', blocked, s.sender.isBlocked()],
+            ['今すぐ同期は止めていても送る（2件）', n === 2 && right.every((x) => x === 'synced'), right],
+            ['止めるのをやめた', !s.sender.isBlocked(), s.sender.isBlocked()],
+            ['オフライン：送らず offline・記録はそのまま', nOff === 1 && offState.err.kind === 'offline' && offState.same && offState.calls === 2, offState],
+            ['全部 synced なら送らない', none === 0 && f.calls.length === callsBefore, `${none}/${f.calls.length - callsBefore}`],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-11', 'オフラインで記録が壊れない：オフラインで保存・決済・編集・削除・取り消し・CSV の取り込み → 復帰後に全部送る',
+      '本物の業務処理で操作（navigator.onLine が false）→ online の再送', '操作の結果どおりに保存され pending、fetch 0回。復帰後は全件 synced・updatedAt は操作のまま・シートの行＝記録',
+      async () => {
+        const net = { online: false };
+        const s = setup({ isOnline: () => net.online });
+        try {
+          const checks = [];
+          const a = await s.svc.saveNewTrade(entry(1));
+          const closed = await s.svc.closeTrade(a.id, { exitPrice: 150.4, exitAt: '2026-10-15T23:00:00+09:00' });
+          const edited = await s.svc.saveTrade({ ...closed, memo: 'オフラインで編集' }, { expectedUpdatedAt: closed.updatedAt });
+          const b = await s.svc.saveNewTrade(entry(2));
+          const del = await s.svc.deleteTrade(b.id);
+          const restored = await s.svc.undoDeleteTrade(b.id, del.deletedAt);
+          const c = await s.svc.saveNewTrade(entry(3));
+          const delC = await s.svc.deleteTrade(c.id);
+          await s.svc.importTrades([importedRow(4), importedRow(5)], { snapshot: new Map() });
+          await s.idle();
+          const expected = new Map([[a.id, edited], [b.id, restored], [c.id, delC]]);
+          for (const [id, want] of expected) checks.push([`${id.slice(-1)}：操作の結果どおり`, deepEqual(s.db.raw(id), want), s.db.raw(id).syncStatus]);
+          const all0 = await s.svc.getAllTrades();
+          checks.push(['全件 pending・fetch 0回', all0.length === 5 && all0.every((x) => x.syncStatus === 'pending') && s.fetchImpl.calls.length === 0, s.fetchImpl.calls.length]);
+          const updatedAt = new Map(all0.map((x) => [x.id, x.updatedAt]));
+          net.online = true;
+          const tr = wireTriggers(s);
+          tr.online();
+          tr.fire();
+          tr.fire();
+          await s.idle();
+          tr.off();
+          const all = await s.svc.getAllTrades();
+          const ids = sentIds(s.fetchImpl);
+          checks.push(['全件 synced', all.every((x) => x.syncStatus === 'synced'), all.map((x) => x.syncStatus)]);
+          checks.push(['updatedAt は操作のまま', all.every((x) => x.updatedAt === updatedAt.get(x.id)), '']);
+          checks.push(['どれも1回だけ送る', all.every((x) => countOf(ids, x.id) === 1), ids.length]);
+          checks.push(['シートの行＝記録（5行）', s.fetchImpl.sheet.size === 5 && all.every((x) => deepEqual(s.fetchImpl.sheet.get(x.id), sheetRowValues(x, { syncedAt: x.syncedAt }))), s.fetchImpl.sheet.size]);
+          checks.push(['削除済みは削除済みとして送る', s.fetchImpl.sheet.get(c.id).deletedAt === delC.deletedAt && s.fetchImpl.sheet.get(b.id).deletedAt === '', '']);
+          return verdict(checks);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-12', 'SS-R04：1分に40件まで。100件の取り込みは20件ずつ、どの1分を取っても40件以下。1件ずつの保存では待たない',
+      'CSV の取り込み100件（にせものの時計）→ 1件ずつ3回保存', '件数 20×5、直前60秒の合計はいつも40以下、待ったのは2回（60秒ずつ）。1件ずつの保存では待たない',
+      async () => {
+        const at = [];
+        const holder = {};
+        const f = fakeGas({ hold: async (body) => { at.push({ t: holder.time.ms, n: body.records.length }); } });
+        const s = setup({ fetchImpl: f });
+        holder.time = s.time;
+        try {
+          await s.svc.importTrades(Array.from({ length: 100 }, (_, i) => importedRow(200 + i)), { snapshot: new Map() });
+          await s.idle();
+          const worst = Math.max(...at.map((x) => at.filter((y) => y.t > x.t - 60000 && y.t <= x.t).reduce((sum, y) => sum + y.n, 0)));
+          const waits = s.time.waits.length;
+          s.time.ms += 10 * 60 * 1000;
+          for (let n = 1; n <= 3; n += 1) {
+            await s.svc.saveNewTrade(entry(n));
+            await s.idle();
+          }
+          const all = await s.svc.getAllTrades();
+          return verdict([
+            ['件数', at.slice(0, 5).map((x) => x.n).join() === '20,20,20,20,20', at.map((x) => x.n)],
+            ['直前60秒の合計はいつも40以下', worst <= SYNC_RECORDS_PER_MINUTE, worst],
+            ['待ったのは2回（60秒ずつ）', waits === 2 && s.time.waits.every((w) => w === 60000), s.time.waits],
+            ['1件ずつの保存では待たない', s.time.waits.length === waits, s.time.waits],
+            ['全件 synced', all.length === 103 && all.every((x) => x.syncStatus === 'synced'), all.filter((x) => x.syncStatus !== 'synced').length],
+            ['待ったことを開発者ツールに出す（秒だけ）', s.log.lines.some((l) => /1分あたりの件数の上限に近いため、\d+秒待って/.test(String(l[0]))), ''],
+          ]);
+        } finally { s.cleanup(); }
+      }),
+
+    t('SR-13', '再送でも壊れない・秘密を出さない：未送信の読み出しの失敗は例外を外に出さない。URL・合言葉・本文は console にも syncLastError にも出ない',
+      '読み出しが失敗／届かない（message に URL と合言葉）で再送 → 30秒後の再送 → 3回目まで失敗 → 1分の上限で待つ・オフラインの持ち越し（既定の console）',
+      'requestUnsent は 0 を返し開発者ツールに知らせる。console・syncLastError に秘密も本文も入らない',
+      async () => {
+        const failing = setup({ wrap: { loadUnsentIds: async () => { throw new AppError('DB_READ', 'わざと失敗'); } } });
+        let n;
+        let thrown = null;
+        try {
+          try { n = await failing.sender.requestUnsent(); } catch (e) { thrown = e; }
+        } finally { failing.cleanup(); }
+        const errors = [];
+        const logged = await captureConsole(async () => {
+          const s = setup({ fetchImpl: networkError(), log: console, recordsPerMinute: 20, batchSize: 20 });
+          try {
+            await s.svc.importTrades([importedRow(1, { memo: '送った値のメモ' })], { snapshot: new Map() });
+            await s.idle();
+            for (let i = 0; i < 4; i += 1) { s.time.fire(); await s.idle(); }
+            errors.push(JSON.stringify(s.lastError()));
+          } finally { s.cleanup(); }
+          const reject = fakeGas({ decide: (r) => ({ id: r.values.id, result: 'rejected', reason: 'FORMULA', message: `応答の本文 ${FAKE_TOKEN}` }) });
+          const net = { online: true };
+          const s2 = setup({ fetchImpl: reject, log: console, isOnline: () => net.online, recordsPerMinute: 1, batchSize: 1 });
+          try {
+            await s2.svc.saveNewTrade(entry(1, { memo: '送った値のメモ' }));
+            await s2.idle();
+            await s2.svc.saveNewTrade(entry(2, { memo: '送った値のメモ' })); // 1分の上限で待つ
+            await s2.idle();
+            net.online = false;
+            await s2.svc.saveNewTrade(entry(3, { memo: '送った値のメモ' }));
+            await s2.idle();
+            errors.push(JSON.stringify(s2.lastError()));
+          } finally { s2.cleanup(); }
+        });
+        const secrets = [FAKE_URL, FAKE_TOKEN, 'FAKE-DEPLOYMENT-ID', '応答の本文', '送った値のメモ'];
+        const bad = leaked(logged, secrets);
+        return verdict([
+          ['読み出しの失敗：0 を返し例外を出さない', thrown === null && n === 0, thrown && thrown.message],
+          ['読み出しの失敗：開発者ツールに知らせる', failing.log.lines.some((l) => String(l[0]).includes('未送信の記録を読み出せませんでした')), failing.log.lines.map((l) => l[0])],
+          ['console に何か出た（結果の種類・待つ秒・やめた知らせ）', logged.length >= 5, logged.length],
+          ['console に秘密・本文が出ない', bad.length === 0, bad.join(' | ')],
+          ['syncLastError が残った', errors.length === 2 && errors.every((e) => e !== 'null'), errors],
+          ['syncLastError に秘密・本文が入らない', errors.every((e) => !secrets.some((x) => e.includes(x))), errors],
+        ]);
+      }),
+
+    t('SR-14', '小さな道具：送る順（作った順）・再送のきっかけの定数・window／document が無い環境でもつなげる',
+      'createdAt の違う記録・同じ createdAt・壊れた記録／win・doc なし', '作った順、同じなら id 順、id の無いものは除く。例外にならない',
+      () => {
+        const list = [
+          { id: 'c', createdAt: '2026-10-20T10:00:00+09:00' }, { id: 'b', createdAt: '2026-10-10T10:00:00+09:00' },
+          { id: 'a', createdAt: '2026-10-20T10:00:00+09:00' }, null, { id: '' }, { createdAt: '2026-10-01T00:00:00+09:00' },
+        ];
+        let threw = null;
+        let off = null;
+        try {
+          off = connectResendTriggers({ requestUnsent: async () => 0, lastSendAt: () => -Infinity }, { win: null, doc: null, setTimer: () => null, clearTimer: () => {} });
+          off();
+        } catch (e) { threw = e; }
+        return verdict([
+          ['作った順・同じなら id 順', unsentIdsInOrder(list).join() === 'b,a,c', unsentIdsInOrder(list)],
+          ['起動・online の再送は2秒後、前面は1分おき', RESEND_DELAY_MS === 2000 && VISIBLE_RESEND_INTERVAL_MS === 60000, `${RESEND_DELAY_MS}/${VISIBLE_RESEND_INTERVAL_MS}`],
+          ['window・document が無くても例外にならない', threw === null && typeof off === 'function', threw && threw.message],
+        ]);
+      }),
+  ];
+}
+
+/* ---------------------------------------------------------
    SB：本物の IndexedDB（ブラウザだけ）
    --------------------------------------------------------- */
 
@@ -879,6 +1575,8 @@ function dbTests() {
           readLastError: () => store.get('syncLastError'),
           saveLastError: (v) => { store.set('syncLastError', v); },
           now: makeClock(), fetchImpl: f, isOnline: () => true, log: fakeLog(),
+          // 待ってからの再送（T-42）は予約だけにする（テストのあとで本物のタイマーが動かないように）
+          setTimer: () => null, clearTimer: () => {},
         });
         const off = connectSender(sender);
         const checks = [];
@@ -916,9 +1614,35 @@ function dbTests() {
           return verdict(checks);
         } finally { off(); }
       })),
+
+    tdb('SB-03', '未送信の読み出し（unsentLoader：T-42）：本物の IndexedDB の syncStatus インデックスから、自動は pending だけ、「今すぐ同期」は error も',
+      '本物の IndexedDB に pending（削除済みを含む）・error・synced の記録', '自動：pending を作った順（削除済みも）。今すぐ同期：error も。synced は含まない',
+      () => withTestDb('SB-03', async (db) => {
+        const svc = createTradeService({ db, now: makeClock(), getLotUnitSize: () => 10000 });
+        await svc.importTrades([importedRow(1, { createdAt: '2026-10-12T09:00:00+09:00' })], { snapshot: new Map() });
+        const b = await svc.saveNewTrade(entry(2));
+        const c = await svc.saveNewTrade(entry(3));
+        const d = await svc.deleteTrade((await svc.saveNewTrade(entry(4))).id);
+        const e = await svc.saveNewTrade(entry(5));
+        const at = '2026-10-28T12:00:00+09:00';
+        await svc.markSyncResults([
+          { id: c.id, updatedAt: c.updatedAt, syncStatus: 'error', syncedAt: at },
+          { id: e.id, updatedAt: e.updatedAt, syncStatus: 'synced', syncedAt: at },
+        ]);
+        const load = unsentLoader(db);
+        const auto = await load({ includeErrors: false });
+        const manual = await load({ includeErrors: true });
+        const byDefault = await load();
+        return verdict([
+          ['自動：pending を作った順（削除済みも）', auto.join() === [uuid(1), b.id, d.id].join(), auto],
+          ['今すぐ同期：error も（作った順）', manual.join() === [uuid(1), b.id, c.id, d.id].join(), manual],
+          ['指定なしは自動と同じ', byDefault.join() === auto.join(), byDefault],
+          ['synced は含まない', !manual.includes(e.id), manual],
+        ]);
+      })),
   ];
 }
 
 export function collectSyncSendTests() {
-  return [...protocolTests(), ...senderTests(), ...dbTests()];
+  return [...protocolTests(), ...senderTests(), ...resendTests(), ...dbTests()];
 }

@@ -13,8 +13,10 @@
    ・記録の送信（upsert）の要求の組み立て（buildUpsertRecords：値は js/csv.js の sheetRowValues）と応答の振り分け
      （classifyUpsertResponse・upsertToAppsScript。sheets-setup 11.3〜11.5）
    ・いつ・何を送るか（変更通知を受けて1つずつ送る・結果の書き戻し）は js/sync-sender.js
+   【T-42 で足した範囲】
+   ・1分あたりに送る記録の数の上限（SYNC_RECORDS_PER_MINUTE。T-41 レビュー SS-R04）。未送信の自動再送・「今すぐ同期」は js/sync-sender.js
    【まだ作らないもの（担当タスク）】
-   ・未送信の自動再送・「今すぐ同期」… T-42、同期状態の画面 … T-43
+   ・同期状態の画面 … T-43
 
    【秘密の情報の扱い（design 14.6.8・14.6.12、sheets-setup 11.5・13.2）】
    ・URL と合言葉は、console・エラー文・画面の文のどこにも出さない（画面に出すのは設定の入力欄の中だけ）。
@@ -67,6 +69,17 @@ export const UPSERT_TIMEOUT_MS = 60000;
  * CSV の取り込みのように多くの記録が一度に変わったときは、20件ずつ順に送る。
  */
 export const SYNC_BATCH_SIZE = 20;
+
+/**
+ * 1分（直前の60秒）に送る記録の数の上限：40件（T-41 レビュー SS-R04）。
+ * 方式 C の Apps Script は、追加・上書きする1行ごとに Google Sheets API の書き込みを1回呼ぶ（sheets-setup 11.7）。
+ * Sheets API には「1ユーザー・1プロジェクトあたり1分60回」程度の書き込みの上限がある（Google の公開している既定値）ので、
+ * 余裕を見て40件まで（20件ずつなら1分に2回）にする。超えそうなときは、1分前に送った分が外れるまで待ってから続きを送る。
+ * ふだんの1件ずつの保存では待つことはない。CSV の取り込み・たまった未送信をまとめて送るときだけ、1分あたり40件の速さになる。
+ * 本物の Google で上限に当たるかは未確認（iPhone で多くの記録を送って確かめる：T-48）。当たっても Apps Script は INTERNAL を返し、
+ * 一時的な失敗として後で送り直す（行は id で上書きするので二重にならない）。
+ */
+export const SYNC_RECORDS_PER_MINUTE = 40;
 
 /** Apps Script のウェブアプリのホスト名（design 14.6.8 の U-2。CSP の connect-src もこのホストを許している） */
 const APPS_SCRIPT_HOST = 'script.google.com';

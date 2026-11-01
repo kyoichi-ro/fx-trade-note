@@ -21,6 +21,9 @@
    ・グループの下に文で残す（アラートにしない：閉じると読み返せないため）。自動では消さない。
    ・URL か合言葉を変えたら消す（古い結果を新しい設定の結果と誤解しないように）。実行中に変えたら、その結果は捨てる。
    ・画面を開き直すと消える（保存しない）。
+   ・成功したら、設定の問題で止めていた自動の送信を再開し、未送信の記録を送る（T-42。T-41 レビュー SS-R02：sync-sender.js の
+     resumeAutoSync）。実行中に URL・合言葉を変えた結果では再開しない（URL・合言葉が変われば、送信のしくみは止めるのをやめる）。
+     画面を離れると接続テストは打ち切られる（aborted）ので再開しない。離れる間際に成功が返った場合は再開する（結果の文は出さない）
 
    【秘密の情報】URL・合言葉は入力欄の中にだけ出す。トースト・エラー文・console には出さない（js/sync.js の冒頭）。
    ========================================================= */
@@ -34,6 +37,7 @@ import { getSetting, setSetting } from '../settings-store.js';
 import { isAppError } from '../util.js';
 import { nowJst } from '../datetime.js';
 import { checkGasUrl, checkSyncToken, normalizeSyncText, pingAppsScript, pingResultText } from '../sync.js';
+import { resumeAutoSync } from '../sync-sender.js';
 
 /** グループの下の説明文（design 14.6.8）。未設定＝URL・合言葉のどちらかの保存済みの値が空 */
 export const SYNC_NOTE_UNSET = 'URLと合言葉を入れると、接続テストができます。記録の控えをGoogleスプレッドシートに送ります（画像は送りません）。';
@@ -44,11 +48,13 @@ const realStore = { get: getSetting, set: setSetting };
 
 /**
  * 「スプレッドシート同期」のグループを作る。
- * @param {{ ping?: typeof pingAppsScript, now?: () => string, store?: { get: Function, set: Function }, toast?: Function }} [deps]
- *   テストで差し替えるためのもの（接続テストの送信・時刻・設定の保存場所・トースト）。テストは本物の設定（fxnote:）に触れない
+ * @param {{ ping?: typeof pingAppsScript, now?: () => string, store?: { get: Function, set: Function }, toast?: Function,
+ *   onTestOk?: () => void }} [deps]
+ *   テストで差し替えるためのもの（接続テストの送信・時刻・設定の保存場所・トースト・接続テストが成功したときの自動送信の再開）。
+ *   テストは本物の設定（fxnote:）に触れない
  * @returns {{ group: HTMLElement, commitFocused: () => void, dispose: () => void }}
  */
-export function syncGroup({ ping = pingAppsScript, now = nowJst, store = realStore, toast = showToast } = {}) {
+export function syncGroup({ ping = pingAppsScript, now = nowJst, store = realStore, toast = showToast, onTestOk = resumeAutoSync } = {}) {
   let alive = true;
   /** 実行中の接続テストを、画面を離れたときに打ち切るため */
   let controller = null;
@@ -212,6 +218,8 @@ export function syncGroup({ ping = pingAppsScript, now = nowJst, store = realSto
     const out = await ping({ url: urlField.saved, token: tokenField.saved, signal: controller.signal });
     controller = null;
     running = false;
+    // 成功：止めていた自動の送信を再開する（SS-R02）。実行中に設定を変えた結果では再開しない
+    if (out.result === 'ok' && started === generation) onTestOk();
     if (!alive) return;
     setTesting(false);
     // 実行中に URL・合言葉が変わっていたら、この結果は古い設定のものなので捨てる。

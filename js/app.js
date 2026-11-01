@@ -13,6 +13,7 @@
      ⑧ ルーター開始                 ← T-10
      ⑨ 孤立画像の掃除（画面の表示が終わったあと） ← T-24（images.js の sweepOrphans：architecture 11.6）
      ⑩ スプレッドシートへの自動送信の開始（記録の変更通知を受けて送る） ← T-41（sync-sender.js：architecture 3.3）
+        未送信の再送（起動時・オンライン復帰時・前面に戻ったとき） ← T-42（同じく startAutoSync の中）
    ①〜⑩ をすべて行う（⑤ は T-28 で追加）。
    T-11：お知らせ行を共通部品 ui/notice.js（#notice-area に出す showAppNotice）に置き換えた（design 9.16）。
    T-15：③ 設定の読み込み・テーマ監視を追加（テーマを当て直し、theme-color をそろえる）。
@@ -24,6 +25,7 @@
    T-29：⑥ 永続化リクエストを追加（記録が1件以上あるときだけ。画面の表示を始めたあとに行う）。
    T-28：⑤ Service Worker の登録を追加（中身は sw-update.js。localhost では ?sw=1 のときだけ登録：architecture 18.4）。
    T-41：⑩ スプレッドシートへの自動送信を追加（URL・合言葉が未設定なら何も送らない。起動時・オンライン復帰時の再送は T-42）。
+   T-42：⑩ に未送信の再送を追加（startAutoSync が起動の2秒後・online・前面に戻ったとき〔1分に1回まで〕に未送信を送る）。
    ========================================================= */
 import { startRouter, flushCurrentDraft } from './router.js';
 import { openDb, setHandlers } from './db.js';
@@ -244,7 +246,7 @@ async function main() {
   startServiceWorker({ onUpdatedElsewhere: showUpdatedElsewhere });
 
   // ⑩ スプレッドシートへの自動送信（記録の変更通知を受け取り始める）。最初の画面より前につなぎ、起動直後の保存も送る。
-  // 送信は保存の処理とは別に動くので、起動も保存も待たせない
+  // 未送信の再送（T-42）は2秒後に始まる（最初の画面の表示を先に）。送信は保存の処理とは別に動くので、起動も保存も待たせない
   startAutoSync();
 
   // ⑦ 下書きの確認（30分以内なら入力画面を自動で開く）

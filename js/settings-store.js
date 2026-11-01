@@ -107,18 +107,30 @@ const SYNC_ERROR_KINDS = ['offline', 'timeout', 'unreachable', 'notApp', 'badRes
 /** Apps Script のエラーコード・受け付けない理由（英大文字・数字・_ だけ。応答の変な文字をそのまま残さない） */
 const SAFE_CODE = /^[A-Z0-9_]{1,40}$/;
 
+/** code・reason：null か、英大文字・数字・_ だけの短いコード */
+const isSafeCodeOrNull = (x) => x === null || (typeof x === 'string' && SAFE_CODE.test(x));
+/** 受け付けられなかった記録の id の並び（最大10件・1件64文字まで） */
+const isErrorIds = (ids) => Array.isArray(ids) && ids.length <= 10 && ids.every((x) => typeof x === 'string' && x !== '' && x.length <= 64);
+
 /**
  * 同期の最後のエラー（T-41。roadmap 7.20 #1・sheets-setup 9.1 の A）：
  * { at, kind, code, reason, count, ids }。URL・合言葉は入れない（画面の写真を人に見せても漏れないように）。
- * ids は受け付けられなかった記録の id（最大10件・64文字まで）、count はその件数（kind が rejected のとき）。形が違えば初期値（null）
+ * ids は受け付けられなかった記録の id（最大10件・64文字まで）、count はその件数（kind が rejected のとき）。
+ * T-42（T-41 レビュー SS-R03）：kind が rejected 以外のとき、それより前の「受け付けられなかった記録の知らせ」を
+ * rejected: { at, reason, count, ids } として持ち越せる（ほかのエラーで上書きして消さないため。無いときは項目ごと無い）。
+ * 形が違えば初期値（null）
  */
 function checkSyncLastError(v) {
   if (!isPlainObject(v) || typeof v.at !== 'string' || !JST_FORMAT.test(v.at) || !SYNC_ERROR_KINDS.includes(v.kind)) return undefined;
-  const code = (x) => (x === null || (typeof x === 'string' && SAFE_CODE.test(x)));
-  if (!code(v.code) || !code(v.reason)) return undefined;
+  if (!isSafeCodeOrNull(v.code) || !isSafeCodeOrNull(v.reason)) return undefined;
   if (!Number.isSafeInteger(v.count) || v.count < 0) return undefined;
-  if (!Array.isArray(v.ids) || v.ids.length > 10 || v.ids.some((x) => typeof x !== 'string' || x === '' || x.length > 64)) return undefined;
-  return { at: v.at, kind: v.kind, code: v.code, reason: v.reason, count: v.count, ids: [...v.ids] };
+  if (!isErrorIds(v.ids)) return undefined;
+  const out = { at: v.at, kind: v.kind, code: v.code, reason: v.reason, count: v.count, ids: [...v.ids] };
+  if (v.rejected === undefined) return out;
+  const r = v.rejected;
+  if (v.kind === 'rejected' || !isPlainObject(r) || typeof r.at !== 'string' || !JST_FORMAT.test(r.at) || !isSafeCodeOrNull(r.reason)
+    || !Number.isSafeInteger(r.count) || r.count < 1 || !isErrorIds(r.ids)) return undefined;
+  return { ...out, rejected: { at: r.at, reason: r.reason, count: r.count, ids: [...r.ids] } };
 }
 
 /** 「なし（null）」が初期値の項目用：null か、check を通った値 */

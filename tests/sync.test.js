@@ -529,6 +529,42 @@ function storeTests() {
           ['初期値は null', store.getDefault('syncLastError') === null, store.getDefault('syncLastError')],
         ]);
       }),
+    t('SS-04', 'syncLastError の rejected 欄（T-42・SS-R03：受け付けられなかった記録の知らせの持ち越し）と、8種類の kind の保存（SS-R06）',
+      'kind が offline・scriptError で rejected 欄つき／rejected 欄の形が違う・kind が rejected なのに rejected 欄／8種類の kind',
+      '正しい形は保存・読み込みでき、rejected 欄の無い値は今までどおり（欄を足さない）。形が違えば保存しない。8種類とも保存できる',
+      async () => {
+        const { SYNC_ERROR_KINDS } = await import('../js/sync-sender.js');
+        const store = createSettingsStore({ storage: fakeStorage(), prefix: 'fxnote-test:' });
+        const rejected = { at: '2026-10-28T10:00:00+09:00', reason: 'BAD_DATETIME', count: 3, ids: ['id-1', 'id-2'] };
+        const good = { at: '2026-10-28T11:00:00+09:00', kind: 'offline', code: null, reason: null, count: 0, ids: [], rejected };
+        const saved = store.set('syncLastError', good);
+        const back = store.get('syncLastError');
+        const plain = store.set('syncLastError', { ...good, rejected: undefined });
+        const bad = [
+          ['kind が rejected なのに rejected 欄', { ...good, kind: 'rejected', count: 1, ids: ['id-1'] }],
+          ['rejected 欄の件数が0', { ...good, rejected: { ...rejected, count: 0 } }],
+          ['rejected 欄の時刻の形が違う', { ...good, rejected: { ...rejected, at: '2026-10-28' } }],
+          ['rejected 欄の理由に小文字', { ...good, rejected: { ...rejected, reason: 'bad' } }],
+          ['rejected 欄の id が11件', { ...good, rejected: { ...rejected, ids: Array.from({ length: 11 }, (_, i) => `id-${i}`) } }],
+          ['rejected 欄が null', { ...good, rejected: null }],
+          ['rejected 欄に URL', { ...good, rejected: { ...rejected, reason: FAKE_URL } }],
+        ].map(([label, v]) => {
+          try { store.set('syncLastError', v); return [label, false]; } catch (e) { return [label, e instanceof TypeError]; }
+        });
+        const kinds = SYNC_ERROR_KINDS.map((kind) => {
+          try {
+            return store.set('syncLastError', { at: good.at, kind, code: null, reason: null, count: kind === 'rejected' ? 1 : 0, ids: [] }).kind === kind;
+          } catch (e) { return false; }
+        });
+        store.set('syncLastError', null);
+        return verdict([
+          ['rejected 欄つきで保存できる', JSON.stringify(saved) === JSON.stringify(good), saved],
+          ['読み戻すと同じ', JSON.stringify(back) === JSON.stringify(good), back],
+          ['欄が無ければ今までどおり（欄を足さない）', !('rejected' in plain), Object.keys(plain)],
+          ...bad.map(([label, ok]) => [`${label} → 保存しない`, ok, ok]),
+          ['8種類の kind をどれも保存できる（sync-sender と settings-store の一覧がそろっている）', SYNC_ERROR_KINDS.length === 8 && kinds.every(Boolean), kinds],
+        ]);
+      }),
   ];
 }
 
@@ -615,7 +651,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
  * テスト用のグループを作って画面（document）に置く。ping は呼ばれるたびに deferred を積む。
  * @returns 部品と後片付け
  */
-async function mountGroup({ gasUrl = null, syncToken = null } = {}) {
+async function mountGroup({ gasUrl = null, syncToken = null, onTestOk = () => {} } = {}) {
   const { syncGroup } = await import('../js/screens/settings-sync.js');
   const store = createSettingsStore({ storage: fakeStorage(), prefix: 'fxnote-test:' });
   if (gasUrl) store.set('gasUrl', gasUrl);
@@ -627,7 +663,7 @@ async function mountGroup({ gasUrl = null, syncToken = null } = {}) {
     pings.push({ opts, ...d });
     return d.promise;
   };
-  const g = syncGroup({ store, ping, now: () => '2026-10-28T22:40:05+09:00', toast: (m) => toasts.push(m) });
+  const g = syncGroup({ store, ping, now: () => '2026-10-28T22:40:05+09:00', toast: (m) => toasts.push(m), onTestOk });
   const host = document.createElement('div');
   document.body.append(host);
   host.append(g.group);
@@ -949,6 +985,34 @@ function groupTests() {
             ['直すとエラー文が消える', m.messages().length === 0, m.messages()],
             ['直すと押せる', m.testRow.disabled === false, m.testRow.disabled],
             ['直した値を保存', m.store.get('gasUrl') === FAKE_URL && m.store.get('syncToken') === FAKE_TOKEN, ''],
+          ]);
+        } finally { m.cleanup(); }
+      }),
+    td('SG-13', '接続テストが成功したら、止めていた自動の送信を再開する（T-42・SS-R02）。失敗・実行中に設定を変えた・打ち切りでは再開しない',
+      '成功／badToken／scriptError／実行中に URL を変えて成功／aborted', '再開（onTestOk）は成功のときだけ1回',
+      async () => {
+        const calls = [];
+        const m = await mountGroup({ gasUrl: FAKE_URL, syncToken: FAKE_TOKEN, onTestOk: () => calls.push('resume') });
+        try {
+          const run = async (answer, beforeAnswer = () => {}) => {
+            const before = calls.length;
+            m.testRow.click();
+            beforeAnswer();
+            m.pings[m.pings.length - 1].resolve(answer);
+            await tick();
+            return calls.length - before;
+          };
+          const ok = await run({ result: 'ok', sheetState: 'ready' });
+          const badToken = await run({ result: 'badToken', code: 'BAD_TOKEN' });
+          const scriptError = await run({ result: 'scriptError', code: 'HEADER_MISMATCH' });
+          const aborted = await run({ result: 'aborted' });
+          const changed = await run({ result: 'ok' }, () => { m.type(m.urlBox, `${FAKE_URL}x`); });
+          return verdict([
+            ['成功 → 再開1回', ok === 1, ok],
+            ['合言葉違い → 再開しない', badToken === 0, badToken],
+            ['Apps Script 側のエラー → 再開しない', scriptError === 0, scriptError],
+            ['打ち切り → 再開しない', aborted === 0, aborted],
+            ['実行中に URL を変えた成功 → 再開しない', changed === 0, changed],
           ]);
         } finally { m.cleanup(); }
       }),
